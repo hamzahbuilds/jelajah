@@ -5,11 +5,19 @@ pages_build_output_dir = "./dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "jelajah-db"
-database_id = "REPLACE_WITH_YOUR_D1_ID"   # from: wrangler d1 create jelajah-db
+database_id = "42a248b3-2738-4d21-ba83-fb27d9686880"   # from the D1 dashboard, or: wrangler d1 create jelajah-db
 
-[[r2_buckets]]
+# File storage: Workers KV — free, no credit card, 1 GB (≈700 PDFs).
+[[kv_namespaces]]
 binding = "FILES"
-bucket_name = "jelajah-files"             # from: wrangler r2 bucket create jelajah-files
+id = "4a56d2d032824d98963a2f33ef299319"            # from the KV dashboard, or: wrangler kv namespace create FILES
+
+# If you ever outgrow KV, delete the kv_namespaces block above and use R2 instead
+# (requires a card on file with Cloudflare; 10 GB free). The app auto-detects which
+# one is bound — no code change needed:
+# [[r2_buckets]]
+# binding = "FILES"
+# bucket_name = "jelajah-files"
 
 [vars]
 # Change this to any long random string before deploying (cookie signing secret)
