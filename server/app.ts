@@ -5,7 +5,7 @@ import {
   hashPassword, verifyPassword, createSession, getSessionUser,
   destroySession, sessionCookie, clearCookie, randomToken, SessionUser,
 } from './lib/auth';
-import { SCHEMA, JAPAN_TRIP } from './lib/schema';
+import { SCHEMA, UPGRADES, JAPAN_TRIP } from './lib/schema';
 
 type Vars = { user: SessionUser };
 const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
@@ -36,6 +36,18 @@ async function audit(env: Env, userId: number | null, action: string, entity?: s
       .bind(userId, action, entity ?? null, entityId ?? null).run();
   } catch { /* audit is best-effort */ }
 }
+
+/* ---- lazy schema upgrades: idempotent, once per isolate ---- */
+let upgraded = false;
+app.use('*', async (c, next) => {
+  if (!upgraded) {
+    upgraded = true;
+    for (const s of UPGRADES) {
+      try { await c.env.DB.prepare(s).run(); } catch { /* already applied */ }
+    }
+  }
+  return next();
+});
 
 /* ---------------- first-run setup (no CLI needed) ---------------- */
 
@@ -117,6 +129,13 @@ const requireAdmin = async (c: any, next: any) => {
   if (c.get('user').role !== 'admin') return bad(c, 'forbidden', 403);
   return next();
 };
+
+/** Features the admin hid from members on this trip ('documents','ledger','payments','plan'). Admins see everything. */
+async function hiddenFor(c: any, tripId: number): Promise<Set<string>> {
+  if (c.get('user').role === 'admin') return new Set();
+  const t: any = await c.env.DB.prepare('SELECT hidden_features FROM trips WHERE id = ?').bind(tripId).first();
+  try { return new Set(JSON.parse(t?.hidden_features ?? '[]')); } catch { return new Set(); }
+}
 
 async function assertTripAccess(c: any, tripId: number): Promise<boolean> {
   const user: SessionUser = c.get('user');
@@ -246,8 +265,10 @@ app.patch('/trips/:id', requireAdmin, async c => {
   const b = await c.req.json<any>();
   await c.env.DB.prepare(
     `UPDATE trips SET name = COALESCE(?, name), destination = COALESCE(?, destination),
-     start_date = COALESCE(?, start_date), end_date = COALESCE(?, end_date), emoji = COALESCE(?, emoji) WHERE id = ?`,
-  ).bind(b.name ?? null, b.destination ?? null, b.start_date ?? null, b.end_date ?? null, b.emoji ?? null, id).run();
+     start_date = COALESCE(?, start_date), end_date = COALESCE(?, end_date), emoji = COALESCE(?, emoji),
+     hidden_features = COALESCE(?, hidden_features) WHERE id = ?`,
+  ).bind(b.name ?? null, b.destination ?? null, b.start_date ?? null, b.end_date ?? null, b.emoji ?? null,
+    Array.isArray(b.hidden_features) ? JSON.stringify(b.hidden_features) : null, id).run();
   return c.json({ ok: true });
 });
 
@@ -267,6 +288,7 @@ app.put('/trips/:id/members', requireAdmin, async c => {
 app.get('/trips/:id/documents', async c => {
   const id = Number(c.req.param('id'));
   if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
+  if ((await hiddenFor(c, id)).has('documents')) return bad(c, 'feature_hidden', 403);
   const rows = await c.env.DB.prepare(
     `SELECT d.*, e.id AS expense_id FROM documents d
      LEFT JOIN expenses e ON e.document_id = d.id
@@ -309,6 +331,7 @@ app.get('/documents/:id/file', async c => {
   const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first<any>();
   if (!doc) return bad(c, 'not_found', 404);
   if (!(await assertTripAccess(c, doc.trip_id))) return bad(c, 'forbidden', 403);
+  if ((await hiddenFor(c, doc.trip_id)).has('documents')) return bad(c, 'feature_hidden', 403);
   const body = await filesGet(c.env, doc.r2_key);
   if (!body) return bad(c, 'file_missing', 404);
   return new Response(body as any, {
@@ -409,6 +432,7 @@ app.post('/documents/:id/confirm', requireAdmin, async c => {
 app.get('/trips/:id/expenses', async c => {
   const id = Number(c.req.param('id'));
   if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
+  if ((await hiddenFor(c, id)).has('ledger')) return bad(c, 'feature_hidden', 403);
   const expenses = await c.env.DB.prepare(
     'SELECT * FROM expenses WHERE trip_id = ? ORDER BY expense_date, id',
   ).bind(id).all();
@@ -476,6 +500,7 @@ app.delete('/expenses/:id', requireAdmin, async c => {
 app.get('/trips/:id/payments', async c => {
   const id = Number(c.req.param('id'));
   if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
+  if ((await hiddenFor(c, id)).has('payments')) return bad(c, 'feature_hidden', 403);
   const rows = await c.env.DB.prepare(
     'SELECT * FROM payments WHERE trip_id = ? ORDER BY pay_date DESC, id DESC',
   ).bind(id).all();
@@ -504,6 +529,7 @@ app.delete('/payments/:id', requireAdmin, async c => {
 app.get('/trips/:id/balances', async c => {
   const id = Number(c.req.param('id'));
   if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
+  if ((await hiddenFor(c, id)).has('payments')) return bad(c, 'feature_hidden', 403);
   const [expenses, shares, payments, parts] = await Promise.all([
     c.env.DB.prepare('SELECT * FROM expenses WHERE trip_id = ? ORDER BY expense_date, id').bind(id).all(),
     c.env.DB.prepare('SELECT s.* FROM expense_shares s JOIN expenses e ON e.id = s.expense_id WHERE e.trip_id = ?').bind(id).all(),
@@ -565,6 +591,174 @@ app.get('/trips/:id/balances', async c => {
   const user = c.get('user');
   const visible = user.role === 'admin' ? balances : balances.filter(b => b.participant.id === user.participant_id);
   return c.json({ balances: visible, totalsByCategory, tripTotal, expenseCount: exps.length });
+});
+
+/* ---------------- planner ---------------- */
+
+interface AutoEvent {
+  day: string; time: string | null; end_time: string | null;
+  kind: 'flight' | 'checkin' | 'checkout';
+  title: string; subtitle: string | null; expense_id: number;
+}
+
+app.get('/trips/:id/plan', async c => {
+  const id = Number(c.req.param('id'));
+  if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
+  if ((await hiddenFor(c, id)).has('plan')) return bad(c, 'feature_hidden', 403);
+
+  // Auto events from confirmed bookings (flights + stays), enriched from parsed documents.
+  // Receipts carry no departure times, so legs are enriched from any uploaded itinerary
+  // that shares the same booking number.
+  const exps = await c.env.DB.prepare(
+    `SELECT e.*, d.parsed_json, d.booking_no FROM expenses e LEFT JOIN documents d ON d.id = e.document_id
+     WHERE e.trip_id = ? AND e.category IN ('flight','accommodation')`,
+  ).bind(id).all();
+  const itinDocs = await c.env.DB.prepare(
+    `SELECT booking_no, parsed_json FROM documents WHERE trip_id = ? AND doc_type = 'itinerary' AND booking_no IS NOT NULL`,
+  ).bind(id).all();
+  const itinByBooking = new Map<string, any>();
+  for (const dcc of itinDocs.results as any[]) {
+    try { itinByBooking.set(dcc.booking_no, JSON.parse(dcc.parsed_json)); } catch { /* ignore */ }
+  }
+  const autoEvents: AutoEvent[] = [];
+  for (const e of exps.results as any[]) {
+    let parsed: any = null;
+    try { parsed = e.parsed_json ? JSON.parse(e.parsed_json) : null; } catch { /* ignore */ }
+    if (e.category === 'flight') {
+      let legs = (parsed?.legs ?? []).filter((l: any) => l.date);
+      const itin = e.booking_no ? itinByBooking.get(e.booking_no) : null;
+      if (itin?.legs?.length) {
+        legs = legs.map((l: any) => {
+          const match = itin.legs.find((il: any) => il.flightNo === l.flightNo && il.date === l.date);
+          return match ? { ...l, ...Object.fromEntries(Object.entries(match).filter(([, v]) => v != null)) } : l;
+        });
+        if (!legs.length) legs = itin.legs.filter((l: any) => l.date);
+      }
+      if (legs.length) {
+        for (const l of legs) {
+          autoEvents.push({
+            day: l.date, time: l.depTime ?? null, end_time: l.arrTime ?? null, kind: 'flight',
+            title: `${l.from ?? '?'} → ${l.to ?? '?'}${l.flightNo ? ` (${l.flightNo})` : ''}`,
+            subtitle: [l.depPlace, l.arrPlace].filter(Boolean).join(' → ') || e.vendor,
+            expense_id: e.id,
+          });
+        }
+      } else if (e.expense_date) {
+        autoEvents.push({ day: e.expense_date, time: null, end_time: null, kind: 'flight', title: e.description, subtitle: e.vendor, expense_id: e.id });
+      }
+    } else {
+      if (e.expense_date) {
+        autoEvents.push({
+          day: e.expense_date, time: parsed?.checkInTime ?? null, end_time: null, kind: 'checkin',
+          title: e.description, subtitle: e.location ?? parsed?.location ?? null, expense_id: e.id,
+        });
+      }
+      if (e.end_date) {
+        autoEvents.push({
+          day: e.end_date, time: parsed?.checkOutTime ?? null, end_time: null, kind: 'checkout',
+          title: e.description, subtitle: e.location ?? parsed?.location ?? null, expense_id: e.id,
+        });
+      }
+    }
+  }
+
+  const acts = await c.env.DB.prepare(
+    'SELECT * FROM activities WHERE trip_id = ? ORDER BY day, start_time, sort, id',
+  ).bind(id).all();
+  const aps = await c.env.DB.prepare(
+    `SELECT ap.* FROM activity_participants ap JOIN activities a ON a.id = ap.activity_id WHERE a.trip_id = ?`,
+  ).bind(id).all();
+  const groups = await c.env.DB.prepare('SELECT * FROM groups WHERE trip_id = ? ORDER BY name').bind(id).all();
+  const gms = await c.env.DB.prepare(
+    `SELECT gm.* FROM group_members gm JOIN groups g ON g.id = gm.group_id WHERE g.trip_id = ?`,
+  ).bind(id).all();
+
+  const partsByAct = new Map<number, number[]>();
+  for (const r of aps.results as any[]) {
+    if (!partsByAct.has(r.activity_id)) partsByAct.set(r.activity_id, []);
+    partsByAct.get(r.activity_id)!.push(r.participant_id);
+  }
+  const membersByGroup = new Map<number, number[]>();
+  for (const r of gms.results as any[]) {
+    if (!membersByGroup.has(r.group_id)) membersByGroup.set(r.group_id, []);
+    membersByGroup.get(r.group_id)!.push(r.participant_id);
+  }
+
+  return c.json({
+    autoEvents,
+    activities: (acts.results as any[]).map(a => ({ ...a, participant_ids: partsByAct.get(a.id) ?? [] })),
+    groups: (groups.results as any[]).map(g => ({ ...g, member_ids: membersByGroup.get(g.id) ?? [] })),
+  });
+});
+
+async function saveActivityParticipants(env: Env, activityId: number, ids: number[]) {
+  const stmts = [env.DB.prepare('DELETE FROM activity_participants WHERE activity_id = ?').bind(activityId)];
+  for (const pid of ids ?? []) {
+    stmts.push(env.DB.prepare('INSERT INTO activity_participants (activity_id, participant_id) VALUES (?,?)').bind(activityId, pid));
+  }
+  await env.DB.batch(stmts);
+}
+
+app.post('/trips/:id/activities', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.json<any>();
+  if (!b.title?.trim() || !b.day) return bad(c, 'missing_fields');
+  const r = await c.env.DB.prepare(
+    `INSERT INTO activities (trip_id, title, day, start_time, end_time, notes, location_name, lat, lng, est_cost_myr)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  ).bind(id, b.title.trim(), b.day, b.start_time ?? null, b.end_time ?? null, b.notes ?? null,
+    b.location_name ?? null, b.lat ?? null, b.lng ?? null, b.est_cost_myr ?? null).run();
+  const aid = Number(r.meta.last_row_id);
+  await saveActivityParticipants(c.env, aid, b.participant_ids ?? []);
+  await audit(c.env, c.get('user').id, 'activity_create', 'activity', aid);
+  return c.json({ id: aid });
+});
+
+app.put('/activities/:id', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.json<any>();
+  await c.env.DB.prepare(
+    `UPDATE activities SET title=?, day=?, start_time=?, end_time=?, notes=?, location_name=?, lat=?, lng=?, est_cost_myr=? WHERE id=?`,
+  ).bind(b.title?.trim(), b.day, b.start_time ?? null, b.end_time ?? null, b.notes ?? null,
+    b.location_name ?? null, b.lat ?? null, b.lng ?? null, b.est_cost_myr ?? null, id).run();
+  await saveActivityParticipants(c.env, id, b.participant_ids ?? []);
+  return c.json({ ok: true });
+});
+
+app.patch('/activities/:id', requireAdmin, async c => {
+  const { done } = await c.req.json<any>();
+  await c.env.DB.prepare('UPDATE activities SET done = ? WHERE id = ?')
+    .bind(done ? 1 : 0, Number(c.req.param('id'))).run();
+  return c.json({ ok: true });
+});
+
+app.delete('/activities/:id', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM activity_participants WHERE activity_id = ?').bind(id),
+    c.env.DB.prepare('DELETE FROM activities WHERE id = ?').bind(id),
+  ]);
+  return c.json({ ok: true });
+});
+
+app.post('/trips/:id/groups', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  const { name, member_ids } = await c.req.json<any>();
+  if (!name?.trim() || !member_ids?.length) return bad(c, 'missing_fields');
+  const r = await c.env.DB.prepare('INSERT INTO groups (trip_id, name) VALUES (?,?)').bind(id, name.trim()).run();
+  const gid = Number(r.meta.last_row_id);
+  await c.env.DB.batch(member_ids.map((pid: number) =>
+    c.env.DB.prepare('INSERT INTO group_members (group_id, participant_id) VALUES (?,?)').bind(gid, pid)));
+  return c.json({ id: gid });
+});
+
+app.delete('/groups/:id', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM group_members WHERE group_id = ?').bind(id),
+    c.env.DB.prepare('DELETE FROM groups WHERE id = ?').bind(id),
+  ]);
+  return c.json({ ok: true });
 });
 
 /* ---------------- dashboard extras ---------------- */

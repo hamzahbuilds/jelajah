@@ -22,6 +22,10 @@ export default function TripShell() {
   if (!data) return <p className="muted" style={{ padding: 30 }}>{t.loading}</p>;
 
   const ctx: TripCtx = { ...data, tripId, reload };
+  let hidden = new Set<string>();
+  if (user.role !== 'admin') {
+    try { hidden = new Set(JSON.parse((data.trip as any).hidden_features ?? '[]')); } catch { /* ignore */ }
+  }
   const tab = (to: string, label: string, end = false) => (
     <NavLink to={to} end={end} className={({ isActive }) => (isActive ? 'active' : '')}>{label}</NavLink>
   );
@@ -37,9 +41,10 @@ export default function TripShell() {
       </div>
       <nav className="tabs">
         {tab(`/trips/${tripId}`, t.dashboard, true)}
-        {tab(`/trips/${tripId}/documents`, t.documents)}
-        {tab(`/trips/${tripId}/ledger`, t.ledger)}
-        {tab(`/trips/${tripId}/payments`, t.payments)}
+        {!hidden.has('plan') && tab(`/trips/${tripId}/plan`, t.plan)}
+        {!hidden.has('documents') && tab(`/trips/${tripId}/documents`, t.documents)}
+        {!hidden.has('ledger') && tab(`/trips/${tripId}/ledger`, t.ledger)}
+        {!hidden.has('payments') && tab(`/trips/${tripId}/payments`, t.payments)}
         {user.role === 'admin' && tab(`/trips/${tripId}/people`, t.people)}
       </nav>
       <Outlet context={ctx} />

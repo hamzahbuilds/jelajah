@@ -6,7 +6,7 @@ import { TripCtx, Participant } from './TripShell';
 
 export default function People() {
   const { t } = useT();
-  const { tripId, members, reload } = useOutletContext<TripCtx>();
+  const { trip, tripId, members, reload } = useOutletContext<TripCtx>();
   const [all, setAll] = useState<Participant[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [newName, setNewName] = useState('');
@@ -61,8 +61,29 @@ export default function People() {
     await load();
   };
 
+  const [hidden, setHidden] = useState<string[]>(() => {
+    try { return JSON.parse((trip as any).hidden_features ?? '[]'); } catch { return []; }
+  });
+  const toggleFeature = async (f: string) => {
+    const next = hidden.includes(f) ? hidden.filter(x => x !== f) : [...hidden, f];
+    setHidden(next); // optimistic — checkbox flips immediately
+    await api.patch(`/trips/${tripId}`, { hidden_features: next });
+    await reload();
+  };
+
   return (
     <div className="grid grid-2" style={{ alignItems: 'start' }}>
+      <div className="card">
+        <h3>{t.visibility}</h3>
+        <p className="tiny">{t.visibilityHint}</p>
+        {(['plan', 'documents', 'ledger', 'payments'] as const).map(f => (
+          <label key={f} className="row" style={{ gap: 8, padding: '4px 0' }}>
+            <input type="checkbox" checked={!hidden.includes(f)} onChange={() => toggleFeature(f)}
+              style={{ width: 17, height: 17, accentColor: 'var(--brand)' }} />
+            <span>{(t as any)[f === 'ledger' ? 'ledger' : f]}</span>
+          </label>
+        ))}
+      </div>
       <div className="card">
         <h3>{t.tripMembers}</h3>
         <p className="tiny">{t.memberHint}</p>

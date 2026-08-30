@@ -94,7 +94,7 @@ to run seed SQL — though the CLI seed is still available via
 
 | What | How |
 |---|---|
-| Update the app | Path A: commit changed files on GitHub (auto-deploys) · Path B: `npm run deploy` |
+| Update the app | Path A: commit changed files on GitHub (auto-deploys) · Path B: `npm run deploy`. Database upgrades ship inside the app and apply themselves automatically on the first request after a deploy — no SQL to run. |
 | Backup the database | `npx wrangler d1 export jelajah-db --remote --output backup.sql` (CLI), or D1 console in the dashboard |
 | Run parser tests | `npm test` |
 | Browser e2e test | `npm i -D playwright` once, then `node scripts/e2e.mjs` against `npm run dev:full` |

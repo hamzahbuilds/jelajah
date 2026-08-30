@@ -192,7 +192,89 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 /* share editor */
 .share-row { display: grid; grid-template-columns: 1fr 110px; gap: 8px; align-items: center; padding: 3px 0; }
 
+/* ---------- planner ---------- */
+.daychips {
+  display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px;
+  scrollbar-width: thin;
+}
+.daychip {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 10px;
+  padding: 6px 12px; cursor: pointer; font: inherit; text-align: center; flex: 0 0 auto;
+}
+.daychip .dn { display: block; font-weight: 700; font-size: .8rem; color: var(--brand); }
+.daychip .dd { display: block; font-size: .72rem; color: var(--ink-2); white-space: nowrap; }
+.daychip.on { background: #ccfbf1; border-color: var(--brand); }
+
+.plan-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 9px 0; border-bottom: 1px solid var(--line);
+}
+.plan-item:last-child { border-bottom: none; }
+.plan-item .pi-time { flex: 0 0 76px; font-variant-numeric: tabular-nums; font-size: .82rem; color: var(--ink-2); padding-top: 2px; }
+.plan-item .pi-ic { flex: 0 0 auto; }
+.plan-item .pi-body { flex: 1; min-width: 0; }
+.plan-item .pi-title { font-weight: 600; }
+.plan-item.done .pi-title { text-decoration: line-through; color: var(--ink-3); }
+
+.pin-dot {
+  width: 24px; height: 24px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+  background: var(--data); color: #fff; display: flex; align-items: center; justify-content: center;
+  font-size: .72rem; font-weight: 700; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4);
+}
+.pin-dot span { transform: rotate(45deg); line-height: 1; }
+.pin-dot.picked { background: #b45309; }
+
+.search-result {
+  padding: 7px 10px; border: 1px solid var(--line); border-top: none; font-size: .82rem;
+  cursor: pointer; background: var(--surface);
+}
+.search-result:hover { background: var(--bg); }
+
+.weekgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.weekcell {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px; cursor: pointer; min-height: 90px;
+}
+.weekcell.on { border-color: var(--brand); background: #f0fdfa; }
+.weekcell .wc-head { font-weight: 700; font-size: .78rem; color: var(--brand); margin-bottom: 4px; }
+.weekcell .wc-item { font-size: .76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 0; }
+
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-dow { text-align: center; font-size: .7rem; color: var(--ink-3); font-weight: 700; padding: 2px 0; }
+.cal-cell {
+  min-height: 72px; border: 1px solid var(--line); border-radius: 8px; padding: 4px;
+  font-size: .72rem; cursor: pointer; overflow: hidden; background: var(--surface);
+}
+.cal-cell.trip { background: #f0fdfa; }
+.cal-cell.on { border-color: var(--brand); border-width: 2px; }
+.cal-cell .cal-num { font-weight: 700; color: var(--ink-2); }
+.cal-cell .cal-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg { gap: 4px; }
+
+/* leaflet pane under our modals/header */
+.leaflet-pane, .leaflet-top, .leaflet-bottom { z-index: 5 !important; }
+
+/* ---------- responsive hardening ---------- */
+img, iframe, .preview { max-width: 100%; }
+.modal { max-height: 92dvh; overflow-y: auto; }
+
 @media (max-width: 620px) {
   .hide-sm { display: none; }
   .barlist .barrow { grid-template-columns: 90px 1fr 80px; }
+  .container { padding: 0 10px 40px; }
+  .card { padding: 12px; }
+  .hero { padding: 16px; }
+  .hero .big { font-size: 1.5rem; }
+  h1 { font-size: 1.25rem; }
+  .topbar-inner { padding: 8px 10px; gap: 8px; }
+  .modal { padding: 14px; border-radius: 10px; }
+  .overlay { padding: 2vh 6px; }
+  .plan-item .pi-time { flex-basis: 58px; font-size: .75rem; }
+  .cal-cell { min-height: 54px; }
+  .cal-cell .cal-item { display: none; }         /* month view shows dots on phones */
+  .cal-cell .tiny { display: none; }
+  .cal-cell.has-items::after { content: '•'; color: var(--data); font-size: 1rem; }
+  table { font-size: .82rem; }
+  th, td { padding: 7px 6px; }
+  button.btn { padding: 8px 12px; }
 }

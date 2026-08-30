@@ -27,13 +27,15 @@ export default function Dashboard() {
 
   const loadChecklist = async () => setItems(await api.get(`/trips/${tripId}/checklist`));
   useEffect(() => {
-    api.get(`/trips/${tripId}/balances`).then(setBal);
-    api.get(`/trips/${tripId}/duedates`).then(setDues);
+    // money widgets disappear gracefully when the admin hid payments/ledger from members
+    api.get(`/trips/${tripId}/balances`).then(setBal).catch(() => setBal({ hidden: true }));
+    api.get(`/trips/${tripId}/duedates`).then(setDues).catch(() => setDues([]));
     loadChecklist();
   }, [tripId]);
 
   const cd = countdown(t, trip.start_date, trip.end_date);
-  const catTotals: Array<[string, number]> = bal
+  const moneyHidden = !!bal?.hidden;
+  const catTotals: Array<[string, number]> = bal && !moneyHidden
     ? Object.entries(bal.totalsByCategory as Record<string, number>).sort((a, b) => b[1] - a[1])
     : [];
   const maxCat = Math.max(1, ...catTotals.map(c => c[1]));
@@ -67,12 +69,14 @@ export default function Dashboard() {
       </div>
 
       <div className="stats">
+        {!moneyHidden && (
         <div className="stat">
           <div className="label">{t.tripTotal}</div>
           <div className="value">{bal ? fmtMYR(bal.tripTotal) : '…'}</div>
           <div className="sub">{bal?.expenseCount ?? 0} {t.expenses}</div>
         </div>
-        {user.role === 'admin' ? (
+        )}
+        {moneyHidden ? null : user.role === 'admin' ? (
           <div className="stat">
             <div className="label">{t.outstanding}</div>
             <div className="value">{bal ? fmtMYR(outstanding.reduce((a: number, b: any) => a + b.outstanding, 0)) : '…'}</div>
@@ -91,6 +95,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-2">
+        {!moneyHidden && (
         <div className="card barlist">
           <h3>{t.byCategory}</h3>
           {catTotals.length === 0 && <p className="muted">{t.noExpenses}</p>}
@@ -102,8 +107,9 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
+        )}
 
-        {user.role === 'admin' ? (
+        {moneyHidden ? null : user.role === 'admin' ? (
           <div className="card">
             <h3>{t.topOutstanding}</h3>
             {outstanding.length === 0 && <p className="muted">{t.allSettled}</p>}

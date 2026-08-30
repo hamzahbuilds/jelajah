@@ -33,6 +33,7 @@ export const SCHEMA: string[] = [
     end_date TEXT,
     base_currency TEXT NOT NULL DEFAULT 'MYR',
     emoji TEXT DEFAULT '🧳',
+    hidden_features TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS trip_members (
@@ -123,11 +124,51 @@ export const SCHEMA: string[] = [
     entity_id INTEGER,
     at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS activities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    title TEXT NOT NULL,
+    day TEXT NOT NULL,
+    start_time TEXT,
+    end_time TEXT,
+    notes TEXT,
+    location_name TEXT,
+    lat REAL,
+    lng REAL,
+    est_cost_myr REAL,
+    expense_id INTEGER REFERENCES expenses(id),
+    done INTEGER NOT NULL DEFAULT 0,
+    sort INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS activity_participants (
+    activity_id INTEGER NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+    participant_id INTEGER NOT NULL REFERENCES participants(id),
+    PRIMARY KEY (activity_id, participant_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    name TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS group_members (
+    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    participant_id INTEGER NOT NULL REFERENCES participants(id),
+    PRIMARY KEY (group_id, participant_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_activities_trip ON activities(trip_id, day)`,
   `CREATE INDEX IF NOT EXISTS idx_documents_trip ON documents(trip_id)`,
   `CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id)`,
   `CREATE INDEX IF NOT EXISTS idx_payments_trip ON payments(trip_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_checklist ON checklist_items(trip_id, user_id)`,
+];
+
+// Idempotent upgrade statements for databases created by earlier versions.
+// Run one by one with failures ignored (e.g. ALTER on a column that already exists).
+export const UPGRADES: string[] = [
+  `ALTER TABLE trips ADD COLUMN hidden_features TEXT NOT NULL DEFAULT '[]'`,
+  ...SCHEMA.filter(s => /activities|activity_participants|groups|group_members|idx_activities_trip/.test(s)),
 ];
 
 // Optional first-run seed: the Japan Nov/Dec 2026 trip with its 16 travellers,
