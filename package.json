@@ -11,8 +11,8 @@
     "seed:gen": "node scripts/seed.mjs",
     "db:local": "wrangler d1 execute jelajah-db --local --file=./migrations/0001_init.sql && wrangler d1 execute jelajah-db --local --file=./scripts/seed.sql",
     "db:remote": "wrangler d1 execute jelajah-db --remote --file=./migrations/0001_init.sql && wrangler d1 execute jelajah-db --remote --file=./scripts/seed.sql",
-    "pages:dev": "npm run build && wrangler pages dev ./dist",
-    "deploy": "npm run build && wrangler pages deploy ./dist"
+    "deploy": "npm run build && wrangler deploy",
+    "dev:full": "npm run build && wrangler dev"
   },
   "dependencies": {
     "hono": "^4",

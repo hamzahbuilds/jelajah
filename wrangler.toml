@@ -1,24 +1,31 @@
 name = "jelajah"
+main = "server/index.ts"
 compatibility_date = "2026-08-01"
-pages_build_output_dir = "./dist"
+
+# The built SPA. Non-/api requests are served directly from these assets;
+# unknown paths fall back to index.html (client-side routing).
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "jelajah-db"
-database_id = "42a248b3-2738-4d21-ba83-fb27d9686880"   # from the D1 dashboard, or: wrangler d1 create jelajah-db
+database_id = "2a248b3-2738-4d21-ba83-fb27d9686880"   # from the D1 dashboard, or: wrangler d1 create jelajah-db
 
 # File storage: Workers KV — free, no credit card, 1 GB (≈700 PDFs).
 [[kv_namespaces]]
 binding = "FILES"
 id = "4a56d2d032824d98963a2f33ef299319"            # from the KV dashboard, or: wrangler kv namespace create FILES
 
-# If you ever outgrow KV, delete the kv_namespaces block above and use R2 instead
-# (requires a card on file with Cloudflare; 10 GB free). The app auto-detects which
-# one is bound — no code change needed:
+# If you ever outgrow KV, replace the kv_namespaces block with this R2 block
+# (requires a card on file with Cloudflare; 10 GB free). The app auto-detects
+# which one is bound — no code change needed:
 # [[r2_buckets]]
 # binding = "FILES"
 # bucket_name = "jelajah-files"
 
 [vars]
 # Change this to any long random string before deploying (cookie signing secret)
-SESSION_SECRET = "C@t15CurtinJ@dirahAzr@"
+SESSION_SECRET = "C@t15CurtinJ@dirahAzr@s"

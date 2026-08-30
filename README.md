@@ -10,11 +10,11 @@ browser · frankfurter.dev historical FX (cached in D1) · zero AI services.
 
 - `shared/parsers/` — vendor parsers (Trip.com receipt/itinerary, Airbnb, generic
   fallback). Unit-tested in `tests/` against the 8 real trip documents.
-- `functions/` — API: hand-rolled auth (PBKDF2 + server-side sessions), trips,
-  documents, expenses/shares/due dates, payments, balances, FX, checklist.
+- `server/` — the Worker API: hand-rolled auth (PBKDF2 + server-side sessions),
+  trips, documents, expenses/shares/due dates, payments, balances, FX, checklist.
 - `src/` — responsive SPA: dashboard (countdown, category spend, outstanding,
   due dates, private checklist), documents+review flow, ledger, payments, people.
 - `scripts/` — seed generator (Japan 2026 trip), fixture extractor, e2e test.
 
 **Deploy:** see [DEPLOY.md](./DEPLOY.md). **Tests:** `npm test` (parsers) and
-`node scripts/e2e.mjs` (full browser flow against `wrangler pages dev`).
+`node scripts/e2e.mjs` (full browser flow against `npm run dev:full`).
