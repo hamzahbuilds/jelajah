@@ -1,0 +1,31 @@
+import { ParsedDoc } from './types';
+import { detectTripcomReceipt, parseTripcomReceipt } from './tripcomReceipt';
+import { detectTripcomItinerary, parseTripcomItinerary } from './tripcomItinerary';
+import { detectAirbnb, parseAirbnb } from './airbnb';
+import { parseGeneric } from './generic';
+
+export * from './types';
+
+interface ParserEntry {
+  name: string;
+  detect: (text: string) => boolean;
+  parse: (text: string) => ParsedDoc;
+}
+
+/** Ordered registry — first detector that matches wins; generic always matches last. */
+export const PARSERS: ParserEntry[] = [
+  { name: 'tripcom-itinerary', detect: detectTripcomItinerary, parse: parseTripcomItinerary },
+  { name: 'tripcom-receipt', detect: detectTripcomReceipt, parse: parseTripcomReceipt },
+  { name: 'airbnb-confirmation', detect: detectAirbnb, parse: parseAirbnb },
+];
+
+export function parseDocument(text: string): ParsedDoc {
+  for (const p of PARSERS) {
+    try {
+      if (p.detect(text)) return p.parse(text);
+    } catch {
+      // fall through to next parser — never let one bad regex kill ingestion
+    }
+  }
+  return parseGeneric(text);
+}

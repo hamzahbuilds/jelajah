@@ -1,0 +1,164 @@
+import { createContext, useContext, useState, ReactNode } from 'react';
+
+const en = {
+  appName: 'Jelajah',
+  tagline: 'Family travel, sorted.',
+  // common
+  save: 'Save', cancel: 'Cancel', delete: 'Delete', add: 'Add', edit: 'Edit',
+  confirm: 'Confirm', close: 'Close', download: 'Download', loading: 'Loading…',
+  total: 'Total', date: 'Date', actions: 'Actions', none: 'None', name: 'Name',
+  yes: 'Yes', no: 'No', back: 'Back', optional: 'optional',
+  // login / account
+  email: 'Email', password: 'Password', signIn: 'Sign in',
+  invalidLogin: 'Wrong email or password.', logout: 'Log out',
+  setupTitle: 'Welcome! Set up your admin account',
+  setupHint: 'This runs once on a fresh install: it creates the database, your admin login, and (optionally) the Japan 2026 trip with its 16 travellers.',
+  seedJapan: 'Seed the "Jelajah Jepun 2026" trip (29 Nov – 7 Dec, 16 travellers)',
+  setupGo: 'Create & start',
+  language: 'Language', changePassword: 'Change password', newPassword: 'New password (min 8 chars)',
+  mustChange: 'Please set a new password to replace the temporary one.',
+  // trips
+  myTrips: 'My trips', newTrip: 'New trip', tripName: 'Trip name',
+  destination: 'Destination', startDate: 'Start date', endDate: 'End date', create: 'Create',
+  noTrips: 'No trips yet.',
+  // countdown
+  daysToGo: (n: number) => `${n} day${n === 1 ? '' : 's'} to go`,
+  dayN: (n: number) => `Day ${n}`,
+  daysSince: (n: number) => `${n} day${n === 1 ? '' : 's'} since the trip`,
+  today: 'Today',
+  // tabs
+  dashboard: 'Dashboard', documents: 'Documents', ledger: 'Ledger',
+  payments: 'Payments', people: 'People',
+  // dashboard
+  tripTotal: 'Trip total', byCategory: 'Spending by category',
+  outstanding: 'Outstanding', topOutstanding: 'Largest outstanding balances',
+  upcomingDues: 'Payment due dates', myChecklist: 'My checklist',
+  addTask: 'Add a task…', noTasks: 'Nothing here yet — add your first task.',
+  allSettled: 'Everything is settled 🎉', myBalance: 'My balance',
+  owed: 'Owed', paid: 'Paid', remaining: 'Remaining', expenses: 'expenses',
+  settled: 'Settled', markSettled: 'Mark settled',
+  // documents
+  uploadDoc: 'Upload document', dropHint: 'PDF receipts, itineraries and confirmations',
+  parsing: 'Reading document…', confirmedStatus: 'Confirmed', draft: 'Needs review',
+  viewFile: 'View file', reviewNow: 'Review', noDocs: 'No documents yet — upload your first booking.',
+  duplicateWarn: 'A document with this booking number already exists in this trip.',
+  linkedExpense: 'Linked expense',
+  // review / expense form
+  reviewTitle: 'Review extracted data', extractedFields: 'Extracted details',
+  vendor: 'Vendor', category: 'Category', description: 'Description',
+  amount: 'Amount', currency: 'Currency', fxRate: 'FX rate', amountMyr: 'Amount (MYR)',
+  getRate: 'Get rate for this date', paymentMethod: 'Payment method',
+  paymentDate: 'Payment date', bookingNo: 'Booking no.',
+  peopleOnDoc: 'People on this document', payer: 'Paid by',
+  participants: 'Participants', equalSplit: 'Split equally', customSplit: 'Custom split',
+  dueDates: 'Payment due dates (instalments)', addDueDate: 'Add due date',
+  createExpense: 'Create an expense from this document', docOnly: 'Save as document only',
+  confirmSave: 'Confirm & save', sharesMustSum: 'Shares must add up to the total.',
+  warnings: 'Warnings', checkIn: 'Check-in', checkOut: 'Checkout', location: 'Location',
+  flightLegs: 'Flights', matched: 'matched', notMatched: 'no match — pick below',
+  perPerson: 'per person', selectAll: 'Select all', clearAll: 'Clear',
+  // categories
+  accommodation: 'Accommodation', flight: 'Flight', transport: 'Transport',
+  entrance: 'Entrance ticket', pass: 'Pass', food: 'Food', shopping: 'Shopping', other: 'Other',
+  // ledger
+  addExpense: 'Add expense', allCategories: 'All categories',
+  editExpense: 'Edit expense', confirmDelete: 'Delete this? This cannot be undone.',
+  noExpenses: 'No expenses yet.', documentCol: 'Doc',
+  // payments
+  balances: 'Balances', recordPayment: 'Record payment', from: 'From', to: 'To',
+  note: 'Note', history: 'Payment history', statement: 'Statement',
+  lumpsumHint: 'Lump sums are applied to the oldest items first.',
+  credit: 'Credit', noPayments: 'No payments recorded yet.',
+  owes: (a: string, b: string) => `${a} owes ${b}`,
+  // people
+  participantsTitle: 'Participants', usersTitle: 'Login accounts',
+  addParticipant: 'Add participant', addUser: 'Create account', infant: 'Infant',
+  role: 'Role', admin: 'Admin', member: 'Member', disabled: 'Disabled',
+  resetPassword: 'Reset password', tempPassword: 'Temporary password',
+  linkedParticipant: 'Linked participant', active: 'Active',
+  disable: 'Disable', enable: 'Enable', tripMembers: 'Trip members',
+  memberHint: 'Tick everyone travelling on this trip.',
+};
+
+const ms: typeof en = {
+  appName: 'Jelajah',
+  tagline: 'Perjalanan keluarga, tersusun.',
+  save: 'Simpan', cancel: 'Batal', delete: 'Padam', add: 'Tambah', edit: 'Sunting',
+  confirm: 'Sahkan', close: 'Tutup', download: 'Muat turun', loading: 'Memuatkan…',
+  total: 'Jumlah', date: 'Tarikh', actions: 'Tindakan', none: 'Tiada', name: 'Nama',
+  yes: 'Ya', no: 'Tidak', back: 'Kembali', optional: 'pilihan',
+  email: 'E-mel', password: 'Kata laluan', signIn: 'Log masuk',
+  invalidLogin: 'E-mel atau kata laluan salah.', logout: 'Log keluar',
+  setupTitle: 'Selamat datang! Sediakan akaun pentadbir anda',
+  setupHint: 'Ini berjalan sekali sahaja pada pemasangan baharu: ia mencipta pangkalan data, log masuk pentadbir anda, dan (pilihan) perjalanan Jepun 2026 dengan 16 pesertanya.',
+  seedJapan: 'Sedia perjalanan "Jelajah Jepun 2026" (29 Nov – 7 Dis, 16 peserta)',
+  setupGo: 'Cipta & mula',
+  language: 'Bahasa', changePassword: 'Tukar kata laluan', newPassword: 'Kata laluan baharu (min 8 aksara)',
+  mustChange: 'Sila tetapkan kata laluan baharu menggantikan yang sementara.',
+  myTrips: 'Perjalanan saya', newTrip: 'Perjalanan baharu', tripName: 'Nama perjalanan',
+  destination: 'Destinasi', startDate: 'Tarikh mula', endDate: 'Tarikh tamat', create: 'Cipta',
+  noTrips: 'Tiada perjalanan lagi.',
+  daysToGo: (n: number) => `${n} hari lagi`,
+  dayN: (n: number) => `Hari ${n}`,
+  daysSince: (n: number) => `${n} hari selepas perjalanan`,
+  today: 'Hari ini',
+  dashboard: 'Papan pemuka', documents: 'Dokumen', ledger: 'Lejar',
+  payments: 'Bayaran', people: 'Ahli',
+  tripTotal: 'Jumlah perjalanan', byCategory: 'Perbelanjaan ikut kategori',
+  outstanding: 'Belum jelas', topOutstanding: 'Baki tertunggak terbesar',
+  upcomingDues: 'Tarikh akhir bayaran', myChecklist: 'Senarai semak saya',
+  addTask: 'Tambah tugasan…', noTasks: 'Belum ada apa-apa — tambah tugasan pertama anda.',
+  allSettled: 'Semua sudah selesai 🎉', myBalance: 'Baki saya',
+  owed: 'Terhutang', paid: 'Dibayar', remaining: 'Baki', expenses: 'perbelanjaan',
+  settled: 'Selesai', markSettled: 'Tanda selesai',
+  uploadDoc: 'Muat naik dokumen', dropHint: 'Resit PDF, itinerari dan pengesahan',
+  parsing: 'Membaca dokumen…', confirmedStatus: 'Disahkan', draft: 'Perlu semakan',
+  viewFile: 'Lihat fail', reviewNow: 'Semak', noDocs: 'Tiada dokumen lagi — muat naik tempahan pertama anda.',
+  duplicateWarn: 'Dokumen dengan nombor tempahan ini sudah wujud dalam perjalanan ini.',
+  linkedExpense: 'Perbelanjaan berkaitan',
+  reviewTitle: 'Semak data yang diekstrak', extractedFields: 'Butiran diekstrak',
+  vendor: 'Vendor', category: 'Kategori', description: 'Keterangan',
+  amount: 'Amaun', currency: 'Mata wang', fxRate: 'Kadar tukaran', amountMyr: 'Amaun (MYR)',
+  getRate: 'Dapatkan kadar untuk tarikh ini', paymentMethod: 'Kaedah bayaran',
+  paymentDate: 'Tarikh bayaran', bookingNo: 'No. tempahan',
+  peopleOnDoc: 'Nama dalam dokumen ini', payer: 'Dibayar oleh',
+  participants: 'Peserta', equalSplit: 'Bahagi sama rata', customSplit: 'Bahagian tersendiri',
+  dueDates: 'Tarikh akhir bayaran (ansuran)', addDueDate: 'Tambah tarikh akhir',
+  createExpense: 'Cipta perbelanjaan daripada dokumen ini', docOnly: 'Simpan sebagai dokumen sahaja',
+  confirmSave: 'Sahkan & simpan', sharesMustSum: 'Bahagian mesti berjumlah sama dengan jumlah penuh.',
+  warnings: 'Amaran', checkIn: 'Daftar masuk', checkOut: 'Daftar keluar', location: 'Lokasi',
+  flightLegs: 'Penerbangan', matched: 'dipadankan', notMatched: 'tiada padanan — pilih di bawah',
+  perPerson: 'seorang', selectAll: 'Pilih semua', clearAll: 'Kosongkan',
+  accommodation: 'Penginapan', flight: 'Penerbangan', transport: 'Pengangkutan',
+  entrance: 'Tiket masuk', pass: 'Pas', food: 'Makanan', shopping: 'Beli-belah', other: 'Lain-lain',
+  addExpense: 'Tambah perbelanjaan', allCategories: 'Semua kategori',
+  editExpense: 'Sunting perbelanjaan', confirmDelete: 'Padam ini? Tindakan ini tidak boleh dibatalkan.',
+  noExpenses: 'Tiada perbelanjaan lagi.', documentCol: 'Dok',
+  balances: 'Baki', recordPayment: 'Rekod bayaran', from: 'Daripada', to: 'Kepada',
+  note: 'Nota', history: 'Sejarah bayaran', statement: 'Penyata',
+  lumpsumHint: 'Bayaran sekali gus ditolak daripada item tertua dahulu.',
+  credit: 'Kredit', noPayments: 'Tiada bayaran direkodkan lagi.',
+  owes: (a: string, b: string) => `${a} berhutang kepada ${b}`,
+  participantsTitle: 'Peserta', usersTitle: 'Akaun log masuk',
+  addParticipant: 'Tambah peserta', addUser: 'Cipta akaun', infant: 'Bayi',
+  role: 'Peranan', admin: 'Pentadbir', member: 'Ahli', disabled: 'Dinyahaktifkan',
+  resetPassword: 'Set semula kata laluan', tempPassword: 'Kata laluan sementara',
+  linkedParticipant: 'Peserta berkaitan', active: 'Aktif',
+  disable: 'Nyahaktif', enable: 'Aktifkan', tripMembers: 'Ahli perjalanan',
+  memberHint: 'Tandakan semua yang menyertai perjalanan ini.',
+};
+
+export type Dict = typeof en;
+export type Lang = 'en' | 'ms';
+const dicts: Record<Lang, Dict> = { en, ms };
+
+const I18nCtx = createContext<{ t: Dict; lang: Lang; setLang: (l: Lang) => void }>({
+  t: en, lang: 'en', setLang: () => {},
+});
+
+export function I18nProvider({ children, initial }: { children: ReactNode; initial?: Lang }) {
+  const [lang, setLang] = useState<Lang>(initial ?? 'en');
+  return <I18nCtx.Provider value={{ t: dicts[lang], lang, setLang }}>{children}</I18nCtx.Provider>;
+}
+
+export const useT = () => useContext(I18nCtx);

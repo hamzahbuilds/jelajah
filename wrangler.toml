@@ -1,0 +1,16 @@
+name = "jelajah"
+compatibility_date = "2026-08-01"
+pages_build_output_dir = "./dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jelajah-db"
+database_id = "REPLACE_WITH_YOUR_D1_ID"   # from: wrangler d1 create jelajah-db
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "jelajah-files"             # from: wrangler r2 bucket create jelajah-files
+
+[vars]
+# Change this to any long random string before deploying (cookie signing secret)
+SESSION_SECRET = "change-me-to-a-long-random-string"
