@@ -84,7 +84,7 @@ const en = {
   // v0.12 — settings & AI provider
   settings: 'Settings', aiProvider: 'AI provider', baseUrl: 'Base URL', apiKey: 'API key',
   modelName: 'Model', aiPresets: 'Presets',
-  aiKeyHint: 'Gemini: create a free key at aistudio.google.com — no credit card needed. The key is stored server-side and never shown to members.',
+  aiKeyHint: 'Gemini: create a free key at aistudio.google.com — no credit card needed. Keys starting with AIza… or AQ.… both work. The key is stored server-side and never shown to members.',
   testConnection: 'Test connection', connectionOk: (r: string) => `Connected — the model replied: “${r}”`,
   aiNotConfigured: 'No AI provider connected yet — ask your admin to set one up in Settings.',
   aiResting: 'The assistant is resting (provider busy or rate-limited) — try again in a minute.',
@@ -285,7 +285,7 @@ const ms: typeof en = {
   // v0.12 — tetapan & penyedia AI
   settings: 'Tetapan', aiProvider: 'Penyedia AI', baseUrl: 'URL asas', apiKey: 'Kunci API',
   modelName: 'Model', aiPresets: 'Pratetap',
-  aiKeyHint: 'Gemini: cipta kunci percuma di aistudio.google.com — tiada kad kredit diperlukan. Kunci disimpan di pelayan dan tidak didedahkan kepada ahli.',
+  aiKeyHint: 'Gemini: cipta kunci percuma di aistudio.google.com — tiada kad kredit diperlukan. Kunci bermula AIza… atau AQ.… kedua-duanya berfungsi. Kunci disimpan di pelayan dan tidak didedahkan kepada ahli.',
   testConnection: 'Uji sambungan', connectionOk: (r: string) => `Berjaya — model membalas: “${r}”`,
   aiNotConfigured: 'Tiada penyedia AI disambungkan — minta admin tetapkan dalam Tetapan.',
   aiResting: 'Pembantu sedang berehat (penyedia sibuk/terhad) — cuba lagi sebentar.',

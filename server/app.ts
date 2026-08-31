@@ -5,7 +5,7 @@ import {
   hashPassword, verifyPassword, createSession, getSessionUser,
   destroySession, sessionCookie, clearCookie, randomToken, hashToken, SessionUser,
 } from './lib/auth';
-import { parseSuggestions, freeSlots, suggestSystemPrompt, chatSystemPrompt } from '../shared/assistant';
+import { parseSuggestions, freeSlots, suggestSystemPrompt, chatSystemPrompt, buildGeminiNativeBody, parseGeminiNativeResponse } from '../shared/assistant';
 import { SCHEMA, UPGRADES, JAPAN_TRIP } from './lib/schema';
 
 type Vars = { user: SessionUser };
@@ -1271,9 +1271,47 @@ class AiError extends Error { code: string; detail?: string; constructor(code: s
 /** OpenAI-compatible chat call — works with Gemini's compat endpoint, OpenRouter, Groq, Ollama…
  *  maxTokens is generous because "thinking" models (e.g. gemini-2.5-flash) spend
  *  part of the budget on internal reasoning before any visible text appears. */
+/** Shared error-detail extraction for a non-OK provider response. */
+async function aiHttpError(res: Response): Promise<AiError> {
+  if (res.status === 429) return new AiError('ai_rate_limited');
+  let detail = `HTTP ${res.status}`;
+  try {
+    const body: any = await res.json();
+    const msg = body?.error?.message ?? body?.error ?? body?.message;
+    if (msg) detail = `HTTP ${res.status}: ${String(typeof msg === 'string' ? msg : JSON.stringify(msg)).slice(0, 300)}`;
+  } catch { /* keep the status */ }
+  return new AiError('ai_error', detail);
+}
+
+/** Gemini's native generateContent API — works with both AIza… and the new
+ *  AQ.… key formats (the OpenAI-compat layer rejects many AQ. keys). */
+async function callGeminiNative(cfg: AiConfig, messages: Array<{ role: string; content: string }>, maxTokens: number): Promise<string> {
+  const origin = (() => { try { return new URL(cfg.base_url).origin; } catch { return 'https://generativelanguage.googleapis.com'; } })();
+  const model = cfg.model.replace(/^models\//, '');
+  let res: Response;
+  try {
+    res = await fetch(`${origin}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.api_key },
+      body: JSON.stringify(buildGeminiNativeBody(messages, maxTokens)),
+    });
+  } catch { throw new AiError('ai_unreachable'); }
+  if (!res.ok) throw await aiHttpError(res);
+  const data: any = await res.json().catch(() => null);
+  const { text, finishReason } = parseGeminiNativeResponse(data);
+  if (!text.trim()) {
+    throw new AiError('ai_error', finishReason === 'MAX_TOKENS'
+      ? 'The model spent the whole token budget thinking and returned no text — try again.'
+      : `The provider returned an empty reply${finishReason ? ` (${finishReason})` : ''}.`);
+  }
+  return text;
+}
+
 async function callAI(env: Env, messages: Array<{ role: string; content: string }>, maxTokens = 3000): Promise<string> {
   const cfg = await aiConfig(env);
   if (!cfg?.base_url || !cfg.api_key || !cfg.model) throw new AiError('ai_not_configured');
+  // Gemini goes through its native API (new AQ. keys break on the compat layer)
+  if (/generativelanguage\.googleapis\.com/i.test(cfg.base_url)) return callGeminiNative(cfg, messages, maxTokens);
   let res: Response;
   try {
     res = await fetch(`${cfg.base_url.replace(/\/+$/, '')}/chat/completions`, {
@@ -1282,18 +1320,7 @@ async function callAI(env: Env, messages: Array<{ role: string; content: string 
       body: JSON.stringify({ model: cfg.model, messages, temperature: 0.7, max_tokens: maxTokens }),
     });
   } catch { throw new AiError('ai_unreachable'); }
-  if (res.status === 429) throw new AiError('ai_rate_limited');
-  if (!res.ok) {
-    // surface WHAT the provider said (e.g. Gemini's "model not found" when a
-    // model name is retired) instead of a blind "error"
-    let detail = `HTTP ${res.status}`;
-    try {
-      const body: any = await res.json();
-      const msg = body?.error?.message ?? body?.error ?? body?.message;
-      if (msg) detail = `HTTP ${res.status}: ${String(typeof msg === 'string' ? msg : JSON.stringify(msg)).slice(0, 300)}`;
-    } catch { /* keep the status */ }
-    throw new AiError('ai_error', detail);
-  }
+  if (!res.ok) throw await aiHttpError(res);
   const data: any = await res.json().catch(() => null);
   const text = data?.choices?.[0]?.message?.content;
   if (typeof text !== 'string' || !text.trim()) {

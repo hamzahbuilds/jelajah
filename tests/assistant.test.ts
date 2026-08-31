@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSuggestions, freeSlots } from '../shared/assistant';
+import { parseSuggestions, freeSlots, buildGeminiNativeBody, parseGeminiNativeResponse } from '../shared/assistant';
 
 describe('parseSuggestions', () => {
   const good = JSON.stringify([
@@ -37,6 +37,34 @@ describe('parseSuggestions', () => {
       ['2026-11-29', '2026-11-30', '2026-12-01'],
     );
     expect(s[0].day).toBe('2026-12-01');
+  });
+});
+
+describe('Gemini native translation (AQ.-key route)', () => {
+  it('maps OpenAI-style messages to generateContent shape', () => {
+    const body = buildGeminiNativeBody([
+      { role: 'system', content: 'Be helpful.' },
+      { role: 'user', content: 'Hi' },
+      { role: 'assistant', content: 'Hello!' },
+      { role: 'user', content: 'Berapa jumlah?' },
+    ], 2000);
+    expect(body.systemInstruction.parts[0].text).toBe('Be helpful.');
+    expect(body.contents.map((c: any) => c.role)).toEqual(['user', 'model', 'user']);
+    expect(body.contents[2].parts[0].text).toBe('Berapa jumlah?');
+    expect(body.generationConfig.maxOutputTokens).toBe(2000);
+  });
+
+  it('never sends an empty contents array', () => {
+    const body = buildGeminiNativeBody([{ role: 'system', content: 'sys only' }], 100);
+    expect(body.contents.length).toBe(1);
+    expect(body.contents[0].role).toBe('user');
+  });
+
+  it('parses candidates text and finish reason', () => {
+    const r = parseGeminiNativeResponse({ candidates: [{ content: { parts: [{ text: 'Hel' }, { text: 'lo' }] }, finishReason: 'STOP' }] });
+    expect(r).toEqual({ text: 'Hello', finishReason: 'STOP' });
+    expect(parseGeminiNativeResponse({ candidates: [{ finishReason: 'MAX_TOKENS' }] })).toEqual({ text: '', finishReason: 'MAX_TOKENS' });
+    expect(parseGeminiNativeResponse(null).text).toBe('');
   });
 });
 

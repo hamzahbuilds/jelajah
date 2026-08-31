@@ -97,6 +97,33 @@ export function freeSlots(
   return slots;
 }
 
+/* ---- Gemini native API translation (v0.12.2) ----
+   Google's new AQ.-prefixed API keys often fail on the OpenAI-compatible
+   endpoint (Bearer auth) while working on the native generateContent API,
+   so Gemini calls go native. Pure helpers, unit-tested. */
+
+export interface ChatMsg { role: string; content: string }
+
+export function buildGeminiNativeBody(messages: ChatMsg[], maxTokens: number): any {
+  const sys = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
+  const contents = messages
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+  if (!contents.length) contents.push({ role: 'user', parts: [{ text: 'Hello' }] });
+  return {
+    ...(sys ? { systemInstruction: { parts: [{ text: sys }] } } : {}),
+    contents,
+    generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
+  };
+}
+
+/** Extract the reply text; returns { text, finishReason } — empty text means trouble. */
+export function parseGeminiNativeResponse(data: any): { text: string; finishReason?: string } {
+  const cand = data?.candidates?.[0];
+  const text = (cand?.content?.parts ?? []).map((p: any) => p?.text ?? '').join('');
+  return { text, finishReason: cand?.finishReason };
+}
+
 /** System prompt for the suggestion call — demands strict JSON. */
 export function suggestSystemPrompt(): string {
   return [

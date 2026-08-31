@@ -8,9 +8,11 @@ import TokenCard from '../components/TokenCard';
 
 // Model names retire (Google pulled gemini-2.0-flash from the free tier in
 // June 2026) — the field stays editable so a preset going stale is a one-line
-// fix in the UI, not a redeploy.
+// fix in the UI, not a redeploy. Gemini traffic is routed to Google's NATIVE
+// API server-side (any googleapis base URL), because the new AQ.-format keys
+// break on the OpenAI-compat layer.
 const PRESETS = [
-  { name: 'Gemini (free)', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash' },
+  { name: 'Gemini (free)', base_url: 'https://generativelanguage.googleapis.com', model: 'gemini-2.5-flash' },
   { name: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1', model: 'google/gemini-2.0-flash-exp:free' },
   { name: 'Groq', base_url: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
 ];
