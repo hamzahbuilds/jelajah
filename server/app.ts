@@ -1266,10 +1266,12 @@ async function setSettingJSON(env: Env, key: string, value: unknown) {
 interface AiConfig { base_url: string; api_key: string; model: string }
 const aiConfig = (env: Env) => getSettingJSON<AiConfig>(env, 'ai_provider');
 
-class AiError extends Error { code: string; constructor(code: string) { super(code); this.code = code; } }
+class AiError extends Error { code: string; detail?: string; constructor(code: string, detail?: string) { super(code); this.code = code; this.detail = detail; } }
 
-/** OpenAI-compatible chat call — works with Gemini's compat endpoint, OpenRouter, Groq, Ollama… */
-async function callAI(env: Env, messages: Array<{ role: string; content: string }>, maxTokens = 1200): Promise<string> {
+/** OpenAI-compatible chat call — works with Gemini's compat endpoint, OpenRouter, Groq, Ollama…
+ *  maxTokens is generous because "thinking" models (e.g. gemini-2.5-flash) spend
+ *  part of the budget on internal reasoning before any visible text appears. */
+async function callAI(env: Env, messages: Array<{ role: string; content: string }>, maxTokens = 3000): Promise<string> {
   const cfg = await aiConfig(env);
   if (!cfg?.base_url || !cfg.api_key || !cfg.model) throw new AiError('ai_not_configured');
   let res: Response;
@@ -1281,17 +1283,32 @@ async function callAI(env: Env, messages: Array<{ role: string; content: string 
     });
   } catch { throw new AiError('ai_unreachable'); }
   if (res.status === 429) throw new AiError('ai_rate_limited');
-  if (!res.ok) throw new AiError('ai_error');
+  if (!res.ok) {
+    // surface WHAT the provider said (e.g. Gemini's "model not found" when a
+    // model name is retired) instead of a blind "error"
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body: any = await res.json();
+      const msg = body?.error?.message ?? body?.error ?? body?.message;
+      if (msg) detail = `HTTP ${res.status}: ${String(typeof msg === 'string' ? msg : JSON.stringify(msg)).slice(0, 300)}`;
+    } catch { /* keep the status */ }
+    throw new AiError('ai_error', detail);
+  }
   const data: any = await res.json().catch(() => null);
   const text = data?.choices?.[0]?.message?.content;
-  if (typeof text !== 'string') throw new AiError('ai_error');
+  if (typeof text !== 'string' || !text.trim()) {
+    const fin = data?.choices?.[0]?.finish_reason;
+    throw new AiError('ai_error', fin === 'length'
+      ? 'The model spent the whole token budget thinking and returned no text — try again or use a larger budget.'
+      : 'The provider returned an empty reply.');
+  }
   return text;
 }
 
 const aiFail = (c: any, e: any) => {
   const code = e?.code ?? 'ai_error';
   const status = code === 'ai_rate_limited' ? 429 : code === 'ai_not_configured' ? 503 : 502;
-  return bad(c, code, status);
+  return c.json({ error: code, detail: e?.detail }, status);
 };
 
 /* ---- AI provider settings (admin) ---- */
@@ -1320,7 +1337,8 @@ app.put('/settings/ai', requireAdmin, async c => {
 
 app.post('/settings/ai/test', requireAdmin, async c => {
   try {
-    const reply = await callAI(c.env, [{ role: 'user', content: 'Reply with the single word OK.' }], 20);
+    // generous budget: thinking models consume tokens before emitting text
+    const reply = await callAI(c.env, [{ role: 'user', content: 'Reply with the single word OK.' }], 1024);
     return c.json({ ok: true, reply: reply.slice(0, 80) });
   } catch (e: any) { return aiFail(c, e); }
 });

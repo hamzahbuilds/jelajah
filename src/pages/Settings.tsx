@@ -6,8 +6,11 @@ import { useSession } from '../App';
 import { useToast } from '../components/Toast';
 import TokenCard from '../components/TokenCard';
 
+// Model names retire (Google pulled gemini-2.0-flash from the free tier in
+// June 2026) — the field stays editable so a preset going stale is a one-line
+// fix in the UI, not a redeploy.
 const PRESETS = [
-  { name: 'Gemini (free)', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.0-flash' },
+  { name: 'Gemini (free)', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash' },
   { name: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1', model: 'google/gemini-2.0-flash-exp:free' },
   { name: 'Groq', base_url: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
 ];
@@ -48,8 +51,10 @@ export default function Settings() {
       const r = await api.post('/settings/ai/test', {});
       setTestMsg({ ok: true, text: t.connectionOk(r.reply?.trim() || 'OK') });
     } catch (e: any) {
-      const code = e?.body?.error ?? '';
-      setTestMsg({ ok: false, text: code === 'ai_rate_limited' ? t.aiResting : code === 'ai_not_configured' ? t.aiNotConfigured : code === 'ai_unreachable' ? t.aiUnreachable : t.aiError });
+      const code = e?.code ?? e?.body?.error ?? '';
+      const base = code === 'ai_rate_limited' ? t.aiResting : code === 'ai_not_configured' ? t.aiNotConfigured : code === 'ai_unreachable' ? t.aiUnreachable : t.aiError;
+      const detail = e?.body?.detail; // e.g. Gemini's "model not found" for a retired model name
+      setTestMsg({ ok: false, text: detail ? `${base}\n${detail}` : base });
     } finally { setBusy(false); }
   };
 

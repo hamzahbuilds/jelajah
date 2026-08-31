@@ -1234,7 +1234,7 @@ function SuggestModal({ tripId, trip, day, canEdit, onClose, onAdded }: {
       });
       setSuggestions(r.suggestions);
     } catch (ex: any) {
-      const code = ex?.body?.error ?? '';
+      const code = ex?.code ?? ex?.body?.error ?? '';
       setErr(code === 'ai_rate_limited' ? t.aiResting : code === 'ai_not_configured' ? t.aiNotConfigured : code === 'ai_unreachable' ? t.aiUnreachable : t.aiError);
     } finally { setBusy(false); }
   };

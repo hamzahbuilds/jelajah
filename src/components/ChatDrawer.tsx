@@ -40,7 +40,7 @@ export default function ChatDrawer({ tripId }: { tripId: number }) {
       const r = await api.post(`/trips/${tripId}/assistant/chat`, { messages: next, lang });
       setMessages([...next, { role: 'assistant', content: r.reply }]);
     } catch (ex: any) {
-      const code = ex?.body?.error ?? '';
+      const code = ex?.code ?? ex?.body?.error ?? '';
       setErr(code === 'ai_rate_limited' ? t.aiResting : code === 'ai_not_configured' ? t.aiNotConfigured : code === 'ai_unreachable' ? t.aiUnreachable : t.aiError);
     } finally { setBusy(false); }
   };

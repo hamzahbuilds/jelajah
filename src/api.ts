@@ -1,5 +1,5 @@
 export class ApiError extends Error {
-  constructor(public code: string, public status: number) { super(code); }
+  constructor(public code: string, public status: number, public body?: any) { super(code); }
 }
 
 async function handle(res: Response): Promise<any> {
@@ -9,8 +9,9 @@ async function handle(res: Response): Promise<any> {
   }
   if (!res.ok) {
     let code = 'error';
-    try { code = ((await res.json()) as any).error ?? 'error'; } catch { /* ignore */ }
-    throw new ApiError(code, res.status);
+    let body: any;
+    try { body = await res.json(); code = body?.error ?? 'error'; } catch { /* ignore */ }
+    throw new ApiError(code, res.status, body);
   }
   return res.json();
 }
