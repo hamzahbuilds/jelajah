@@ -241,11 +241,11 @@ app.patch('/users/:id', requireAdmin, async c => {
 /* ---------------- trips ---------------- */
 
 app.post('/trips', requireAdmin, async c => {
-  const { name, destination, start_date, end_date, emoji } = await c.req.json<any>();
+  const { name, destination, start_date, end_date, emoji, color } = await c.req.json<any>();
   if (!name?.trim()) return bad(c, 'name_required');
   const r = await c.env.DB.prepare(
-    'INSERT INTO trips (name, destination, start_date, end_date, emoji) VALUES (?,?,?,?,?)',
-  ).bind(name.trim(), destination ?? null, start_date ?? null, end_date ?? null, emoji ?? '🧳').run();
+    'INSERT INTO trips (name, destination, start_date, end_date, emoji, color) VALUES (?,?,?,?,?,?)',
+  ).bind(name.trim(), destination ?? null, start_date ?? null, end_date ?? null, emoji ?? '🧳', color ?? '').run();
   return c.json({ id: r.meta.last_row_id });
 });
 
@@ -266,9 +266,9 @@ app.patch('/trips/:id', requireAdmin, async c => {
   await c.env.DB.prepare(
     `UPDATE trips SET name = COALESCE(?, name), destination = COALESCE(?, destination),
      start_date = COALESCE(?, start_date), end_date = COALESCE(?, end_date), emoji = COALESCE(?, emoji),
-     hidden_features = COALESCE(?, hidden_features) WHERE id = ?`,
+     color = COALESCE(?, color), hidden_features = COALESCE(?, hidden_features) WHERE id = ?`,
   ).bind(b.name ?? null, b.destination ?? null, b.start_date ?? null, b.end_date ?? null, b.emoji ?? null,
-    Array.isArray(b.hidden_features) ? JSON.stringify(b.hidden_features) : null, id).run();
+    b.color ?? null, Array.isArray(b.hidden_features) ? JSON.stringify(b.hidden_features) : null, id).run();
   return c.json({ ok: true });
 });
 
@@ -375,6 +375,7 @@ interface ExpensePayload {
   payer_participant_id: number;
   shares: Array<{ participant_id: number; amount_myr: number }>;
   due_dates?: Array<{ due_date: string; amount_myr?: number; note?: string; participant_id?: number | null }>;
+  payment_status?: 'paid' | 'pay_at_hotel';
   meta?: unknown;
 }
 
@@ -392,13 +393,14 @@ async function insertExpense(env: Env, tripId: number, documentId: number | null
   const r = await env.DB.prepare(
     `INSERT INTO expenses (trip_id, document_id, category, description, vendor, location,
       expense_date, end_date, payment_date, amount_original, currency, fx_rate, amount_myr,
-      payer_participant_id, meta_json)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      payer_participant_id, meta_json, payment_status)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).bind(
     tripId, documentId, p.category, p.description.trim(), p.vendor ?? null, p.location ?? null,
     p.expense_date ?? null, p.end_date ?? null, p.payment_date ?? null,
     p.amount_original, p.currency, p.fx_rate, p.amount_myr,
     p.payer_participant_id, p.meta ? JSON.stringify(p.meta) : null,
+    p.payment_status === 'pay_at_hotel' ? 'pay_at_hotel' : 'paid',
   ).run();
   const eid = Number(r.meta.last_row_id);
   const stmts = p.shares.map(s =>
@@ -469,10 +471,11 @@ app.put('/expenses/:id', requireAdmin, async c => {
   await c.env.DB.batch([
     c.env.DB.prepare(
       `UPDATE expenses SET category=?, description=?, vendor=?, location=?, expense_date=?, end_date=?,
-       payment_date=?, amount_original=?, currency=?, fx_rate=?, amount_myr=?, payer_participant_id=? WHERE id=?`,
+       payment_date=?, amount_original=?, currency=?, fx_rate=?, amount_myr=?, payer_participant_id=?,
+       payment_status=COALESCE(?, payment_status) WHERE id=?`,
     ).bind(p.category, p.description.trim(), p.vendor ?? null, p.location ?? null, p.expense_date ?? null,
       p.end_date ?? null, p.payment_date ?? null, p.amount_original, p.currency, p.fx_rate, p.amount_myr,
-      p.payer_participant_id, id),
+      p.payer_participant_id, p.payment_status ?? null, id),
     c.env.DB.prepare('DELETE FROM expense_shares WHERE expense_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM due_dates WHERE expense_id = ?').bind(id),
   ]);
@@ -549,6 +552,7 @@ app.get('/trips/:id/balances', async c => {
   for (const s of shares.results as any[]) {
     const e = byExpense.get(s.expense_id);
     if (!e || e.payer_participant_id === s.participant_id || !e.payer_participant_id) continue;
+    if (e.payment_status === 'pay_at_hotel') continue; // committed, not owed — enters balances once marked paid
     const key = `${s.participant_id}->${e.payer_participant_id}`;
     if (!items.has(key)) items.set(key, []);
     items.get(key)!.push({
@@ -602,15 +606,26 @@ app.get('/trips/:id/balances', async c => {
   const totalsByCategory: Record<string, number> = {};
   for (const e of exps) totalsByCategory[e.category] = r2((totalsByCategory[e.category] ?? 0) + e.amount_myr);
   const tripTotal = r2(exps.reduce((a, e) => a + e.amount_myr, 0));
+  const committedTotal = r2(exps.filter(e => e.payment_status === 'pay_at_hotel').reduce((a, e) => a + e.amount_myr, 0));
   // per-item summary for chart tooltips / by-item breakdown
   const expenseItems = exps.map(e => ({
     id: e.id, description: e.description, category: e.category,
     amount_myr: e.amount_myr, expense_date: e.expense_date, vendor: e.vendor,
+    payment_status: e.payment_status ?? 'paid',
   }));
 
   const user = c.get('user');
   const visible = user.role === 'admin' ? balances : balances.filter(b => b.participant.id === user.participant_id);
-  return c.json({ balances: visible, totalsByCategory, tripTotal, expenseCount: exps.length, expenseItems });
+  return c.json({ balances: visible, totalsByCategory, tripTotal, committedTotal, expenseCount: exps.length, expenseItems });
+});
+
+app.patch('/expenses/:id/status', requireAdmin, async c => {
+  const { payment_status } = await c.req.json<any>();
+  if (payment_status !== 'paid' && payment_status !== 'pay_at_hotel') return bad(c, 'bad_status');
+  await c.env.DB.prepare('UPDATE expenses SET payment_status = ?, payment_date = COALESCE(payment_date, date(\'now\')) WHERE id = ?')
+    .bind(payment_status, Number(c.req.param('id'))).run();
+  await audit(c.env, c.get('user').id, 'expense_status', 'expense', Number(c.req.param('id')));
+  return c.json({ ok: true });
 });
 
 /* ---------------- planner ---------------- */
@@ -709,8 +724,10 @@ app.get('/trips/:id/plan', async c => {
     .map(e => ({ expense_id: e.id, description: e.description, location: e.location, lat: e.lat, lng: e.lng, checkin: e.expense_date, checkout: e.end_date }));
   const daySettings = await c.env.DB.prepare('SELECT * FROM day_settings WHERE trip_id = ?').bind(id).all();
   const legOverrides = await c.env.DB.prepare('SELECT * FROM leg_overrides WHERE trip_id = ?').bind(id).all();
+  const dayBudgets = await c.env.DB.prepare('SELECT * FROM day_budgets WHERE trip_id = ? ORDER BY day').bind(id).all();
 
   return c.json({
+    dayBudgets: dayBudgets.results,
     autoEvents,
     activities: (acts.results as any[]).map(a => ({ ...a, participant_ids: partsByAct.get(a.id) ?? [] })),
     groups: (groups.results as any[]).map(g => ({ ...g, member_ids: membersByGroup.get(g.id) ?? [] })),
@@ -898,12 +915,79 @@ app.delete('/activities/:id', requireAdmin, async c => {
   return c.json({ ok: true });
 });
 
+/** Atomic reorder + reflow persist: new sort AND recomputed times for one day. */
+app.put('/trips/:id/reorder', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  const { day, items } = await c.req.json<{ day: string; items: Array<{ id: number; start_time: string | null; end_time: string | null; sort: number }> }>();
+  if (!day || !Array.isArray(items) || !items.length) return bad(c, 'missing_fields');
+  const stmts = items.map(it =>
+    c.env.DB.prepare('UPDATE activities SET start_time = ?, end_time = ?, sort = ? WHERE id = ? AND trip_id = ? AND day = ?')
+      .bind(it.start_time, it.end_time, it.sort, it.id, id, day));
+  await c.env.DB.batch(stmts);
+  await audit(c.env, c.get('user').id, 'activities_reorder', 'trip', id);
+  return c.json({ ok: true });
+});
+
+/** Cache nearest-station lookup results on an activity (fetched client-side from Overpass). */
+app.patch('/activities/:id/stations', requireAdmin, async c => {
+  const { stations_json, station_idx } = await c.req.json<any>();
+  await c.env.DB.prepare('UPDATE activities SET stations_json = COALESCE(?, stations_json), station_idx = ? WHERE id = ?')
+    .bind(stations_json != null ? JSON.stringify(stations_json) : null, station_idx ?? null, Number(c.req.param('id'))).run();
+  return c.json({ ok: true });
+});
+
+app.put('/trips/:id/daybudgets', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.json<any>();
+  if (!b.day) return bad(c, 'day_required');
+  await c.env.DB.prepare(
+    `INSERT INTO day_budgets (trip_id, day, currency, transport, accommodation, food, attractions, misc, total, myr_estimate)
+     VALUES (?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT (trip_id, day) DO UPDATE SET currency=excluded.currency, transport=excluded.transport,
+       accommodation=excluded.accommodation, food=excluded.food, attractions=excluded.attractions,
+       misc=excluded.misc, total=excluded.total, myr_estimate=excluded.myr_estimate`,
+  ).bind(id, b.day, b.currency ?? 'JPY', b.transport ?? null, b.accommodation ?? null, b.food ?? null,
+    b.attractions ?? null, b.misc ?? null, b.total ?? null, b.myr_estimate ?? null).run();
+  return c.json({ ok: true });
+});
+
+app.delete('/trips/:id/daybudgets/:day', requireAdmin, async c => {
+  await c.env.DB.prepare('DELETE FROM day_budgets WHERE trip_id = ? AND day = ?')
+    .bind(Number(c.req.param('id')), c.req.param('day')).run();
+  return c.json({ ok: true });
+});
+
+app.get('/trips/:id/importprofiles', requireAdmin, async c => {
+  const rows = await c.env.DB.prepare('SELECT * FROM import_profiles WHERE trip_id = ? ORDER BY id DESC')
+    .bind(Number(c.req.param('id'))).all();
+  return c.json(rows.results);
+});
+
+app.post('/trips/:id/importprofiles', requireAdmin, async c => {
+  const { name, mapping } = await c.req.json<any>();
+  if (!name?.trim() || !mapping) return bad(c, 'missing_fields');
+  const r = await c.env.DB.prepare('INSERT INTO import_profiles (trip_id, name, mapping_json) VALUES (?,?,?)')
+    .bind(Number(c.req.param('id')), name.trim(), JSON.stringify(mapping)).run();
+  return c.json({ id: r.meta.last_row_id });
+});
+
 /** Bulk upsert from the CSV template. Rows with an id update that activity
     (must belong to this trip); rows without create new ones. Never deletes. */
 app.post('/trips/:id/activities/bulk', requireAdmin, async c => {
   const id = Number(c.req.param('id'));
-  const { rows } = await c.req.json<{ rows: any[] }>();
+  const { rows, budgets } = await c.req.json<{ rows: any[]; budgets?: any[] }>();
   if (!Array.isArray(rows) || rows.length === 0 || rows.length > 300) return bad(c, 'rows_required');
+  for (const b of (budgets ?? []).slice(0, 60)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(b.day ?? '')) continue;
+    await c.env.DB.prepare(
+      `INSERT INTO day_budgets (trip_id, day, currency, transport, accommodation, food, attractions, misc, total, myr_estimate)
+       VALUES (?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT (trip_id, day) DO UPDATE SET currency=excluded.currency, transport=excluded.transport,
+         accommodation=excluded.accommodation, food=excluded.food, attractions=excluded.attractions,
+         misc=excluded.misc, total=excluded.total, myr_estimate=excluded.myr_estimate`,
+    ).bind(id, b.day, b.currency ?? 'JPY', b.transport ?? null, b.accommodation ?? null, b.food ?? null,
+      b.attractions ?? null, b.misc ?? null, b.total ?? null, b.myr_estimate ?? null).run();
+  }
   let created = 0, updated = 0;
   const errors: Array<{ row: number; error: string }> = [];
   for (let i = 0; i < rows.length; i++) {

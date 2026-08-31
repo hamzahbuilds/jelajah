@@ -33,6 +33,7 @@ export const SCHEMA: string[] = [
     end_date TEXT,
     base_currency TEXT NOT NULL DEFAULT 'MYR',
     emoji TEXT DEFAULT '🧳',
+    color TEXT DEFAULT '',
     hidden_features TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
@@ -75,6 +76,7 @@ export const SCHEMA: string[] = [
     meta_json TEXT,
     lat REAL,
     lng REAL,
+    payment_status TEXT NOT NULL DEFAULT 'paid',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS expense_shares (
@@ -143,6 +145,8 @@ export const SCHEMA: string[] = [
     expense_id INTEGER REFERENCES expenses(id),
     done INTEGER NOT NULL DEFAULT 0,
     sort INTEGER NOT NULL DEFAULT 0,
+    stations_json TEXT,
+    station_idx INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS activity_participants (
@@ -191,6 +195,21 @@ export const SCHEMA: string[] = [
     behalf_note TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS day_budgets (
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    day TEXT NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'JPY',
+    transport REAL, accommodation REAL, food REAL, attractions REAL, misc REAL, total REAL,
+    myr_estimate REAL,
+    PRIMARY KEY (trip_id, day)
+  )`,
+  `CREATE TABLE IF NOT EXISTS import_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    name TEXT NOT NULL,
+    mapping_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
   `CREATE INDEX IF NOT EXISTS idx_personal_user ON personal_expenses(trip_id, user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_activities_trip ON activities(trip_id, day)`,
   `CREATE INDEX IF NOT EXISTS idx_documents_trip ON documents(trip_id)`,
@@ -208,8 +227,12 @@ export const UPGRADES: string[] = [
   `ALTER TABLE expenses ADD COLUMN lng REAL`,
   `ALTER TABLE due_dates ADD COLUMN participant_id INTEGER REFERENCES participants(id)`,
   `ALTER TABLE payments ADD COLUMN expense_id INTEGER REFERENCES expenses(id)`,
+  `ALTER TABLE trips ADD COLUMN color TEXT DEFAULT ''`,
+  `ALTER TABLE expenses ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'paid'`,
+  `ALTER TABLE activities ADD COLUMN stations_json TEXT`,
+  `ALTER TABLE activities ADD COLUMN station_idx INTEGER`,
   ...SCHEMA.filter(s =>
-    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses)\b/.test(s)
+    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles)\b/.test(s)
     || /idx_activities_trip|idx_personal_user/.test(s)),
 ];
 

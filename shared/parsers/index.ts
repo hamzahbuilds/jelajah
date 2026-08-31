@@ -4,6 +4,7 @@ import { detectTripcomItinerary, parseTripcomItinerary } from './tripcomItinerar
 import { detectAirbnb, parseAirbnb } from './airbnb';
 import { detectAirasia, parseAirasia } from './airasia';
 import { detectAirasiaItinerary, parseAirasiaItinerary } from './airasiaItinerary';
+import { detectTripcomVoucher, parseTripcomVoucher } from './tripcomVoucher';
 import { parseGeneric } from './generic';
 
 export * from './types';
@@ -19,6 +20,7 @@ export const PARSERS: ParserEntry[] = [
   { name: 'tripcom-itinerary', detect: detectTripcomItinerary, parse: parseTripcomItinerary },
   { name: 'tripcom-receipt', detect: detectTripcomReceipt, parse: parseTripcomReceipt },
   { name: 'airbnb-confirmation', detect: detectAirbnb, parse: parseAirbnb },
+  { name: 'tripcom-hotel-voucher', detect: detectTripcomVoucher, parse: parseTripcomVoucher },
   { name: 'airasia-itinerary', detect: detectAirasiaItinerary, parse: parseAirasiaItinerary },
   { name: 'airasia-invoice', detect: detectAirasia, parse: parseAirasia },
 ];

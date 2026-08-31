@@ -4,8 +4,9 @@ import { api, fmtDate } from '../api';
 import { useT } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
-import { extractPdfText } from '../pdf';
+import { extractPdfText, renderPdfPages } from '../pdf';
 import { parseDocument } from '../../shared/parsers';
+import { OCR_LANGS, savedLangs, saveLangs, looksScanned, ocrImages, OcrProgress } from '../ocr';
 
 const ICONS: Record<string, string> = {
   receipt: '🧾', itinerary: '🛫', confirmation: '🏠', other: '📄',
@@ -42,29 +43,44 @@ export default function Documents() {
   const load = async () => setDocs(await api.get(`/trips/${tripId}/documents`));
   useEffect(() => { load(); }, [tripId]);
 
+  const [ocrQueue, setOcrQueue] = useState<{ files: File[]; single: boolean } | null>(null);
+
+  const emptyParse = (warning?: string) => ({
+    parser: 'none', docType: 'other', people: [], legs: [], fields: {},
+    warnings: warning ? [warning] : [], confidence: 0, suggestExpense: true,
+  });
+
+  const uploadOne = async (file: File, parsed: any, goReview: boolean) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('meta', JSON.stringify(parsed));
+    const res = await api.upload(`/trips/${tripId}/documents`, form);
+    if (goReview) navigate(`/trips/${tripId}/documents/${res.id}/review`, { state: { duplicate: res.duplicate } });
+    return res;
+  };
+
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length || busy) return;
     setBusy(true);
     try {
-      for (const file of Array.from(files)) {
-        let parsed: any = { parser: 'none', docType: 'other', people: [], legs: [], fields: {}, warnings: [], confidence: 0, suggestExpense: true };
-        if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-          try {
-            const text = await extractPdfText(file);
-            parsed = parseDocument(text);
-          } catch {
-            parsed.warnings = ['Could not read PDF text — fill the fields manually.'];
-          }
-        }
-        const form = new FormData();
-        form.append('file', file);
-        form.append('meta', JSON.stringify(parsed));
-        const res = await api.upload(`/trips/${tripId}/documents`, form);
-        if (files.length === 1) {
-          navigate(`/trips/${tripId}/documents/${res.id}/review`, { state: { duplicate: res.duplicate } });
-          return;
+      const needOcr: File[] = [];
+      const all = Array.from(files);
+      for (const file of all) {
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        const isImage = /^image\//.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name);
+        if (isPdf) {
+          let text = '';
+          try { text = await extractPdfText(file); } catch { /* treat as scan */ }
+          if (looksScanned(text)) { needOcr.push(file); continue; } // scanned PDF → OCR prompt
+          await uploadOne(file, parseDocument(text), all.length === 1);
+          if (all.length === 1) return;
+        } else if (isImage) {
+          needOcr.push(file); // photos always go through the OCR prompt
+        } else {
+          await uploadOne(file, emptyParse(), false);
         }
       }
+      if (needOcr.length) { setOcrQueue({ files: needOcr, single: all.length === 1 && needOcr.length === 1 }); return; }
       await load();
     } finally {
       setBusy(false);
@@ -139,6 +155,106 @@ export default function Documents() {
             )}
           </div>
         ))}
+      </div>
+
+      {ocrQueue && (
+        <OcrModal files={ocrQueue.files} single={ocrQueue.single}
+          upload={uploadOne}
+          onClose={async () => { setOcrQueue(null); await load(); }} />
+      )}
+    </div>
+  );
+}
+
+/** v0.11: OCR prompt for photos and scanned PDFs — language chips + progress. */
+function OcrModal({ files, single, upload, onClose }: {
+  files: File[];
+  single: boolean;
+  upload: (file: File, parsed: any, goReview: boolean) => Promise<any>;
+  onClose: () => void;
+}) {
+  const { t } = useT();
+  const [idx, setIdx] = useState(0);
+  const [langs, setLangs] = useState<string[]>(savedLangs());
+  const [prog, setProg] = useState<OcrProgress | null>(null);
+  const [err, setErr] = useState('');
+  const file = files[idx];
+  const isLast = idx === files.length - 1;
+
+  const toggleLang = (code: string) => {
+    if (code === 'eng') return; // English always on — it anchors Latin text
+    const next = langs.includes(code) ? langs.filter(l => l !== code) : [...langs, code];
+    setLangs(next.length ? next : ['eng']);
+    saveLangs(next.length ? next : ['eng']);
+  };
+
+  const advance = async () => {
+    if (isLast) onClose();
+    else { setIdx(idx + 1); setProg(null); setErr(''); }
+  };
+
+  const run = async () => {
+    setErr('');
+    setProg({ page: 0, pages: 1, pct: 0, status: 'lang' });
+    try {
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      const images: Blob[] = isPdf ? await renderPdfPages(file) : [file];
+      const text = await ocrImages(images, langs, setProg);
+      const parsed = parseDocument(text);
+      parsed.fields['OCR'] = langs.join('+');
+      await upload(file, parsed, single && isLast);
+      if (!(single && isLast)) await advance();
+    } catch (e: any) {
+      setErr(t.ocrFailed);
+      setProg(null);
+    }
+  };
+
+  const skip = async () => {
+    await upload(file, {
+      parser: 'none', docType: 'other', people: [], legs: [], fields: {},
+      warnings: [t.ocrSkippedWarn], confidence: 0, suggestExpense: true,
+    }, single && isLast);
+    if (!(single && isLast)) await advance();
+  };
+
+  const running = prog !== null;
+  return (
+    <div className="overlay" onClick={() => !running && onClose()}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+        <div className="row-between">
+          <h2>🔎 {t.ocrTitle}</h2>
+          {!running && <button className="icon" onClick={onClose}>✕</button>}
+        </div>
+        <p className="tiny">{file.name}{files.length > 1 ? ` (${idx + 1}/${files.length})` : ''}</p>
+        <p className="tiny">{t.ocrHint}</p>
+        <div className="chips" style={{ margin: '8px 0' }}>
+          {OCR_LANGS.map(l => (
+            <span key={l.code}
+              className={`chip ${langs.includes(l.code) ? 'on' : ''}`}
+              onClick={() => !running && toggleLang(l.code)}>
+              {l.label}{!l.local && !langs.includes(l.code) ? ' ⬇️' : ''}
+            </span>
+          ))}
+        </div>
+        {langs.some(l => !OCR_LANGS.find(o => o.code === l)?.local) && (
+          <p className="tiny">{t.ocrDownloadNote}</p>
+        )}
+        {running && (
+          <div style={{ margin: '10px 0' }}>
+            <div className="tiny">
+              {prog.status === 'lang' ? t.ocrLoadingLang : t.ocrPage(prog.page, prog.pages, Math.round(prog.pct * 100))}
+            </div>
+            <div className="track" style={{ height: 8, marginTop: 4 }}>
+              <div className="fill" style={{ width: `${Math.round(prog.pct * 100)}%` }} />
+            </div>
+          </div>
+        )}
+        {err && <p className="callout warn">{err}</p>}
+        <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+          <button className="btn btn-ghost" disabled={running} onClick={skip}>{t.ocrSkip}</button>
+          <button className="btn" disabled={running} onClick={run}>▶️ {t.ocrStart}</button>
+        </div>
       </div>
     </div>
   );

@@ -296,3 +296,54 @@ img, iframe, .preview { max-width: 100%; }
   th, td { padding: 7px 6px; }
   button.btn { padding: 8px 12px; }
 }
+
+/* ---------- v0.10: trip style, drag state, journey card ---------- */
+.emoji-swatch {
+  width: 34px; height: 34px; border-radius: 8px; border: 2px solid var(--line);
+  background: var(--surface); font-size: 1.1rem; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0;
+}
+.emoji-swatch.on { border-color: var(--brand); background: #f0fdfa; }
+.color-swatch {
+  width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); cursor: pointer; padding: 0;
+}
+.color-swatch.on { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface) inset; }
+
+.plan-item.dragging { opacity: .45; }
+.plan-item.drag-over { outline: 2px dashed var(--brand); outline-offset: 2px; border-radius: 8px; }
+.plan-item .pi-move { display: flex; flex-direction: column; gap: 2px; }
+.plan-item .pi-move .icon { padding: 0 3px; font-size: .7rem; line-height: 1.2; }
+.drag-handle { cursor: grab; color: var(--ink-3); user-select: none; }
+
+.journey-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.journey-stats .jstat {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px 11px; font-size: .78rem; font-weight: 600; color: var(--ink-2);
+}
+
+.budget-strip {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--bg); border: 1px dashed var(--line); border-radius: 8px;
+  padding: 5px 10px; font-size: .78rem; margin: 6px 0 8px;
+}
+.budget-strip .bseg { white-space: nowrap; }
+.budget-strip .btotal { font-weight: 700; }
+
+/* wizard mapping table */
+.wizard-grid { display: grid; grid-template-columns: 130px 1fr; gap: 6px 10px; align-items: center; }
+.wizard-preview { max-height: 200px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; font-size: .74rem; }
+.wizard-preview table { margin: 0; }
+
+/* ---------- v0.11: OCR + keyword chips ---------- */
+.kw-panel {
+  border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px;
+  margin-bottom: 14px; background: var(--bg);
+}
+.kw-group { display: flex; gap: 8px; align-items: baseline; margin-top: 8px; }
+.kw-group .kw-label { font-size: .72rem; font-weight: 700; color: var(--ink-3); white-space: nowrap; min-width: 86px; }
+.kw-group .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip.off { opacity: .45; cursor: default; }
+img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain; background: #fff; }
+@media (max-width: 620px) {
+  .kw-group { flex-direction: column; gap: 3px; }
+}

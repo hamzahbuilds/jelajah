@@ -37,6 +37,8 @@ export interface ParsedDoc {
   warnings: string[];
   confidence: number;         // 0..1
   suggestExpense: boolean;    // itineraries default to document-only
+  paymentStatus?: 'paid' | 'pay_at_hotel'; // check-in vouchers preselect pay_at_hotel
+  keywords?: import('../keywords').KeywordSet; // generic/OCR docs: all detected candidates for the chips UI
 }
 
 export const MONTHS: Record<string, number> = {

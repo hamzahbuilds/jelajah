@@ -4,6 +4,9 @@ import { api, fmtMYR, fmtDate } from '../api';
 import { useT, Dict } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
+import LeafletMap, { Pin, Arc } from '../components/LeafletMap';
+import { airportCoords } from '../../shared/airports';
+import { haversine } from '../../shared/fares';
 
 function countdown(t: Dict, start?: string | null, end?: string | null): { big: string; sub: string } {
   if (!start) return { big: '—', sub: '' };
@@ -58,8 +61,43 @@ export default function Dashboard() {
   })();
   const daysUntil = (d: Date) => Math.max(0, Math.round((new Date(d.toDateString()).getTime() - new Date(new Date().toDateString()).getTime()) / 86400000));
 
+  // Journey overview: 🏨 stay pins + numbered 📍 activity pins + ✈️ dashed arcs between airports.
+  const journey = (() => {
+    if (!plan) return null;
+    const pins: Pin[] = [];
+    const seen = new Set<string>();
+    for (const s of plan.stays ?? []) {
+      if (s.lat == null || s.lng == null) continue;
+      const k = `${s.lat.toFixed(4)},${s.lng.toFixed(4)}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      pins.push({ lat: s.lat, lng: s.lng, icon: '🏨', label: s.description });
+    }
+    const stayCount = pins.length;
+    let n = 0;
+    for (const a of plan.activities ?? []) {
+      if (a.lat == null || a.lng == null) continue;
+      n++;
+      pins.push({ lat: a.lat, lng: a.lng, icon: String(n), label: `${n}. ${a.title}` });
+    }
+    const arcs: Arc[] = [];
+    for (const e of plan.autoEvents ?? []) {
+      if (e.kind !== 'flight') continue;
+      const [fromTxt, toTxt] = String(e.title).split('→').map((s: string) => s.replace(/\(.*?\)/g, '').trim());
+      const from = airportCoords(fromTxt);
+      const to = airportCoords(toTxt);
+      if (from && to && (from.code !== to.code)) {
+        arcs.push({ from: { lat: from.lat, lng: from.lng }, to: { lat: to.lat, lng: to.lng }, label: e.title });
+      }
+    }
+    const km = Math.round(arcs.reduce((a, x) => a + haversine(x.from.lat, x.from.lng, x.to.lat, x.to.lng), 0) / 1000);
+    if (!pins.length && !arcs.length) return null;
+    return { pins, arcs, km, stays: stayCount, places: n, flights: arcs.length };
+  })();
+
   const cd = countdown(t, trip.start_date, trip.end_date);
-  const moneyHidden = !!bal?.hidden;
+  // treat "not loaded yet" as hidden so members never see a flash of money widgets
+  const moneyHidden = !bal || !!bal.hidden;
   const catTotals: Array<[string, number]> = bal && !moneyHidden
     ? Object.entries(bal.totalsByCategory as Record<string, number>).sort((a, b) => b[1] - a[1])
     : [];
@@ -100,7 +138,10 @@ export default function Dashboard() {
         <div className="stat">
           <div className="label">{t.tripTotal}</div>
           <div className="value">{bal ? fmtMYR(bal.tripTotal) : '…'}</div>
-          <div className="sub">{bal?.expenseCount ?? 0} {t.expenses}</div>
+          <div className="sub">
+            {bal?.expenseCount ?? 0} {t.expenses}
+            {bal?.committedTotal > 0 && <> · 🏨 {fmtMYR(bal.committedTotal)} {t.committed}</>}
+          </div>
         </div>
         )}
         {moneyHidden ? null : user.role === 'admin' ? (
@@ -128,6 +169,20 @@ export default function Dashboard() {
         </div>
         )}
       </div>
+
+      {journey && (
+        <div className="card">
+          <h3>🗺️ {t.journey}</h3>
+          <LeafletMap pins={journey.pins} arcs={journey.arcs} height={300}
+            accent={(trip as any).color || undefined} />
+          <div className="journey-stats">
+            {journey.flights > 0 && <span className="jstat">✈️ {journey.flights} {t.flights}</span>}
+            {journey.stays > 0 && <span className="jstat">🏨 {journey.stays} {t.stays}</span>}
+            {journey.places > 0 && <span className="jstat">📍 {journey.places} {t.places}</span>}
+            {journey.km > 0 && <span className="jstat">🧭 {journey.km.toLocaleString()} km {t.totalDistance}</span>}
+          </div>
+        </div>
+      )}
 
       {upcoming.length > 0 ? (
         <div className="card" style={{ borderLeft: '4px solid var(--data)' }}>

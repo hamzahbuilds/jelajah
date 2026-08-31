@@ -43,6 +43,7 @@ export default function Ledger() {
       expense_date: e.expense_date ?? '', end_date: e.end_date ?? '', payment_date: e.payment_date ?? '',
       amount_original: e.amount_original, currency: e.currency, fx_rate: e.fx_rate, amount_myr: e.amount_myr,
       payer_participant_id: e.payer_participant_id ?? 0,
+      payment_status: e.payment_status === 'pay_at_hotel' ? 'pay_at_hotel' : 'paid',
       participant_ids: shares.map((s: any) => s.participant_id),
       custom: true,
       customShares: Object.fromEntries(shares.map((s: any) => [s.participant_id, s.amount_myr])),
@@ -97,6 +98,17 @@ export default function Ledger() {
                   <td style={{ whiteSpace: 'nowrap' }}>{CAT_ICON[e.category]} {(t as any)[e.category]}</td>
                   <td>
                     {e.description}
+                    {e.payment_status === 'pay_at_hotel' && (
+                      <>
+                        {' '}<span className="badge warn" title={t.committedNote}>🏨💤 {t.payAtHotel}</span>
+                        {user.role === 'admin' && (
+                          <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }}
+                            onClick={async () => { await api.patch(`/expenses/${e.id}/status`, { payment_status: 'paid' }); await load(); }}>
+                            {t.markPaid}
+                          </button>
+                        )}
+                      </>
+                    )}
                     <div className="tiny">
                       {e.vendor ?? ''}{e.document_id ? ` · 📎 ${t.documentCol} #${e.document_id}` : ''}
                       {e.currency !== 'MYR' ? ` · ${fmtMoney(e.amount_original, e.currency)} @ ${e.fx_rate}` : ''}

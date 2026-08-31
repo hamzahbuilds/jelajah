@@ -31,3 +31,22 @@ export async function extractPdfText(file: File): Promise<string> {
   }
   return lines.join('\n');
 }
+
+/** Render PDF pages to PNG blobs for OCR of scanned documents. */
+export async function renderPdfPages(file: File, maxPages = 8, scale = 2.2): Promise<Blob[]> {
+  const data = new Uint8Array(await file.arrayBuffer());
+  const doc = await pdfjs.getDocument({ data }).promise;
+  const out: Blob[] = [];
+  for (let p = 1; p <= Math.min(doc.numPages, maxPages); p++) {
+    const page = await doc.getPage(p);
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(vp.width);
+    canvas.height = Math.ceil(vp.height);
+    const ctx = canvas.getContext('2d')!;
+    await page.render({ canvasContext: ctx, viewport: vp } as any).promise;
+    const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
+    if (blob) out.push(blob);
+  }
+  return out;
+}

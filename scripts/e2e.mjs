@@ -124,7 +124,9 @@ await page.waitForURL(/documents/);
 console.log('itinerary doc-only ok');
 
 // 10. Plan tab: auto events enriched with itinerary times
-await page.click('nav.tabs a:has-text("Plan")');
+// (goto instead of tab-click: the Documents list re-renders right after confirm,
+// which can swallow a click on the tab bar — observed flake)
+await page.goto(`${BASE}/trips/1/plan`);
 await page.waitForSelector('.daychips');
 await page.waitForTimeout(600);
 await shot('11-plan-day');
@@ -426,5 +428,218 @@ await page.click('nav.tabs a:has-text("Ledger")');
 await page.waitForSelector('text=AirAsia booking SH3P9K');
 console.log('bulk delete ok (all docs removed, expenses intact)');
 
+/* ---------------- v0.10 ---------------- */
+
+// 27. hotel voucher → pay-at-hotel: committed, not owed
+await page.click('nav.tabs a:has-text("Documents")');
+await page.waitForSelector('.dropzone');
+await page.setInputFiles('input[type=file]', 'docs-samples/a5969b58-Checkin_Voucher.pdf');
+await page.waitForURL(/review/, { timeout: 30000 });
+await page.waitForSelector('text=tripcom-hotel-voucher');
+const vrb = await page.textContent('body');
+if (!vrb.includes('Pay at hotel')) await fail('voucher review missing Pay at hotel badge');
+const vdesc = await page.inputValue('.card form input[required]');
+if (!vdesc.includes('ASAHIKAWA')) await fail(`voucher description wrong: ${vdesc}`);
+// payment-status select preselected + due date prefilled on check-in day
+const psSel = await page.inputValue('.card form select:has(option[value="pay_at_hotel"])');
+if (psSel !== 'pay_at_hotel') await fail(`payment status not preselected: ${psSel}`);
+const dueVal = await page.inputValue('.card form input[type=date] >> nth=3');
+if (dueVal !== '2026-12-20') await fail(`auto due date should be check-in day, got ${dueVal}`);
+await page.selectOption('.card form select[required]', { label: 'Hamzah Bin Hamizan' });
+await page.click('.card form button.btn:not(.btn-ghost)');
+await page.waitForURL(/ledger/);
+console.log('voucher review ok (status preselected, due date on check-in)');
+
+// ledger badge + excluded from balances
+await page.waitForSelector('text=ASAHIKAWA');
+if (!(await page.textContent('body')).includes('🏨💤')) await fail('ledger missing pay-at-hotel badge');
+let balv = await page.evaluate(() => fetch('/api/trips/1/balances').then(r => r.json()));
+if (!(balv.committedTotal > 700 && balv.committedTotal < 710)) await fail(`committedTotal wrong: ${balv.committedTotal}`);
+let inBal = balv.balances.some(b => b.byPayee.some(bp => bp.items.some(it => /ASAHIKAWA/.test(it.description))));
+if (inBal) await fail('pay-at-hotel expense leaked into balances');
+console.log('committed-not-owed ok (excluded from balances, committedTotal =', balv.committedTotal, ')');
+
+// dashboard shows committed amount beside trip total
+await page.click('nav.tabs a:has-text("Dashboard")');
+await page.waitForSelector('.stats');
+if (!(await page.textContent('.stats')).includes('committed')) await fail('dashboard missing committed amount');
+await shot('20-committed');
+
+// mark paid → enters balances
+await page.click('nav.tabs a:has-text("Ledger")');
+await page.waitForSelector('button:has-text("Mark paid")');
+await page.click('button:has-text("Mark paid")');
+await page.waitForSelector('button:has-text("Mark paid")', { state: 'detached' });
+balv = await page.evaluate(() => fetch('/api/trips/1/balances').then(r => r.json()));
+if (balv.committedTotal !== 0) await fail(`committedTotal should be 0 after mark paid, got ${balv.committedTotal}`);
+inBal = balv.balances.some(b => b.byPayee.some(bp => bp.items.some(it => /ASAHIKAWA/.test(it.description))));
+if (!inBal) await fail('marked-paid expense should now be in balances');
+console.log('mark paid ok (expense entered balances)');
+
+// 28. dashboard journey card (pins from located activities/stays)
+await page.click('nav.tabs a:has-text("Dashboard")');
+await page.waitForSelector('h3:has-text("Journey")');
+await page.waitForSelector('.journey-stats .jstat');
+const jtxt = await page.textContent('.journey-stats');
+if (!/📍 \d+ places/.test(jtxt)) await fail(`journey stats missing places: ${jtxt}`);
+if ((await page.$$('.pin-dot')).length < 2) await fail('journey map missing pins');
+await shot('21-journey');
+console.log('journey card ok:', jtxt.trim());
+
+// 29. reorder + smart reflow + undo (D2: teamLab 10:30/160min, then Sensoji 15:00)
+await page.click('nav.tabs a:has-text("Plan")');
+await page.waitForSelector('.daychips');
+await page.click('.daychip:has-text("D2")');
+await page.waitForSelector('text=Sensoji Temple');
+const before = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
+  .then(p => p.activities.filter(a => a.day === '2026-11-30').sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || String(a.start_time).localeCompare(String(b.start_time)))));
+if (before[0].title !== 'Lawatan teamLab Planets') await fail('unexpected initial order');
+// move Sensoji up: it takes the 10:30 anchor; teamLab reflows after it + travel
+await page.click('.plan-item:has-text("Sensoji Temple") button[title="Move up"]');
+await page.waitForSelector('button:has-text("Undo reorder")');
+await page.waitForTimeout(700);
+const after = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
+  .then(p => p.activities.filter(a => a.day === '2026-11-30').sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))));
+if (after[0].title !== 'Sensoji Temple') await fail('reorder did not swap order');
+if (after[0].start_time !== '10:30') await fail(`first activity should anchor at 10:30, got ${after[0].start_time}`);
+if (!(after[1].start_time > '10:30')) await fail(`teamLab should reflow later, got ${after[1].start_time}`);
+console.log('reflow ok:', after.map(a => `${a.title}@${a.start_time}`).join(', '));
+await shot('22-reflow');
+// undo restores times + order
+await page.click('button:has-text("Undo reorder")');
+await page.waitForTimeout(700);
+const undone = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
+  .then(p => p.activities.filter(a => a.day === '2026-11-30').sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))));
+if (undone[0].title !== 'Lawatan teamLab Planets' || undone[0].start_time !== '10:30') await fail('undo did not restore order/times');
+console.log('undo reorder ok');
+
+// 30. new trip with emoji + accent colour, then the foreign-CSV mapping wizard
+await page.goto(`${BASE}/`);
+await page.waitForSelector('button:has-text("New trip")');
+await page.click('button:has-text("New trip")');
+await page.waitForSelector('.modal');
+await page.fill('.modal input >> nth=0', 'Kyushu Campervan');
+await page.fill('.modal input >> nth=1', 'Kyushu, Japan');
+await page.fill('.modal input[type=date] >> nth=0', '2026-12-08');
+await page.fill('.modal input[type=date] >> nth=1', '2026-12-17');
+await page.click('.emoji-swatch:has-text("🚐")');
+await page.click('button[aria-label="#7c3aed"]');
+await page.click('.modal button.btn:not(.btn-ghost)');
+await page.waitForSelector('a.card:has-text("Kyushu Campervan")');
+const border = await page.$eval('a.card:has-text("Kyushu Campervan")', el => getComputedStyle(el).borderTopColor);
+if (border !== 'rgb(124, 58, 237)') await fail(`trip accent not applied to card: ${border}`);
+await shot('23-trip-style');
+console.log('trip emoji + accent ok');
+
+await page.click('a.card:has-text("Kyushu Campervan")');
+await page.waitForSelector('.hero');
+const heroBg = await page.$eval('.hero', el => getComputedStyle(el).backgroundColor);
+console.log('trip shell accent applied, hero bg:', heroBg);
+await page.click('nav.tabs a:has-text("Plan")');
+await page.waitForSelector('button:has-text("Map columns")');
+await page.click('button:has-text("Map columns")');
+await page.waitForSelector('.modal input[type=file]', { state: 'attached' });
+await page.setInputFiles('.modal input[type=file]', 'tests/fixtures/client-campervan.csv');
+await page.waitForSelector('.modal select');
+// auto-guessed mapping → preview
+await page.click('.modal button:has-text("Import preview")');
+await page.waitForSelector('.modal table tbody tr');
+const wtxt = await page.textContent('.modal');
+if (!wtxt.includes('Himeji Castle')) await fail('wizard preview missing Himeji Castle');
+if (!wtxt.includes('2026-12-08')) await fail('wizard preview missing resolved date');
+await shot('24-wizard');
+await page.click('.modal button:has-text("Apply")');
+await page.waitForSelector('.modal', { state: 'detached' });
+await page.waitForSelector('text=Himeji Castle');
+const kb = await page.textContent('body');
+if (!kb.includes('💰')) await fail('day budget chip missing after wizard import');
+if (!/20,000|¥20000/.test(kb)) await fail('day budget total ¥20,000 missing');
+const tripId2 = Number(page.url().match(/trips\/(\d+)/)[1]);
+const profs = await page.evaluate((tid) => fetch(`/api/trips/${tid}/importprofiles`).then(r => r.json()), tripId2);
+if (!profs.length) await fail('import profile was not saved');
+await shot('25-wizard-applied');
+console.log('wizard import ok (activities + budgets + saved profile)');
+
+// lodging rows became overnight activities
+if (!kb.includes('🛏️') && !kb.includes('Michi-no-Eki')) await fail('overnight lodging activity missing');
+console.log('overnight → lodging ok');
+
+/* ---------------- v0.11 ---------------- */
+
+// 32. photo receipt → in-browser OCR (local eng+msa packs, hermetic) → keyword chips
+// Render a fake unknown-vendor receipt to a PNG with the browser itself.
+const rPage = await browser.newPage({ viewport: { width: 700, height: 560 } });
+await rPage.setContent(`
+  <body style="margin:0;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif">
+    <div style="padding:40px;font-size:30px;line-height:1.7">
+      <div style="font-size:36px;font-weight:bold">SUNWAY TRAVEL SDN BHD</div>
+      <div>OFFICIAL RECEIPT</div>
+      <div>Receipt no: TR88421</div>
+      <div>Date paid: 15/08/2026</div>
+      <div>Guest: HAIRUNI BINTI HASSIM</div>
+      <div>Bus tour Kyoto day trip</div>
+      <div style="font-weight:bold">Grand Total RM 148.50</div>
+      <div>Paid by Visa</div>
+    </div>
+  </body>`);
+await rPage.screenshot({ path: '/tmp/ocr-receipt.png' });
+await rPage.close();
+
+await page.goto(`${BASE}/trips/1/documents`);
+await page.waitForSelector('.dropzone');
+await page.setInputFiles('input[type=file]', '/tmp/ocr-receipt.png');
+await page.waitForSelector('h2:has-text("Scanned document")');
+await shot('28-ocr-modal');
+// English + Malay are preselected and ship locally — no network needed
+await page.click('button:has-text("Run OCR")');
+await page.waitForURL(/review/, { timeout: 180000 });
+await page.waitForSelector('.kw-panel', { timeout: 30000 });
+await shot('29-ocr-review');
+const kwTxt = await page.textContent('.kw-panel');
+if (!kwTxt.includes('148.5')) await fail(`amount chip missing from keyword panel: ${kwTxt}`);
+if (!kwTxt.includes('2026-08-15')) await fail('date chip 2026-08-15 missing');
+if (!/TR88421/.test(kwTxt)) await fail('reference chip TR88421 missing');
+console.log('OCR + keyword extraction ok (amount, date, ref chips present)');
+
+// generic parser best guesses should have pre-filled the form
+const ocrAmt = await page.inputValue('.card form input[type=number] >> nth=0');
+if (Number(ocrAmt) !== 148.5) await fail(`OCR total not prefilled: ${ocrAmt}`);
+// the parse auto-matched Hairuni; the name chip toggles her off and on again
+if (!(await page.textContent('.card form')).includes('Participants (1)')) await fail('OCR guest not auto-matched');
+await page.click('.kw-panel .chip:has-text("HAIRUNI")');
+await page.waitForTimeout(300);
+if (!(await page.textContent('.card form')).includes('Participants (0)')) await fail('name chip did not toggle participant off');
+await page.click('.kw-panel .chip:has-text("HAIRUNI")');
+await page.waitForTimeout(300);
+if (!(await page.textContent('.card form')).includes('Participants (1)')) await fail('name chip did not toggle participant back on');
+// date chip fills the payment date via the target switch
+await page.click('.kw-panel .chip:has-text("Payment date")');
+await page.click('.kw-panel .chip:has-text("2026-08-15")');
+await page.waitForTimeout(300);
+const payDate = await page.inputValue('.card form input[type=date] >> nth=2');
+if (payDate !== '2026-08-15') await fail(`payment date chip fill failed: ${payDate}`);
+console.log('keyword chips fill form ok (participant + payment date)');
+
+// save the expense end-to-end
+await page.selectOption('.card form select[required]', { label: 'Hamzah Bin Hamizan' });
+await page.click('.card form button.btn:not(.btn-ghost)');
+await page.waitForURL(/ledger/);
+await page.waitForSelector('text=SUNWAY TRAVEL');
+console.log('OCR receipt confirmed into ledger ok');
+await shot('30-ocr-ledger');
+
+// 31. 360px responsive spot-checks
+await page.setViewportSize({ width: 360, height: 780 }); // reuse admin session at phone size
+await page.goto(`${BASE}/trips/1`);
+await page.waitForSelector('.hero');
+await page.waitForSelector('h3:has-text("Journey")');
+const hasHScroll = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2);
+if (hasHScroll) await fail('horizontal scroll on 360px dashboard');
+await shot('26-mobile-journey');
+await page.goto(`${BASE}/trips/1/plan`);
+await page.waitForSelector('.daychips');
+await shot('27-mobile-plan');
+console.log('mobile 360px ok (no horizontal scroll)');
+
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6 + v0.7 + v0.8 + v0.9)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.11)');

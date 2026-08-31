@@ -30,8 +30,9 @@ export default function TripShell() {
     <NavLink to={to} end={end} className={({ isActive }) => (isActive ? 'active' : '')}>{label}</NavLink>
   );
 
+  const accent = (data.trip as any).color || '';
   return (
-    <div>
+    <div style={accent ? ({ ['--accent' as any]: accent, ['--brand' as any]: accent, ['--brand-strong' as any]: accent } as any) : undefined}>
       <div className="row" style={{ marginTop: 18 }}>
         <span style={{ fontSize: '1.6rem' }}>{data.trip.emoji}</span>
         <div>

@@ -166,3 +166,24 @@ describe('AirAsia itinerary parser', () => {
     expect(d.legs[2].to).toBe('Miri');
   });
 });
+
+describe('Trip.com hotel voucher parser', () => {
+  it('parses the Asahikawa check-in voucher (pay at hotel)', () => {
+    const d = parseDocument(fx('a5969b58-Checkin_Voucher'));
+    expect(d.parser).toBe('tripcom-hotel-voucher');
+    expect(d.category).toBe('accommodation');
+    expect(d.paymentStatus).toBe('pay_at_hotel');
+    expect(d.bookingNo).toBe('1433813844185656');
+    expect(d.description).toMatch(/ASAHIKAWA EKIMAE/);
+    expect(d.location).toMatch(/Asahikawa City, Hokkaido/);
+    expect(d.checkInDate).toBe('2026-12-20');
+    expect(d.checkOutDate).toBe('2026-12-22');
+    expect(d.checkInTime).toBe('15:00');
+    expect(d.checkOutTime).toBe('10:00');
+    expect(d.totalAmount).toBeCloseTo(706.07);
+    expect(d.currency).toBe('MYR');
+    expect(d.people).toEqual(['RANIZAH BINTI RAHBI', 'MOHAMMAD NAMAZI BIN SALLEH']);
+    expect(d.fields['Nights']).toBe('2');
+    expect(d.fields['Free cancellation until']).toMatch(/Dec 19/);
+  });
+});

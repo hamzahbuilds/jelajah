@@ -5,8 +5,11 @@ import { useT } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import LeafletMap, { Pin } from '../components/LeafletMap';
-import { estimates, haversine, MODE_ICON, Mode } from '../../shared/fares';
+import { estimates, haversine, metroFareJpy, MODE_ICON, Mode } from '../../shared/fares';
 import { toCsv, parseCsv, PLAN_COLUMNS, PLAN_EXAMPLE_ROW } from '../../shared/csv';
+import { reflowDay } from '../../shared/reflow';
+import { transformGrid, WizardMapping } from '../../shared/wizard';
+import { geocode, nearestStations, walkMinutes, Station } from '../geo';
 
 const normName = (s: string) => s.toUpperCase().replace(/[^A-Z]/g, '');
 
@@ -19,10 +22,11 @@ function downloadCsv(filename: string, content: string) {
 
 const KIND_ICON: Record<string, string> = { flight: '✈️', checkin: '🔑', checkout: '🧳' };
 
-interface ChainPt { ref: string; name: string; lat: number; lng: number }
+interface ChainPt { ref: string; name: string; lat: number; lng: number; station?: Station | null }
 export interface Leg {
   key: string; from: ChainPt; to: ChainPt; distM: number;
   chosen: Mode; fareJpy: number; minutes: number; overridden: boolean;
+  rail?: { fromStation: Station; toStation: Station; walkFrom: number; walkTo: number; rideMin: number };
 }
 
 function buildLegs(chain: ChainPt[], overrides: any[], day: string): Leg[] {
@@ -36,14 +40,33 @@ function buildLegs(chain: ChainPt[], overrides: any[], day: string): Leg[] {
     const ov = ovMap.get(key);
     const chosen: Mode = (ov?.mode as Mode) ?? ests.find(e => e.recommended)!.mode;
     const est = ests.find(e => e.mode === chosen) ?? ests[0];
-    legs.push({
+    const leg: Leg = {
       key, from, to, distM, chosen,
       fareJpy: ov?.fare_jpy ?? est.fareJpy, minutes: est.minutes,
       overridden: !!ov,
-    });
+    };
+    // station-aware rail leg: both ends have a chosen station and it's a train trip
+    if ((leg.chosen === 'train' || leg.chosen === 'intercity') && from.station && to.station
+      && from.station.name !== to.station.name) {
+      const rideKm = haversine(from.station.lat, from.station.lng, to.station.lat, to.station.lng) / 1000;
+      const walkFrom = walkMinutes(from.station.distM);
+      const walkTo = walkMinutes(to.station.distM);
+      const rideMin = Math.round(rideKm * 3 + 6);
+      leg.rail = { fromStation: from.station, toStation: to.station, walkFrom, walkTo, rideMin };
+      leg.minutes = walkFrom + rideMin + walkTo;
+      if (!ov?.fare_jpy) leg.fareJpy = metroFareJpy(rideKm);
+    }
+    legs.push(leg);
   }
   return legs;
 }
+
+const stationOf = (a: any): Station | null => {
+  try {
+    const list: Station[] = a.stations_json ? JSON.parse(a.stations_json) : [];
+    return list[a.station_idx ?? 0] ?? null;
+  } catch { return null; }
+};
 
 interface PlanItem {
   key: string; day: string; time: string | null; end_time: string | null;
@@ -79,6 +102,10 @@ export default function Plan() {
   const [jpyRate, setJpyRate] = useState<number | null>(null);
   const [preview, setPreview] = useState<{ rows: any[]; badRows: Array<{ row: number; error: string }> } | null>(null);
   const [importBusy, setImportBusy] = useState(false);
+  const [undoSnap, setUndoSnap] = useState<Array<{ id: number; start_time: string | null; end_time: string | null; sort: number }> | null>(null);
+  const [dragId, setDragId] = useState<number | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [budgetModal, setBudgetModal] = useState(false);
 
   useEffect(() => {
     api.get(`/fx?date=${new Date().toISOString().slice(0, 10)}&from=JPY&to=MYR`)
@@ -144,7 +171,7 @@ export default function Plan() {
       : null;
   const locatedActs: ChainPt[] = items
     .filter(i => i.activity?.lat != null)
-    .map(i => ({ ref: `act:${i.activity.id}`, name: i.title, lat: i.activity.lat, lng: i.activity.lng }));
+    .map(i => ({ ref: `act:${i.activity.id}`, name: i.title, lat: i.activity.lat, lng: i.activity.lng, station: stationOf(i.activity) }));
   const chain: ChainPt[] = [
     ...(startPt ? [startPt] : []),
     ...locatedActs,
@@ -252,6 +279,54 @@ export default function Plan() {
     setPreview({ rows, badRows });
   };
 
+  // ---- reorder + smart reflow ----
+  const dayActs = items.filter(i => i.activity).map(i => i.activity);
+  const travelBetween = (a: any, b: any) => {
+    if (a?.lat != null && b?.lat != null) {
+      return estimates(haversine(a.lat, a.lng, b.lat, b.lng)).find(e => e.recommended)!.minutes;
+    }
+    return 10;
+  };
+  const applyOrder = async (order: any[]) => {
+    setUndoSnap(dayActs.map(a => ({ id: a.id, start_time: a.start_time, end_time: a.end_time, sort: a.sort ?? 0 })));
+    const reflowed = reflowDay(
+      order.map(a => ({ id: a.id, start_time: a.start_time, end_time: a.end_time, lat: a.lat, lng: a.lng })),
+      (x, y) => travelBetween(order.find(o => o.id === x.id), order.find(o => o.id === y.id)),
+    );
+    await api.put(`/trips/${tripId}/reorder`, {
+      day: selDay,
+      items: reflowed.map((r, i2) => ({ id: r.id, start_time: r.start_time, end_time: r.end_time, sort: i2 })),
+    });
+    await load();
+  };
+  const moveActivity = async (actId: number, dir: -1 | 1) => {
+    const order = [...dayActs];
+    const idx = order.findIndex(a => a.id === actId);
+    const j = idx + dir;
+    if (idx < 0 || j < 0 || j >= order.length) return;
+    [order[idx], order[j]] = [order[j], order[idx]];
+    await applyOrder(order);
+  };
+  const dropOn = async (targetId: number) => {
+    if (dragId == null || dragId === targetId) return;
+    const order = [...dayActs];
+    const fromIdx = order.findIndex(a => a.id === dragId);
+    const toIdx = order.findIndex(a => a.id === targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const [moved] = order.splice(fromIdx, 1);
+    order.splice(toIdx, 0, moved);
+    setDragId(null);
+    await applyOrder(order);
+  };
+  const undoReorder = async () => {
+    if (!undoSnap) return;
+    await api.put(`/trips/${tripId}/reorder`, { day: selDay, items: undoSnap.map((s, i2) => ({ ...s, sort: s.sort ?? i2 })) });
+    setUndoSnap(null);
+    await load();
+  };
+
+  const budget = (data.dayBudgets ?? []).find((b: any) => b.day === selDay);
+
   const applyImport = async () => {
     if (!preview?.rows.length) { setPreview(null); return; }
     setImportBusy(true);
@@ -286,6 +361,7 @@ export default function Plan() {
               <input type="file" accept=".csv,text/csv" hidden
                 onChange={e => { onImportFile(e.target.files?.[0] ?? null); e.target.value = ''; }} />
             </label>
+            <button className="btn btn-ghost btn-sm" onClick={() => setWizardOpen(true)}>🪄 {t.mapColumns}</button>
             <button className="btn btn-ghost btn-sm" onClick={blankTemplate}>📄 {t.blankTemplate}</button>
             <button className="btn" onClick={() => setModal(emptyActivity(selDay || days[0] || today))}>＋ {t.addActivity}</button>
           </div>
@@ -345,10 +421,28 @@ export default function Plan() {
           </div>
           <div className="grid grid-2" style={{ alignItems: 'start' }}>
             <div className="card">
-              <h3>{fmtDate(selDay, lang)} {selDay === today && <span className="badge brand">{t.today}</span>}</h3>
+              <div className="row-between">
+                <h3>{fmtDate(selDay, lang)} {selDay === today && <span className="badge brand">{t.today}</span>}</h3>
+                <span className="row" style={{ gap: 6 }}>
+                  {(budget || user.role === 'admin') && (
+                    <button className="badge" style={{ border: 'none', cursor: user.role === 'admin' ? 'pointer' : 'default' }}
+                      title={budget ? `🚆${budget.transport ?? 0} 🏨${budget.accommodation ?? 0} 🍜${budget.food ?? 0} 🎟️${budget.attractions ?? 0} 📦${budget.misc ?? 0}` : t.editBudget}
+                      onClick={() => user.role === 'admin' && setBudgetModal(true)}>
+                      💰 {budget ? `¥${(budget.total ?? 0).toLocaleString()}${budget.myr_estimate ? ` (~${fmtMYR(budget.myr_estimate)})` : ''}` : t.dayBudget}
+                    </button>
+                  )}
+                  {undoSnap && (
+                    <button className="btn btn-ghost btn-sm" onClick={undoReorder}>↩️ {t.undoReflow}</button>
+                  )}
+                </span>
+              </div>
               {items.length === 0 && <p className="muted">{t.noEvents}</p>}
               {items.map(i => (
-                <div className={`plan-item ${i.activity?.done ? 'done' : ''}`} key={i.key}>
+                <div className={`plan-item ${i.activity?.done ? 'done' : ''} ${dragId === i.activity?.id ? 'dragging' : ''}`} key={i.key}
+                  draggable={user.role === 'admin' && !!i.activity}
+                  onDragStart={() => i.activity && setDragId(i.activity.id)}
+                  onDragOver={e => { if (i.activity) e.preventDefault(); }}
+                  onDrop={() => i.activity && dropOn(i.activity.id)}>
                   <div className="pi-time">{i.time ?? '—'}{i.end_time ? `–${i.end_time}` : ''}</div>
                   <div className="pi-ic">{i.auto ? KIND_ICON[i.kind ?? ''] ?? '•' : '📍'}</div>
                   <div className="pi-body">
@@ -369,7 +463,13 @@ export default function Plan() {
                     )}
                   </div>
                   {user.role === 'admin' && i.activity && (
-                    <div className="row" style={{ gap: 2 }}>
+                    <div className="row" style={{ gap: 2, flexWrap: 'nowrap' }}>
+                      <span className="row" style={{ flexDirection: 'column', gap: 0 }}>
+                        <button className="icon" style={{ padding: '0 4px', lineHeight: 1 }} title={t.moveUp}
+                          onClick={() => moveActivity(i.activity.id, -1)}>▲</button>
+                        <button className="icon" style={{ padding: '0 4px', lineHeight: 1 }} title={t.moveDown}
+                          onClick={() => moveActivity(i.activity.id, 1)}>▼</button>
+                      </span>
                       <input type="checkbox" checked={!!i.activity.done} title={t.doneLabel}
                         onChange={async e => { await api.patch(`/activities/${i.activity.id}`, { done: e.target.checked }); load(); }} />
                       <button className="icon" onClick={() => setModal({ ...i.activity, est_cost_myr: i.activity.est_cost_myr ?? '' })}>✏️</button>
@@ -415,6 +515,11 @@ export default function Plan() {
                     </span>
                     <span className="tiny">{(leg.distM / 1000).toFixed(1)} km</span>
                   </div>
+                  {leg.rail && (
+                    <div className="tiny" style={{ marginTop: 2 }}>
+                      {t.walkTo(leg.rail.walkFrom)} → 🚇 <strong>{leg.rail.fromStation.name}</strong> → <strong>{leg.rail.toStation.name}</strong> ({t.minsLabel(leg.rail.rideMin)}) → {t.walkTo(leg.rail.walkTo)}
+                    </div>
+                  )}
                   <div className="row" style={{ gap: 4, marginTop: 3 }}>
                     {user.role === 'admin' && (['walk', 'train', 'taxi'] as Mode[]).map(m => (
                       <button key={m} className={`chip ${leg.chosen === m ? 'on' : ''}`} style={{ padding: '2px 8px' }}
@@ -467,6 +572,14 @@ export default function Plan() {
       {seModal && (
         <StartEndModal tripId={tripId} day={selDay} ds={ds} stays={stays}
           onClose={() => setSeModal(null)} onSaved={() => { setSeModal(null); load(); }} />
+      )}
+      {budgetModal && (
+        <BudgetModal tripId={tripId} day={selDay} budget={budget} jpyRate={jpyRate}
+          onClose={() => setBudgetModal(false)} onSaved={() => { setBudgetModal(false); load(); }} />
+      )}
+      {wizardOpen && (
+        <WizardModal tripId={tripId} trip={trip} jpyRate={jpyRate}
+          onClose={() => setWizardOpen(false)} onDone={() => { setWizardOpen(false); load(); }} />
       )}
     </div>
   );
@@ -531,10 +644,8 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
 
   const search = async () => {
     if (!q.trim()) return;
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`);
-      setResults(await res.json());
-    } catch { setResults([]); }
+    const bias = d.lat != null ? { lat: d.lat, lng: d.lng } : undefined;
+    setResults(await geocode(q, bias));
   };
 
   const toggle = (id: number) => {
@@ -559,8 +670,19 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
       participant_ids: d.participant_ids,
     };
     try {
+      let actId = d.id;
       if (d.id) await api.put(`/activities/${d.id}`, payload);
-      else await api.post(`/trips/${tripId}/activities`, payload);
+      else actId = (await api.post(`/trips/${tripId}/activities`, payload)).id;
+      // cache nearest stations when the pin is new/moved; persist the chosen station either way
+      if (actId && d.lat != null) {
+        const coordsChanged = d.lat !== draft.lat || d.lng !== draft.lng;
+        if (coordsChanged || !d.stations_json) {
+          const sts = await nearestStations(d.lat, d.lng);
+          await api.patch(`/activities/${actId}/stations`, { stations_json: sts, station_idx: 0 }).catch(() => {});
+        } else if ((d.station_idx ?? 0) !== (draft.station_idx ?? 0)) {
+          await api.patch(`/activities/${actId}/stations`, { station_idx: d.station_idx ?? 0 }).catch(() => {});
+        }
+      }
       onSaved();
     } finally { setBusy(false); }
   };
@@ -594,13 +716,32 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); search(); } }} />
             <button type="button" className="btn btn-ghost btn-sm" onClick={search}>{t.searchBtn}</button>
           </div>
-          {results.map((r, i) => (
+          {results.map((r: any, i) => (
             <div key={i} className="search-result" onClick={() => {
-              set({ location_name: r.display_name.split(',').slice(0, 2).join(','), lat: Number(r.lat), lng: Number(r.lon) });
+              set({ location_name: r.name.split(',').slice(0, 2).join(','), lat: r.lat, lng: r.lng });
               setResults([]);
-            }}>📍 {r.display_name}</div>
+            }}>📍 {r.name}</div>
           ))}
           {d.location_name && <p className="tiny" style={{ margin: '6px 0' }}>📍 {d.location_name}</p>}
+          {(() => {
+            try {
+              const sts: Station[] = d.stations_json ? JSON.parse(d.stations_json) : [];
+              if (!sts.length) return null;
+              return (
+                <div style={{ margin: '6px 0' }}>
+                  <span className="tiny" style={{ fontWeight: 700 }}>🚉 {t.nearestStations}:</span>
+                  <div className="row" style={{ gap: 4, marginTop: 3 }}>
+                    {sts.map((s, i2) => (
+                      <button type="button" key={i2} className={`chip ${(d.station_idx ?? 0) === i2 ? 'on' : ''}`}
+                        onClick={() => set({ station_idx: i2 })}>
+                        🚇 {s.name} · {t.walkTo(Math.max(1, Math.round((s.distM / 1000) * 1.3 * 12)))}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            } catch { return null; }
+          })()}
           <div style={{ marginTop: 8 }}>
             <LeafletMap pins={[]} picked={d.lat != null ? { lat: d.lat, lng: d.lng } : null}
               onPick={(lat, lng) => set({ lat, lng, location_name: d.location_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}` })}
@@ -765,6 +906,237 @@ function StartEndModal({ tripId, day, ds, stays, onClose, onSaved }: {
           <button className="btn btn-ghost" onClick={onClose}>{t.cancel}</button>
           <button className="btn" disabled={busy} onClick={save}>{t.save}</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function BudgetModal({ tripId, day, budget, jpyRate, onClose, onSaved }: {
+  tripId: number; day: string; budget: any; jpyRate: number | null;
+  onClose: () => void; onSaved: () => void;
+}) {
+  const { t } = useT();
+  const [b, setB] = useState<any>({
+    transport: budget?.transport ?? '', accommodation: budget?.accommodation ?? '',
+    food: budget?.food ?? '', attractions: budget?.attractions ?? '', misc: budget?.misc ?? '',
+  });
+  const total = ['transport', 'accommodation', 'food', 'attractions', 'misc']
+    .reduce((a, k) => a + (Number(b[k]) || 0), 0);
+  const save = async () => {
+    await api.put(`/trips/${tripId}/daybudgets`, {
+      day, currency: 'JPY',
+      transport: Number(b.transport) || null, accommodation: Number(b.accommodation) || null,
+      food: Number(b.food) || null, attractions: Number(b.attractions) || null, misc: Number(b.misc) || null,
+      total: total || null,
+      myr_estimate: jpyRate && total ? Math.round(total * jpyRate * 100) / 100 : null,
+    });
+    onSaved();
+  };
+  const fields: Array<[string, string]> = [
+    ['transport', '🚆'], ['accommodation', '🏨'], ['food', '🍜'], ['attractions', '🎟️'], ['misc', '📦'],
+  ];
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <div className="row-between">
+          <h2>{t.dayBudget} · {day}</h2>
+          <button className="icon" onClick={onClose}>✕</button>
+        </div>
+        {fields.map(([k, ic]) => (
+          <label className="field" key={k}>
+            <span>{ic} {(t as any)[k === 'transport' ? 'transport' : k === 'accommodation' ? 'accommodation' : k === 'food' ? 'food' : k === 'attractions' ? 'entrance' : 'other']} (¥)</span>
+            <input type="number" min="0" value={b[k]} onChange={e => setB({ ...b, [k]: e.target.value })} />
+          </label>
+        ))}
+        <p className="muted">Σ ¥{total.toLocaleString()}{jpyRate && total ? ` (~${fmtMYR(total * jpyRate)})` : ''}</p>
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onClose}>{t.cancel}</button>
+          <button className="btn" onClick={save}>{t.save}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
+  tripId: number; trip: any; jpyRate: number | null;
+  onClose: () => void; onDone: () => void;
+}) {
+  const { t } = useT();
+  const [grid, setGrid] = useState<string[][] | null>(null);
+  const [map2, setMap2] = useState<any>({ date: -1, time: -1, title: -1, notes: [], overnight: -1, bTransport: -1, bAccom: -1, bFood: -1, bAttr: -1, bMisc: -1, bTotal: -1 });
+  const [result, setResult] = useState<any>(null);
+  const [geo, setGeo] = useState<Map<string, { name: string; lat: number; lng: number }>>(new Map());
+  const [geoProg, setGeoProg] = useState<[number, number] | null>(null);
+  const [saveProf, setSaveProf] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const onFile = async (f: File | null) => {
+    if (!f) return;
+    const g = parseCsv(await f.text());
+    setGrid(g);
+    // auto-guess columns from header keywords
+    const h = g[0].map(x => x.toLowerCase());
+    const find = (re: RegExp) => h.findIndex(x => re.test(x));
+    setMap2({
+      date: find(/date/), time: find(/time/), title: find(/activity|route|title|plan/),
+      notes: [find(/parking|note|remark/)].filter(i => i >= 0),
+      overnight: find(/overnight|hotel|stay|lodg/),
+      bTransport: find(/transport/), bAccom: find(/accom/), bFood: find(/food/),
+      bAttr: find(/attraction/), bMisc: find(/misc/), bTotal: find(/total.*¥|day total \(?¥/),
+    });
+  };
+
+  const mapping = (): WizardMapping => ({
+    date: map2.date >= 0 ? map2.date : undefined,
+    time: map2.time >= 0 ? map2.time : undefined,
+    title: map2.title,
+    notes: map2.notes,
+    overnight: map2.overnight >= 0 ? map2.overnight : undefined,
+    budgets: {
+      transport: map2.bTransport >= 0 ? map2.bTransport : undefined,
+      accommodation: map2.bAccom >= 0 ? map2.bAccom : undefined,
+      food: map2.bFood >= 0 ? map2.bFood : undefined,
+      attractions: map2.bAttr >= 0 ? map2.bAttr : undefined,
+      misc: map2.bMisc >= 0 ? map2.bMisc : undefined,
+      total: map2.bTotal >= 0 ? map2.bTotal : undefined,
+    },
+    budgetCurrency: 'JPY',
+  });
+
+  const transform = () => {
+    if (!grid || map2.title < 0) return;
+    setResult(transformGrid(grid, mapping(), trip.start_date ?? '2000-01-01', trip.end_date ?? '2099-12-31'));
+  };
+
+  const cleanTitle = (s: string) => s.replace(/\(.*?\)/g, '').split(/[,–—-]/)[0].trim().slice(0, 60);
+  const findLocations = async () => {
+    if (!result) return;
+    const targets = result.activities.filter((a: any) => !a.isLodging && a.start_time);
+    const uniq = [...new Set(targets.map((a: any) => cleanTitle(a.title)).filter((s: string) => s.length > 3))] as string[];
+    const next = new Map(geo);
+    setGeoProg([0, uniq.length]);
+    for (let i = 0; i < uniq.length; i++) {
+      const q = uniq[i];
+      if (!next.has(q)) {
+        const hint = (trip.destination ?? '').split(',').pop()?.trim() ?? '';
+        const res = await geocode(`${q} ${hint}`);
+        if (res[0]) next.set(q, res[0]);
+        await new Promise(r => setTimeout(r, 350));
+      }
+      setGeoProg([i + 1, uniq.length]);
+      setGeo(new Map(next));
+    }
+  };
+
+  const apply = async () => {
+    if (!result) return;
+    setBusy(true);
+    try {
+      const rows = result.activities.map((a: any) => {
+        const g2 = geo.get(cleanTitle(a.title));
+        return {
+          day: a.day, title: a.title, start_time: a.start_time, end_time: a.end_time,
+          notes: a.notes, location_name: g2?.name ?? null, lat: g2?.lat ?? null, lng: g2?.lng ?? null,
+          est_cost_myr: null, participant_ids: [], done: false,
+        };
+      });
+      const budgets = result.budgets.map((b: any) => ({
+        ...b, myr_estimate: jpyRate && b.total ? Math.round(b.total * jpyRate * 100) / 100 : null,
+      }));
+      const res = await api.post(`/trips/${tripId}/activities/bulk`, { rows, budgets });
+      if (saveProf) {
+        await api.post(`/trips/${tripId}/importprofiles`, { name: `wizard-${new Date().toISOString().slice(0, 10)}`, mapping: map2 }).catch(() => {});
+      }
+      window.alert(t.importDone(res.created, res.updated));
+      onDone();
+    } finally { setBusy(false); }
+  };
+
+  const colSelect = (val: number, onCh: (v: number) => void) => (
+    <select value={val} onChange={e => onCh(Number(e.target.value))}>
+      <option value={-1}>{t.notMapped}</option>
+      {(grid?.[0] ?? []).map((h, i) => <option key={i} value={i}>{i + 1}. {h || '(blank)'}</option>)}
+    </select>
+  );
+
+  const located = result ? result.activities.filter((a: any) => geo.has(cleanTitle(a.title))).length : 0;
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="row-between">
+          <h2>🪄 {t.wizardTitle}</h2>
+          <button className="icon" onClick={onClose}>✕</button>
+        </div>
+        <p className="tiny">{t.wizardHint}</p>
+        {!grid ? (
+          <label className="dropzone" style={{ display: 'block' }}>
+            📥 CSV
+            <input type="file" accept=".csv,text/csv" hidden onChange={e => onFile(e.target.files?.[0] ?? null)} />
+          </label>
+        ) : (
+          <>
+            <div className="form-grid">
+              <label className="field"><span>{t.fieldDate}</span>{colSelect(map2.date, v => setMap2({ ...map2, date: v }))}</label>
+              <label className="field"><span>{t.fieldTime}</span>{colSelect(map2.time, v => setMap2({ ...map2, time: v }))}</label>
+              <label className="field"><span>{t.fieldTitle}</span>{colSelect(map2.title, v => setMap2({ ...map2, title: v }))}</label>
+              <label className="field"><span>{t.fieldNotes}</span>{colSelect(map2.notes[0] ?? -1, v => setMap2({ ...map2, notes: v >= 0 ? [v] : [] }))}</label>
+              <label className="field"><span>{t.fieldOvernight}</span>{colSelect(map2.overnight, v => setMap2({ ...map2, overnight: v }))}</label>
+              <label className="field"><span>{t.fieldBudgets} (🚆/🏨/🍜/🎟️/📦/Σ)</span>
+                <div className="row" style={{ gap: 3, flexWrap: 'wrap' }}>
+                  {colSelect(map2.bTransport, v => setMap2({ ...map2, bTransport: v }))}
+                  {colSelect(map2.bAccom, v => setMap2({ ...map2, bAccom: v }))}
+                  {colSelect(map2.bFood, v => setMap2({ ...map2, bFood: v }))}
+                  {colSelect(map2.bAttr, v => setMap2({ ...map2, bAttr: v }))}
+                  {colSelect(map2.bMisc, v => setMap2({ ...map2, bMisc: v }))}
+                  {colSelect(map2.bTotal, v => setMap2({ ...map2, bTotal: v }))}
+                </div>
+              </label>
+            </div>
+            <div className="row" style={{ margin: '8px 0' }}>
+              <button className="btn btn-ghost btn-sm" disabled={map2.title < 0} onClick={transform}>👁️ {t.importPreview}</button>
+              {result && (
+                <button className="btn btn-ghost btn-sm" onClick={findLocations} disabled={!!geoProg && geoProg[0] < geoProg[1]}>
+                  📍 {geoProg && geoProg[0] < geoProg[1] ? t.geocoding(geoProg[0], geoProg[1]) : t.geocodeNow}
+                </button>
+              )}
+            </div>
+            {result && (
+              <>
+                <p className="tiny">
+                  {t.activityCount(result.activities.length)} · 💰 {result.budgets.length} · 📍 {located}
+                  {result.skipped.length ? ` · ⚠️ ${result.skipped.length}` : ''}
+                </p>
+                <div className="tablewrap" style={{ maxHeight: 240, overflowY: 'auto' }}>
+                  <table>
+                    <thead><tr><th>{t.date}</th><th>{t.timeLabel}</th><th>{t.activityTitle}</th><th>📍</th></tr></thead>
+                    <tbody>
+                      {result.activities.slice(0, 80).map((a: any, i: number) => (
+                        <tr key={i}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{a.day}</td>
+                          <td>{a.start_time ?? ''}{a.end_time ? `–${a.end_time}` : ''}</td>
+                          <td>{a.title.slice(0, 60)}</td>
+                          <td>{geo.has(cleanTitle(a.title)) ? '✓' : ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <label className="row tiny" style={{ gap: 6, margin: '8px 0' }}>
+                  <input type="checkbox" checked={saveProf} onChange={e => setSaveProf(e.target.checked)} />
+                  {t.saveProfile}
+                </label>
+                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                  <button className="btn btn-ghost" onClick={onClose}>{t.cancel}</button>
+                  <button className="btn" disabled={busy || !result.activities.length} onClick={apply}>
+                    {t.applyImport} ({result.activities.length})
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

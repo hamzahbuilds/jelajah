@@ -15,6 +15,7 @@ export interface ExpenseDraft {
   custom: boolean;
   customShares: Record<number, number>;
   due_dates: Array<{ due_date: string; amount_myr?: number; note?: string; participant_id?: number | null }>;
+  payment_status: 'paid' | 'pay_at_hotel';
 }
 
 export function emptyDraft(): ExpenseDraft {
@@ -23,6 +24,7 @@ export function emptyDraft(): ExpenseDraft {
     expense_date: '', end_date: '', payment_date: '',
     amount_original: 0, currency: 'MYR', fx_rate: 1, amount_myr: 0,
     payer_participant_id: 0, participant_ids: [], custom: false, customShares: {}, due_dates: [],
+    payment_status: 'paid',
   };
 }
 
@@ -40,18 +42,31 @@ export function equalShares(total: number, ids: number[]): Record<number, number
   return out;
 }
 
-export default function ExpenseForm({ members, initial, onSubmit, submitLabel, busy }: {
+export default function ExpenseForm({ members, initial, onSubmit, submitLabel, busy, externalPatch }: {
   members: Participant[];
   initial: ExpenseDraft;
   onSubmit: (payload: any) => Promise<void>;
   submitLabel: string;
   busy?: boolean;
+  /** v0.11 keyword chips push values in from outside; bump seq per tap */
+  externalPatch?: { seq: number; data: Partial<ExpenseDraft> | ((prev: ExpenseDraft) => Partial<ExpenseDraft>) };
 }) {
   const { t } = useT();
   const [d, setD] = useState<ExpenseDraft>(initial);
   const [err, setErr] = useState('');
   const [fxBusy, setFxBusy] = useState(false);
   const set = (patch: Partial<ExpenseDraft>) => setD(prev => ({ ...prev, ...patch }));
+
+  useEffect(() => {
+    if (externalPatch && externalPatch.seq > 0) {
+      setD(prev => {
+        const raw = typeof externalPatch.data === 'function' ? externalPatch.data(prev) : externalPatch.data;
+        const data = { ...raw };
+        if (data.due_dates) data.due_dates = [...prev.due_dates, ...data.due_dates]; // chips append dues
+        return { ...prev, ...data };
+      });
+    }
+  }, [externalPatch?.seq]);
 
   useEffect(() => {
     if (d.currency === 'MYR' && (d.fx_rate !== 1 || d.amount_myr !== d.amount_original)) {
@@ -101,6 +116,7 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
       payer_participant_id: Number(d.payer_participant_id),
       shares: d.participant_ids.map(id => ({ participant_id: id, amount_myr: Number(shares[id] ?? 0) })),
       due_dates: d.due_dates.filter(x => x.due_date),
+      payment_status: d.payment_status,
     };
     await onSubmit(payload);
   };
@@ -130,6 +146,12 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
         </label>
         <label className="field"><span>{t.paymentDate}</span>
           <input type="date" value={d.payment_date} onChange={e => set({ payment_date: e.target.value })} />
+        </label>
+        <label className="field"><span>{t.paymentStatusLbl}</span>
+          <select value={d.payment_status} onChange={e => set({ payment_status: e.target.value as any })}>
+            <option value="paid">{t.paidLbl}</option>
+            <option value="pay_at_hotel">🏨 {t.payAtHotel}</option>
+          </select>
         </label>
         <label className="field"><span>{t.amount}</span>
           <div className="row" style={{ flexWrap: 'nowrap' }}>

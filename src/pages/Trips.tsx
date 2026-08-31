@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { useT } from '../i18n';
 import { useSession } from '../App';
+import { StylePicker } from '../components/TripStyle';
 
 export default function Trips() {
   const { t, lang } = useT();
   const { user, trips, refresh } = useSession();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', destination: '', start_date: '', end_date: '' });
+  const [form, setForm] = useState({ name: '', destination: '', start_date: '', end_date: '', emoji: '🧳', color: '' });
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,7 +27,8 @@ export default function Trips() {
       {trips.length === 0 && <div className="card muted">{t.noTrips}</div>}
       <div className="grid grid-2">
         {trips.map(tr => (
-          <Link key={tr.id} to={`/trips/${tr.id}`} className="card" style={{ display: 'block' }}>
+          <Link key={tr.id} to={`/trips/${tr.id}`} className="card"
+            style={{ display: 'block', borderTop: `4px solid ${(tr as any).color || 'var(--brand)'}` }}>
             <div style={{ fontSize: '1.7rem' }}>{tr.emoji}</div>
             <h2 style={{ margin: '4px 0' }}>{tr.name}</h2>
             <div className="muted">{tr.destination}</div>
@@ -49,6 +51,9 @@ export default function Trips() {
               <label className="field"><span>{t.endDate}</span>
                 <input type="date" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} /></label>
             </div>
+            <StylePicker emoji={form.emoji} color={form.color}
+              onEmoji={e => setForm({ ...form, emoji: e })} onColor={c => setForm({ ...form, color: c })}
+              labelIcon={t.pickEmoji} labelColor={t.tripColor} />
             <div className="row" style={{ justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>{t.cancel}</button>
               <button className="btn" type="submit">{t.create}</button>
