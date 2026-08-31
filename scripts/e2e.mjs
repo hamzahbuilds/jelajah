@@ -256,16 +256,16 @@ await p3.evaluate(() => fetch('/api/trips/1/myspend', {
   body: JSON.stringify({ spend_date: '2026-12-05', category: 'shopping', description: 'Rahsia Donki haul', amount_original: 12000, currency: 'JPY', fx_rate: 0.03, amount_myr: 360 }),
 }));
 const adminView = await page.evaluate(() => fetch('/api/trips/1/myspend').then(r => r.json()));
-if (adminView.some((x) => x.description.includes('Rahsia'))) await fail('PRIVACY BREACH: admin sees member item');
+if ((adminView.items ?? []).some((x) => x.description.includes('Rahsia'))) await fail('PRIVACY BREACH: admin sees member item');
 console.log('privacy ok (admin cannot see member items)');
 
 // member promotes their item → appears in shared ledger
 const mine = await p3.evaluate(() => fetch('/api/trips/1/myspend').then(r => r.json()));
 const promoted = await p3.evaluate((id) =>
-  fetch(`/api/myspend/${id}/promote`, { method: 'POST' }).then(r => r.json()), mine[0].id);
+  fetch(`/api/myspend/${id}/promote`, { method: 'POST' }).then(r => r.json()), mine.items[0].id);
 if (!promoted.expense_id) await fail('promote failed');
 const mineAfter = await p3.evaluate(() => fetch('/api/trips/1/myspend').then(r => r.json()));
-if (mineAfter.length !== 0) await fail('promoted item still in private list');
+if ((mineAfter.items ?? []).length !== 0) await fail('promoted item still in private list');
 await page.click('nav.tabs a:has-text("Ledger")');
 await page.waitForSelector('text=Rahsia Donki haul');
 console.log('promote ok (moved to shared ledger)');
@@ -312,7 +312,7 @@ if (!csv.includes('Sensoji Temple')) await fail('CSV missing existing activity')
 console.log('CSV export ok');
 
 csv = csv.replace('15:00', '16:30'); // move Sensoji
-csv += '\r\n,2026-12-01,09:00,,Ueno Park,,Ueno Park,35.7141,139.7745,,ALL,';
+csv += '\r\n,2026-12-01,09:00,,Ueno Park,,,Ueno Park,35.7141,139.7745,,ALL,'; // v0.12: category column after title
 writeFileSync('/tmp/plan-import.csv', csv);
 await page.setInputFiles('label:has-text("Import CSV") input', '/tmp/plan-import.csv');
 await page.waitForSelector('text=Import preview');
@@ -628,6 +628,234 @@ await page.waitForSelector('text=SUNWAY TRAVEL');
 console.log('OCR receipt confirmed into ledger ok');
 await shot('30-ocr-ledger');
 
+/* ---------------- v0.12 ---------------- */
+
+// mock OpenAI-compatible provider (hermetic assistant tests)
+const { createServer } = await import('node:http');
+const mockAi = createServer((req, res) => {
+  let body = '';
+  req.on('data', c => body += c);
+  req.on('end', () => {
+    let reply = 'OK';
+    try {
+      const b = JSON.parse(body);
+      const sys = b.messages?.find(m => m.role === 'system')?.content ?? '';
+      if (/travel-planning assistant/.test(sys)) {
+        reply = JSON.stringify([
+          { day: '2026-12-01', start_time: '14:00', duration_min: 90, title: 'Ueno Park stroll', why: 'Flat, stroller-friendly paths.', place: 'Ueno Park, Tokyo', category: 'sightseeing' },
+          { day: '2026-12-01', start_time: '16:30', duration_min: 60, title: 'Halal ramen at Naritaya', why: 'Halal-certified, near Asakusa.', place: 'Naritaya Asakusa', category: 'food' },
+        ]);
+      } else if (/in-app assistant/.test(sys)) {
+        reply = `MOCK-ANSWER (${/Bahasa Malaysia/.test(sys) ? 'BM' : /Sarawak/.test(sys) ? 'SWK' : 'EN'}) trip context length ${sys.length}`;
+      }
+    } catch { /* default OK */ }
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: reply } }] }));
+  });
+});
+await new Promise(r => mockAi.listen(9797, '127.0.0.1', r));
+
+// 33. toast confirmations (payment record)
+await page.goto(`${BASE}/trips/1/payments`);
+await page.waitForSelector('text=Record payment');
+await page.selectOption('form.card select >> nth=0', { label: 'Hairuni Binti Hassim' });
+await page.selectOption('form.card select >> nth=1', { label: 'Hamzah Bin Hamizan' });
+await page.fill('form.card input[type=number]', '10');
+await page.click('form.card button.btn');
+await page.waitForSelector('.toast:has-text("Payment recorded")');
+console.log('toast ok (payment recorded)');
+await shot('31-toast');
+
+// 34. AI settings page + presets + test connection against the mock
+await page.goto(`${BASE}/settings`);
+await page.waitForSelector('h3:has-text("AI provider")');
+await page.fill('input[placeholder="https://…/v1"]', 'http://127.0.0.1:9797');
+await page.fill('input[placeholder="sk-…"]', 'test-key');
+const modelInput = await page.$('label:has-text("Model") input');
+await modelInput.fill('mock-model');
+await page.click('button:has-text("Save")');
+await page.waitForSelector('.toast:has-text("Saved")');
+await page.click('button:has-text("Test connection")');
+await page.waitForSelector('.callout.info:has-text("Connected")');
+console.log('AI settings + test connection ok');
+await shot('32-settings');
+
+// 35. ✨ suggestions → Add → lands in the plan with category icon
+await page.goto(`${BASE}/trips/1/plan`);
+await page.waitForSelector('.daychips');
+await page.click('button:has-text("Suggest with AI")');
+await page.waitForSelector('.modal h2:has-text("Suggest with AI")');
+await page.fill('.modal input[placeholder*="Asakusa"]', 'family afternoon ideas');
+await page.click('.modal button:has-text("Suggest")');
+await page.waitForSelector('.suggest-card');
+const cards = await page.$$('.suggest-card');
+if (cards.length !== 2) await fail(`expected 2 suggestion cards, got ${cards.length}`);
+if (!(await page.textContent('.modal')).includes('Ueno Park stroll')) await fail('suggestion card content missing');
+await page.click('.suggest-card >> nth=0 >> button:has-text("Add")');
+await page.waitForSelector('.toast:has-text("Added to the itinerary")');
+await page.waitForSelector('.suggest-card.added');
+await shot('33-suggestions');
+await page.click('.modal button.icon'); // close
+await page.click('.daychip:has-text("D3")');
+await page.waitForSelector('.plan-item:has-text("Ueno Park stroll")');
+console.log('AI suggestion added to itinerary ok');
+
+// 36. 💬 chat drawer in BM
+await page.click('.chat-fab');
+await page.waitForSelector('.chat-drawer');
+await page.click('.chat-drawer .chip:has-text("B. Malaysia")');
+await page.fill('.chat-drawer input', 'berapa jumlah perjalanan?');
+await page.click('.chat-drawer button:has-text("Send")');
+await page.waitForSelector('.chat-msg.assistant:has-text("MOCK-ANSWER")');
+const chatReply = await page.textContent('.chat-msg.assistant:has-text("MOCK-ANSWER")');
+if (!chatReply.includes('MOCK-ANSWER (BM)')) await fail(`chat reply wrong: ${chatReply}`);
+console.log('chat drawer ok (BM reply from provider)');
+await shot('34-chat');
+await page.click('.chat-fab'); // close
+
+// 37. member permissions: assistant hide + members-can-edit-plan
+const ctx5 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const p5 = await ctx5.newPage();
+p5.setDefaultTimeout(25000);
+await blockExternal(p5);
+p5.on('dialog', d => d.accept());
+await p5.goto(`${BASE}/login`);
+await p5.fill('input[type=email]', 'hairuni@family.local');
+await p5.fill('input[type=password]', temp);
+await p5.click('.login-card button');
+await p5.waitForURL(`${BASE}/`);
+await p5.goto(`${BASE}/trips/1`);
+await p5.waitForSelector('.hero');
+await p5.waitForSelector('.chat-fab'); // assistant visible by default
+// member cannot edit the plan yet
+await p5.goto(`${BASE}/trips/1/plan`);
+await p5.waitForSelector('.daychips');
+if (await p5.$('button:has-text("Add activity")')) await fail('member should not see Add activity yet');
+let st = await p5.evaluate(() => fetch('/api/trips/1/activities', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ title: 'sneaky', day: '2026-11-30' }),
+}).then(r => r.status));
+if (st !== 403) await fail(`member activity POST should be 403, got ${st}`);
+
+// admin: hide assistant + allow plan edits
+await page.goto(`${BASE}/trips/1/people`);
+await page.waitForSelector('text=Member visibility');
+await page.uncheck('label:has-text("Assistant") input');
+await page.waitForTimeout(300);
+await page.check('label:has-text("Members can edit the plan") input');
+await page.waitForSelector('.toast');
+await page.waitForTimeout(400);
+
+await p5.goto(`${BASE}/trips/1/plan`);
+await p5.waitForSelector('.daychips');
+if (await p5.$('.chat-fab')) await fail('member still sees chat after assistant hidden');
+const chatSt = await p5.evaluate(() => fetch('/api/trips/1/assistant/chat', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], lang: 'en' }),
+}).then(r => r.status));
+if (chatSt !== 403) await fail(`member chat API should be 403 when hidden, got ${chatSt}`);
+await p5.waitForSelector('button:has-text("Add activity")');
+await p5.click('button:has-text("Add activity")');
+await p5.waitForSelector('.modal');
+await p5.fill('.modal input[required]', 'Member Added Karaoke');
+await p5.fill('.modal input[type=date]', '2026-12-02');
+await p5.click('.modal button.btn:not(.btn-ghost):has-text("Save")');
+await p5.waitForSelector('.modal', { state: 'detached' });
+await p5.click('.daychip:has-text("D4")');
+await p5.waitForSelector('.plan-item:has-text("Member Added Karaoke")');
+console.log('member plan-edit permission ok (403 before, add works after toggle; assistant hidden)');
+await p5.screenshot({ path: `${OUT}/35-member-edit.png`, fullPage: true });
+
+// 38. my-spend peer tagging + settlement (as member Hairuni)
+await p5.goto(`${BASE}/trips/1/myspend`);
+await p5.waitForSelector('text=Add spending');
+await p5.fill('form.card input[type=date]', '2026-12-03');
+await p5.fill('form.card .form-grid input:not([type=date]):not([type=number]) >> nth=0', 'Peer dinner treat');
+await p5.selectOption('form.card select >> nth=1', 'MYR');
+await p5.fill('form.card input[type=number]', '30');
+await p5.click('form.card .chip:has-text("Hamzah Bin Hamizan")');
+await p5.waitForSelector('text=each'); // split preview appears
+await p5.click('form.card button.btn');
+await p5.waitForSelector('.toast');
+await p5.waitForSelector('.peer-row:has-text("Hamzah Bin Hamizan")');
+const peerTxt = await p5.textContent('.peer-row:has-text("Hamzah Bin Hamizan")');
+if (!peerTxt.includes('15.00')) await fail(`peer share should be RM15.00 (30/2), got: ${peerTxt}`);
+if (!(await p5.textContent('body')).includes('Owed to me')) await fail('owed-to-me stat missing');
+await p5.click('.peer-row button:has-text("Mark received")');
+await p5.waitForSelector('.toast:has-text("Marked settled")');
+await p5.waitForSelector('.peer-row.settled');
+console.log('my-spend peer tagging ok (tag → RM15 each → mark received)');
+await p5.screenshot({ path: `${OUT}/36-peer-tagging.png`, fullPage: true });
+
+// admin must not see the member's private tagged item anywhere
+const adminSees = await page.evaluate(() => fetch('/api/trips/1/myspend').then(r => r.json()));
+if (JSON.stringify(adminSees).includes('Peer dinner treat')) await fail('admin can see member private item!');
+
+// 39. MCP end to end: token from the UI, JSON-RPC from outside, revoke kills it
+await page.goto(`${BASE}/settings`);
+await page.waitForSelector('text=Access tokens');
+await page.fill('input[placeholder="Token name"]', 'e2e-claude');
+await page.click('button:has-text("New token")');
+await page.waitForSelector('.token-fresh');
+const mcpToken = (await page.textContent('.token-fresh')).trim();
+if (!mcpToken.startsWith('jlj_')) await fail(`unexpected token format: ${mcpToken.slice(0, 8)}`);
+
+const mcp = (method, params, tok = mcpToken) => fetch(`${BASE}/api/mcp`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+}).then(r => (r.status === 200 ? r.json() : { status: r.status }));
+
+const init = await mcp('initialize', { protocolVersion: '2025-03-26' });
+if (init.result?.serverInfo?.name !== 'jelajah') await fail('MCP initialize failed');
+const tools = await mcp('tools/list');
+if ((tools.result?.tools ?? []).length !== 8) await fail(`expected 8 MCP tools, got ${tools.result?.tools?.length}`);
+const addRes = await mcp('tools/call', { name: 'add_activity', arguments: { trip_id: 1, day: '2026-12-02', title: 'MCP Onsen visit', start_time: '10:00', duration_min: 120, category: 'sightseeing' } });
+if (addRes.error) await fail(`MCP add_activity errored: ${JSON.stringify(addRes.error)}`);
+const itin = await mcp('tools/call', { name: 'get_itinerary', arguments: { trip_id: 1, day: '2026-12-02' } });
+if (!itin.result?.content?.[0]?.text.includes('MCP Onsen visit')) await fail('MCP itinerary readback missing new activity');
+const balRes = await mcp('tools/call', { name: 'get_balances', arguments: { trip_id: 1 } });
+if (!balRes.result?.content?.[0]?.text.includes('trip_total_myr')) await fail('MCP get_balances failed');
+console.log('MCP ok (initialize, 8 tools, add_activity → itinerary readback, balances)');
+
+// member token: member permissions, no mutations
+await p5.goto(`${BASE}/trips/1/myspend`);
+await p5.waitForSelector('input[placeholder="Token name"]');
+await p5.fill('input[placeholder="Token name"]', 'e2e-member');
+await p5.click('button:has-text("New token")');
+await p5.waitForSelector('.token-fresh');
+const memberToken = (await p5.textContent('.token-fresh')).trim();
+const mAdd = await mcp('tools/call', { name: 'add_activity', arguments: { trip_id: 1, day: '2026-12-02', title: 'nope' } }, memberToken);
+if (!mAdd.error || !/admin token/.test(mAdd.error.message)) await fail('member token should be blocked from mutations');
+const mTrips = await mcp('tools/call', { name: 'list_trips', arguments: {} }, memberToken);
+if (!mTrips.result?.content?.[0]?.text.includes('Jelajah Jepun')) await fail('member token should list its trips');
+console.log('MCP member token ok (reads allowed, mutations blocked)');
+
+// revoke → 401
+await page.click('.row-between:has-text("e2e-claude") button:has-text("Revoke")');
+await page.waitForSelector('.toast:has-text("Token revoked")');
+await page.waitForTimeout(300);
+const dead = await mcp('ping', {});
+if (dead.status !== 401) await fail(`revoked token should be 401, got ${JSON.stringify(dead)}`);
+console.log('MCP revoke ok (token dead)');
+await shot('37-mcp-tokens');
+await ctx5.close();
+
+// 40. multi-file upload → ✈️ progress + summary toast, dropzone disabled mid-batch
+await page.goto(`${BASE}/trips/1/documents`);
+await page.waitForSelector('.dropzone');
+await page.setInputFiles('input[type=file]', [
+  'docs-samples/45e16bd7-AirAsia_Invoice.pdf',
+  'docs-samples/50c0ce7c-KUL_NRT_Invoice.pdf',
+]);
+const stripSeen = await page.waitForSelector('.upload-strip', { timeout: 8000 }).then(() => true).catch(() => false);
+const dzDisabled = await page.$('.dropzone.disabled') !== null;
+await page.waitForSelector('.toast:has-text("2 imported")', { timeout: 60000 });
+console.log(`upload progress ok (strip:${stripSeen} disabled-mid-batch:${dzDisabled}, summary toast)`);
+await shot('38-upload-progress');
+
+mockAi.close();
+
 // 31. 360px responsive spot-checks
 await page.setViewportSize({ width: 360, height: 780 }); // reuse admin session at phone size
 await page.goto(`${BASE}/trips/1`);
@@ -642,4 +870,4 @@ await shot('27-mobile-plan');
 console.log('mobile 360px ok (no horizontal scroll)');
 
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.11)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.12)');

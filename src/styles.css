@@ -216,7 +216,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 .plan-item .pi-title { font-weight: 600; }
 .plan-item.done .pi-title { text-decoration: line-through; color: var(--ink-3); }
 
+.pin-wrap { position: relative; width: 26px; height: 32px; }
 .pin-dot {
+  position: absolute; top: 1px; left: 1px;
   width: 24px; height: 24px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
   background: var(--data); color: #fff; display: flex; align-items: center; justify-content: center;
   font-size: .72rem; font-weight: 700; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4);
@@ -347,3 +349,83 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
 @media (max-width: 620px) {
   .kw-group { flex-direction: column; gap: 3px; }
 }
+
+/* ---------- v0.12: toasts ---------- */
+.toasts {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 8px; z-index: 200; align-items: center;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto; cursor: pointer;
+  background: var(--ink); color: #fff; border-radius: 999px; padding: 9px 18px;
+  font-size: .86rem; font-weight: 600; box-shadow: 0 6px 24px rgba(0,0,0,.25);
+  display: flex; align-items: center; gap: 8px; max-width: min(92vw, 480px);
+  animation: toast-in .22s ease-out;
+}
+.toast .ti { color: var(--accent, var(--brand)); font-weight: 800; }
+.toast.error { background: #7f1d1d; }
+.toast.error .ti { color: #fecaca; }
+.toast.leaving { opacity: 0; transition: opacity .25s; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* ---------- v0.12: chat drawer ---------- */
+.chat-fab {
+  position: fixed; right: 18px; bottom: 18px; z-index: 150;
+  width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--brand); color: #fff; font-size: 1.4rem;
+  box-shadow: 0 6px 20px rgba(0,0,0,.3);
+}
+.chat-drawer {
+  position: fixed; right: 18px; bottom: 80px; z-index: 150;
+  width: min(94vw, 380px); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; padding: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.25);
+  display: flex; flex-direction: column;
+}
+.chat-log { max-height: 46dvh; min-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.chat-msg {
+  padding: 8px 11px; border-radius: 12px; font-size: .85rem; white-space: pre-wrap;
+  max-width: 88%; line-height: 1.45;
+}
+.chat-msg.user { align-self: flex-end; background: var(--brand); color: #fff; border-bottom-right-radius: 4px; }
+.chat-msg.assistant { align-self: flex-start; background: var(--bg); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+
+/* ---------- v0.12: settings / MCP ---------- */
+.mcp-url, .mcp-snippet {
+  background: #1f2937; color: #e5e7eb; border-radius: 8px; padding: 9px 12px;
+  font-size: .76rem; overflow-x: auto; white-space: pre;
+}
+.token-fresh { display: block; background: #1f2937; color: #a7f3d0; border-radius: 6px; padding: 7px 10px; margin-top: 4px; font-size: .74rem; word-break: break-all; cursor: copy; }
+
+/* ---------- v0.12: AI suggestions ---------- */
+.suggest-card {
+  border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 8px;
+  display: flex; gap: 10px; align-items: flex-start; background: var(--bg);
+}
+.suggest-card.added { opacity: .55; }
+.suggest-card .sc-time { font-weight: 700; font-size: .8rem; white-space: nowrap; color: var(--brand); }
+.suggest-card .sc-body { flex: 1; min-width: 0; }
+.suggest-card .sc-title { font-weight: 600; font-size: .9rem; }
+
+/* ---------- v0.12: upload progress ---------- */
+.upload-strip { margin-top: 10px; }
+.upload-track {
+  position: relative; height: 22px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 999px; overflow: hidden;
+}
+.upload-track .fillbar {
+  position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--brand) 25%, transparent);
+  transition: width .4s ease;
+}
+.upload-track .plane {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  transition: left .4s ease; font-size: 15px; line-height: 1;
+}
+.dropzone.disabled { opacity: .55; pointer-events: none; }
+.upload-filelist { margin-top: 6px; font-size: .78rem; }
+.upload-filelist .uf-row { display: flex; gap: 8px; padding: 2px 0; }
+
+/* ---------- v0.12: my spend peer shares ---------- */
+.peer-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: .85rem; align-items: center; }
+.peer-row .amt { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+.peer-row.settled { opacity: .55; text-decoration: line-through; }

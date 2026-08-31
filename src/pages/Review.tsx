@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { api, fmtMoney } from '../api';
 import { useT } from '../i18n';
+import { useToast } from '../components/Toast';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import ExpenseForm, { emptyDraft, ExpenseDraft } from '../components/ExpenseForm';
@@ -10,6 +11,7 @@ const norm = (s: string) => s.toUpperCase().replace(/[^A-Z]/g, '');
 
 export default function Review() {
   const { t } = useT();
+  const { toast } = useToast();
   const { user } = useSession();
   const { tripId, members } = useOutletContext<TripCtx>();
   const { docId } = useParams();
@@ -85,6 +87,7 @@ export default function Review() {
         expense: expensePayload,
         vendor: parsed.vendor, docType: parsed.docType, bookingNo: bookingNo ?? parsed.bookingNo,
       });
+      toast(expensePayload ? t.tExpenseSaved : t.tSaved);
       navigate(`/trips/${tripId}/${expensePayload ? 'ledger' : 'documents'}`);
     } finally {
       setBusy(false);

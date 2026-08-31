@@ -10,6 +10,9 @@ export interface WizardMapping {
   time?: number;         // "08:00" | "11:00–13:00" | text
   title: number;
   notes?: number[];      // extra columns merged into notes (e.g. Parking)
+  category?: number;     // v0.12: activity category column (normalised, else inferred from the title)
+  price?: number;        // v0.12: per-activity price column
+  priceRate?: number;    // multiply price → MYR (e.g. jpy→myr rate); 1 when already MYR
   overnight?: number;    // lodging column (day rows only)
   budgets?: Partial<Record<'transport' | 'accommodation' | 'food' | 'attractions' | 'misc' | 'total', number>>;
   budgetCurrency?: string; // default JPY
@@ -19,7 +22,38 @@ export interface WizardActivity {
   day: string; title: string;
   start_time: string | null; end_time: string | null;
   notes: string | null;
+  category?: ActivityCategory;
+  est_cost_myr?: number | null;
   isLodging?: boolean;
+}
+
+export type ActivityCategory = 'sightseeing' | 'food' | 'transport' | 'lodging' | 'shopping' | 'other';
+export const ACTIVITY_CATEGORIES: ActivityCategory[] = ['sightseeing', 'food', 'transport', 'lodging', 'shopping', 'other'];
+export const ACTIVITY_CAT_ICON: Record<ActivityCategory, string> = {
+  sightseeing: '🏞️', food: '🍜', transport: '🚐', lodging: '🛏️', shopping: '🛍️', other: '📍',
+};
+
+const CAT_RULES: Array<[ActivityCategory, RegExp]> = [
+  ['food', /lunch|dinner|breakfast|brunch|snack|meal|makan|sarapan|eat\b|cafe|café|restaurant|ramen|sushi|onigiri|market food|halal|hotpot|dessert|coffee/i],
+  ['lodging', /check[- ]?in(to)?\b.*(hotel|rv|michi|camp)|overnight|hotel|hostel|ryokan|rv park|michi-no-eki|campsite|lodg/i],
+  ['transport', /\bdrive\b|ferry|train|bus\b|transfer|taxi|grab\b|pick ?up|drop ?off|depart|arrive|flight|shinkansen|campervan pickup|return car|refuel/i],
+  ['shopping', /shopping|mall|outlet|don ?quijote|donki|uniqlo|souvenir|duty[- ]free|market(?! food)|beli/i],
+  ['sightseeing', /castle|park\b|garden|shrine|temple|museum|tower|observ|viewpoint|stroll|walk\b|beach|onsen|aquarium|zoo|memorial|torii|lookout|falls|lake|explore|lawatan|taman/i],
+];
+
+/** Normalise a mapped category cell, or infer one from the activity title. */
+export function categorize(cellValue: string | undefined, title: string): ActivityCategory {
+  const v = (cellValue ?? '').trim().toLowerCase();
+  if (v) {
+    if (/food|makan|meal|eat/.test(v)) return 'food';
+    if (/lodg|hotel|stay|overnight|accom/.test(v)) return 'lodging';
+    if (/transport|travel|drive|transit/.test(v)) return 'transport';
+    if (/shop/.test(v)) return 'shopping';
+    if (/sight|attraction|visit|tour|activity/.test(v)) return 'sightseeing';
+    if (/other|misc/.test(v)) return 'other';
+  }
+  for (const [cat, re] of CAT_RULES) if (re.test(title)) return cat;
+  return 'sightseeing';
 }
 
 export interface WizardDayBudget {
@@ -92,7 +126,7 @@ export function transformGrid(
       if (currentDay) {
         const stay = cell(row, mapping.overnight).replace(/^[–—-]\s*$/, '');
         if (stay && stay !== '–') {
-          out.activities.push({ day: currentDay, title: `🛏️ ${stay}`, start_time: null, end_time: null, notes: null, isLodging: true });
+          out.activities.push({ day: currentDay, title: `🛏️ ${stay}`, start_time: null, end_time: null, notes: null, category: 'lodging', isLodging: true });
         }
         if (mapping.budgets) {
           const b: WizardDayBudget = { day: currentDay, currency: mapping.budgetCurrency ?? 'JPY' };
@@ -114,10 +148,13 @@ export function transformGrid(
     const t = parseTimeCell(timeCell);
     const noteParts = (mapping.notes ?? []).map(i => cell(row, i)).filter(v => v && v !== '–');
     if (t.isText) noteParts.unshift(timeCell); // e.g. "Halal/Pork-Free Meal" label
+    const price = num(cell(row, mapping.price));
     out.activities.push({
       day: currentDay, title,
       start_time: t.start, end_time: t.end,
       notes: noteParts.length ? noteParts.join(' · ') : null,
+      category: categorize(cell(row, mapping.category), title),
+      est_cost_myr: price != null ? Math.round(price * (mapping.priceRate ?? 1) * 100) / 100 : null,
     });
   });
   return out;

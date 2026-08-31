@@ -50,6 +50,9 @@ export default function Dashboard() {
     const now = new Date();
     const all: Array<{ when: Date; time: string | null; title: string; icon: string }> = [];
     for (const e of plan.autoEvents ?? []) {
+      // v0.12: members only see the flights/stays THEY are booked on
+      if (user.role !== 'admin' && user.participant_id && e.participant_ids?.length > 0
+        && !e.participant_ids.includes(user.participant_id)) continue;
       all.push({ when: new Date(`${e.day}T${e.time ?? '00:00'}:00`), time: e.time, title: e.title, icon: e.kind === 'flight' ? '✈️' : e.kind === 'checkin' ? '🔑' : '🧳' });
     }
     for (const a of plan.activities ?? []) {

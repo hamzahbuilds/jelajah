@@ -35,6 +35,7 @@ export const SCHEMA: string[] = [
     emoji TEXT DEFAULT '🧳',
     color TEXT DEFAULT '',
     hidden_features TEXT NOT NULL DEFAULT '[]',
+    member_can_edit_plan INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS trip_members (
@@ -147,6 +148,7 @@ export const SCHEMA: string[] = [
     sort INTEGER NOT NULL DEFAULT 0,
     stations_json TEXT,
     station_idx INTEGER,
+    category TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS activity_participants (
@@ -210,6 +212,28 @@ export const SCHEMA: string[] = [
     mapping_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS personal_shares (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    personal_expense_id INTEGER NOT NULL REFERENCES personal_expenses(id),
+    participant_id INTEGER NOT NULL REFERENCES participants(id),
+    amount_myr REAL NOT NULL,
+    settled INTEGER NOT NULL DEFAULT 0,
+    settled_at TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_personal_shares ON personal_shares(personal_expense_id)`,
+  `CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS api_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used_at TEXT,
+    revoked INTEGER NOT NULL DEFAULT 0
+  )`,
   `CREATE INDEX IF NOT EXISTS idx_personal_user ON personal_expenses(trip_id, user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_activities_trip ON activities(trip_id, day)`,
   `CREATE INDEX IF NOT EXISTS idx_documents_trip ON documents(trip_id)`,
@@ -229,11 +253,13 @@ export const UPGRADES: string[] = [
   `ALTER TABLE payments ADD COLUMN expense_id INTEGER REFERENCES expenses(id)`,
   `ALTER TABLE trips ADD COLUMN color TEXT DEFAULT ''`,
   `ALTER TABLE expenses ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'paid'`,
+  `ALTER TABLE trips ADD COLUMN member_can_edit_plan INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE activities ADD COLUMN category TEXT`,
   `ALTER TABLE activities ADD COLUMN stations_json TEXT`,
   `ALTER TABLE activities ADD COLUMN station_idx INTEGER`,
   ...SCHEMA.filter(s =>
-    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles)\b/.test(s)
-    || /idx_activities_trip|idx_personal_user/.test(s)),
+    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares)\b/.test(s)
+    || /idx_activities_trip|idx_personal_user|idx_personal_shares/.test(s)),
 ];
 
 // Optional first-run seed: the Japan Nov/Dec 2026 trip with its 16 travellers,

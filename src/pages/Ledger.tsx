@@ -5,6 +5,7 @@ import { useT } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import ExpenseForm, { CATEGORIES, emptyDraft, ExpenseDraft } from '../components/ExpenseForm';
+import { useToast } from '../components/Toast';
 
 const CAT_ICON: Record<string, string> = {
   accommodation: '🏠', flight: '✈️', transport: '🚆', entrance: '🎟️',
@@ -14,6 +15,7 @@ const CAT_ICON: Record<string, string> = {
 export default function Ledger() {
   const { t, lang } = useT();
   const { user } = useSession();
+  const { toast } = useToast();
   const { tripId, members } = useOutletContext<TripCtx>();
   const [data, setData] = useState<any>(null);
   const [filter, setFilter] = useState('all');
@@ -57,12 +59,14 @@ export default function Ledger() {
     if (editing === 'new') await api.post(`/trips/${tripId}/expenses`, payload);
     else await api.put(`/expenses/${editing.id}`, payload);
     setEditing(null);
+    toast(t.tExpenseSaved);
     await load();
   };
 
   const remove = async (e: any) => {
     if (!window.confirm(t.confirmDelete)) return;
     await api.del(`/expenses/${e.id}`);
+    toast(t.tExpenseDeleted);
     await load();
   };
 
@@ -103,7 +107,7 @@ export default function Ledger() {
                         {' '}<span className="badge warn" title={t.committedNote}>🏨💤 {t.payAtHotel}</span>
                         {user.role === 'admin' && (
                           <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }}
-                            onClick={async () => { await api.patch(`/expenses/${e.id}/status`, { payment_status: 'paid' }); await load(); }}>
+                            onClick={async () => { await api.patch(`/expenses/${e.id}/status`, { payment_status: 'paid' }); toast(t.tMarkedPaid); await load(); }}>
                             {t.markPaid}
                           </button>
                         )}

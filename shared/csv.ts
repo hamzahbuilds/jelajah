@@ -41,11 +41,11 @@ export function parseCsv(text: string): string[][] {
 
 /** Column order for the plan template. `id` blank = create new. */
 export const PLAN_COLUMNS = [
-  'id', 'day', 'start_time', 'end_time', 'title', 'notes',
+  'id', 'day', 'start_time', 'end_time', 'title', 'category', 'notes',
   'location_name', 'lat', 'lng', 'est_cost_myr', 'participants', 'done',
 ] as const;
 
 export const PLAN_EXAMPLE_ROW = [
-  '', '2026-11-30', '10:30', '12:00', 'teamLab Planets', 'buy tickets online',
+  '', '2026-11-30', '10:30', '12:00', 'teamLab Planets', 'sightseeing', 'buy tickets online',
   'teamLab Planets TOKYO', '35.6491', '139.7898', '160', 'ALL', '',
 ];

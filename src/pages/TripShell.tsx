@@ -3,6 +3,7 @@ import { NavLink, Outlet, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { useSession, Trip } from '../App';
+import ChatDrawer from '../components/ChatDrawer';
 
 export interface Participant { id: number; name: string; is_infant: number }
 export interface TripCtx {
@@ -50,6 +51,7 @@ export default function TripShell() {
         {user.role === 'admin' && tab(`/trips/${tripId}/people`, t.people)}
       </nav>
       <Outlet context={ctx} />
+      {!hidden.has('assistant') && <ChatDrawer tripId={tripId} />}
     </div>
   );
 }

@@ -4,9 +4,11 @@ import { api, fmtDate } from '../api';
 import { useT } from '../i18n';
 import { useSession } from '../App';
 import { StylePicker } from '../components/TripStyle';
+import { useToast } from '../components/Toast';
 
 export default function Trips() {
   const { t, lang } = useT();
+  const { toast } = useToast();
   const { user, trips, refresh } = useSession();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: '', destination: '', start_date: '', end_date: '', emoji: '🧳', color: '' });
@@ -15,6 +17,7 @@ export default function Trips() {
     e.preventDefault();
     await api.post('/trips', form);
     setOpen(false);
+    toast(t.tTripCreated);
     await refresh();
   };
 

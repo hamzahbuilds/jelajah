@@ -8,8 +8,10 @@ import LeafletMap, { Pin } from '../components/LeafletMap';
 import { estimates, haversine, metroFareJpy, MODE_ICON, Mode } from '../../shared/fares';
 import { toCsv, parseCsv, PLAN_COLUMNS, PLAN_EXAMPLE_ROW } from '../../shared/csv';
 import { reflowDay } from '../../shared/reflow';
-import { transformGrid, WizardMapping } from '../../shared/wizard';
+import { transformGrid, WizardMapping, ACTIVITY_CATEGORIES, ACTIVITY_CAT_ICON, ActivityCategory } from '../../shared/wizard';
 import { geocode, nearestStations, walkMinutes, Station } from '../geo';
+import { Suggestion } from '../../shared/assistant';
+import { useToast } from '../components/Toast';
 
 const normName = (s: string) => s.toUpperCase().replace(/[^A-Z]/g, '');
 
@@ -72,6 +74,7 @@ interface PlanItem {
   key: string; day: string; time: string | null; end_time: string | null;
   title: string; subtitle?: string | null; auto: boolean; kind?: string;
   activity?: any;
+  participant_ids?: number[]; // v0.12: who is on this auto event (flight/stay)
 }
 
 function daysBetween(start: string, end: string): string[] {
@@ -95,6 +98,10 @@ export default function Plan() {
   const { t, lang } = useT();
   const { user } = useSession();
   const { trip, tripId, members } = useOutletContext<TripCtx>();
+  const { toast } = useToast();
+  // v0.12: members may edit activities when the trip's toggle allows it
+  const canEdit = user.role === 'admin' || !!(trip as any).member_can_edit_plan;
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const [data, setData] = useState<any>(null);
   const [view, setView] = useState<'day' | 'week' | 'month'>('day');
   const [modal, setModal] = useState<any | null>(null);
@@ -132,18 +139,41 @@ export default function Plan() {
   useEffect(() => { load(); }, [tripId]);
 
   const itemsByDay = useMemo(() => {
-    const map = new Map<string, PlanItem[]>();
-    const push = (i: PlanItem) => {
-      if (!map.has(i.day)) map.set(i.day, []);
-      map.get(i.day)!.push(i);
-    };
-    for (const e of data?.autoEvents ?? []) {
-      push({ key: `auto-${e.kind}-${e.expense_id}-${e.day}-${e.time}`, day: e.day, time: e.time, end_time: e.end_time, title: e.title, subtitle: e.subtitle, auto: true, kind: e.kind });
-    }
+    // Activities keep the user's chosen order (sort column) as the primary
+    // key — an untimed activity stays exactly where it was moved to, instead
+    // of snapping to the bottom of the day. Auto events (flights, check-ins)
+    // interleave by their own times.
+    const toMin = (t?: string | null) => (t ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) : null);
+    const actsByDay = new Map<string, any[]>();
     for (const a of data?.activities ?? []) {
-      push({ key: `act-${a.id}`, day: a.day, time: a.start_time, end_time: a.end_time, title: a.title, subtitle: a.location_name, auto: false, activity: a });
+      if (!actsByDay.has(a.day)) actsByDay.set(a.day, []);
+      actsByDay.get(a.day)!.push(a);
     }
-    for (const list of map.values()) list.sort((x, y) => (x.time ?? '99') < (y.time ?? '99') ? -1 : 1);
+    const autosByDay = new Map<string, any[]>();
+    for (const e of data?.autoEvents ?? []) {
+      if (!autosByDay.has(e.day)) autosByDay.set(e.day, []);
+      autosByDay.get(e.day)!.push(e);
+    }
+    const map = new Map<string, PlanItem[]>();
+    for (const day of new Set([...actsByDay.keys(), ...autosByDay.keys()])) {
+      const acts = (actsByDay.get(day) ?? []).sort((a, b) =>
+        (a.sort ?? 0) - (b.sort ?? 0)
+        || String(a.start_time ?? '99:99').localeCompare(String(b.start_time ?? '99:99'))
+        || a.id - b.id);
+      const entries: Array<{ eff: number; seq: number; item: PlanItem }> = [];
+      let last = 0, tail = 0, seq = 0;
+      for (const a of acts) {
+        const m = toMin(a.start_time);
+        const eff = m != null ? m : last + 0.001 * ++tail; // untimed: ride just after the previous timed item
+        if (m != null) { last = m; tail = 0; }
+        entries.push({ eff, seq: seq++, item: { key: `act-${a.id}`, day, time: a.start_time, end_time: a.end_time, title: a.title, subtitle: a.location_name, auto: false, activity: a } });
+      }
+      for (const e of autosByDay.get(day) ?? []) {
+        entries.push({ eff: toMin(e.time) ?? 24 * 60 + 1, seq: seq++, item: { key: `auto-${e.kind}-${e.expense_id}-${day}-${e.time}`, day, time: e.time, end_time: e.end_time, title: e.title, subtitle: e.subtitle, auto: true, kind: e.kind, participant_ids: e.participant_ids } as PlanItem });
+      }
+      entries.sort((x, y) => x.eff - y.eff || x.seq - y.seq);
+      map.set(day, entries.map(x => x.item));
+    }
     return map;
   }, [data]);
 
@@ -225,7 +255,7 @@ export default function Plan() {
       const pcell = a.participant_ids.length === 0 ? ''
         : a.participant_ids.length === members.length ? 'ALL'
           : a.participant_ids.map((id2: number) => members.find(m => m.id === id2)?.name).filter(Boolean).join('; ');
-      rows.push([a.id, a.day, a.start_time, a.end_time, a.title, a.notes,
+      rows.push([a.id, a.day, a.start_time, a.end_time, a.title, a.category, a.notes,
         a.location_name, a.lat, a.lng, a.est_cost_myr, pcell, a.done ? 'x' : '']);
     }
     downloadCsv(`${trip.name.replace(/\W+/g, '-')}-plan.csv`, toCsv(rows));
@@ -272,6 +302,7 @@ export default function Plan() {
         notes: get('notes') || null, location_name: get('location_name') || null,
         lat: get('lat') ? Number(get('lat')) : null, lng: get('lng') ? Number(get('lng')) : null,
         est_cost_myr: get('est_cost_myr') ? Number(get('est_cost_myr')) : null,
+        category: get('category') || null,
         participant_ids: [...new Set(participant_ids)],
         done: !!get('done'),
       });
@@ -297,6 +328,7 @@ export default function Plan() {
       day: selDay,
       items: reflowed.map((r, i2) => ({ id: r.id, start_time: r.start_time, end_time: r.end_time, sort: i2 })),
     });
+    toast(t.tOrderUpdated);
     await load();
   };
   const moveActivity = async (actId: number, dir: -1 | 1) => {
@@ -353,19 +385,26 @@ export default function Plan() {
             </button>
           ))}
         </div>
-        {user.role === 'admin' && (
-          <div className="row">
-            <button className="btn btn-ghost btn-sm" onClick={exportCsv}>⬇️ {t.exportCsv}</button>
-            <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer' }}>
-              ⬆️ {t.importCsv}
-              <input type="file" accept=".csv,text/csv" hidden
-                onChange={e => { onImportFile(e.target.files?.[0] ?? null); e.target.value = ''; }} />
-            </label>
-            <button className="btn btn-ghost btn-sm" onClick={() => setWizardOpen(true)}>🪄 {t.mapColumns}</button>
-            <button className="btn btn-ghost btn-sm" onClick={blankTemplate}>📄 {t.blankTemplate}</button>
-            <button className="btn" onClick={() => setModal(emptyActivity(selDay || days[0] || today))}>＋ {t.addActivity}</button>
-          </div>
-        )}
+        <div className="row">
+          {user.role === 'admin' && (
+            <>
+              <button className="btn btn-ghost btn-sm" onClick={exportCsv}>⬇️ {t.exportCsv}</button>
+              <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer' }}>
+                ⬆️ {t.importCsv}
+                <input type="file" accept=".csv,text/csv" hidden
+                  onChange={e => { onImportFile(e.target.files?.[0] ?? null); e.target.value = ''; }} />
+              </label>
+              <button className="btn btn-ghost btn-sm" onClick={() => setWizardOpen(true)}>🪄 {t.mapColumns}</button>
+              <button className="btn btn-ghost btn-sm" onClick={blankTemplate}>📄 {t.blankTemplate}</button>
+            </>
+          )}
+          {canEdit && (
+            <>
+              <button className="btn btn-ghost btn-sm" onClick={() => setSuggestOpen(true)}>✨ {t.suggestAi}</button>
+              <button className="btn" onClick={() => setModal(emptyActivity(selDay || days[0] || today))}>＋ {t.addActivity}</button>
+            </>
+          )}
+        </div>
       </div>
 
       {preview && (
@@ -439,15 +478,19 @@ export default function Plan() {
               {items.length === 0 && <p className="muted">{t.noEvents}</p>}
               {items.map(i => (
                 <div className={`plan-item ${i.activity?.done ? 'done' : ''} ${dragId === i.activity?.id ? 'dragging' : ''}`} key={i.key}
-                  draggable={user.role === 'admin' && !!i.activity}
+                  draggable={canEdit && !!i.activity}
                   onDragStart={() => i.activity && setDragId(i.activity.id)}
+                  onDragEnd={() => setDragId(null)}
                   onDragOver={e => { if (i.activity) e.preventDefault(); }}
                   onDrop={() => i.activity && dropOn(i.activity.id)}>
                   <div className="pi-time">{i.time ?? '—'}{i.end_time ? `–${i.end_time}` : ''}</div>
-                  <div className="pi-ic">{i.auto ? KIND_ICON[i.kind ?? ''] ?? '•' : '📍'}</div>
+                  <div className="pi-ic">{i.auto ? KIND_ICON[i.kind ?? ''] ?? '•' : ACTIVITY_CAT_ICON[(i.activity?.category as ActivityCategory) ?? 'other'] ?? '📍'}</div>
                   <div className="pi-body">
                     <div className="pi-title">{i.title}</div>
                     {i.subtitle && <div className="tiny">{i.subtitle}</div>}
+                    {i.auto && (i as any).participant_ids?.length > 0 && (i as any).participant_ids.length < members.length && (
+                      <div className="tiny">👥 {participantsLabel((i as any).participant_ids)}</div>
+                    )}
                     {i.activity && (
                       <div className="tiny">
                         {i.activity.participant_ids.length > 0 && <>👥 {participantsLabel(i.activity.participant_ids)} · </>}
@@ -462,7 +505,7 @@ export default function Plan() {
                       </a>
                     )}
                   </div>
-                  {user.role === 'admin' && i.activity && (
+                  {canEdit && i.activity && (
                     <div className="row" style={{ gap: 2, flexWrap: 'nowrap' }}>
                       <span className="row" style={{ flexDirection: 'column', gap: 0 }}>
                         <button className="icon" style={{ padding: '0 4px', lineHeight: 1 }} title={t.moveUp}
@@ -473,7 +516,7 @@ export default function Plan() {
                       <input type="checkbox" checked={!!i.activity.done} title={t.doneLabel}
                         onChange={async e => { await api.patch(`/activities/${i.activity.id}`, { done: e.target.checked }); load(); }} />
                       <button className="icon" onClick={() => setModal({ ...i.activity, est_cost_myr: i.activity.est_cost_myr ?? '' })}>✏️</button>
-                      <button className="icon" onClick={async () => { if (window.confirm(t.confirmDelete)) { await api.del(`/activities/${i.activity.id}`); load(); } }}>🗑️</button>
+                      <button className="icon" onClick={async () => { if (window.confirm(t.confirmDelete)) { await api.del(`/activities/${i.activity.id}`); toast(t.tActivityDeleted); load(); } }}>🗑️</button>
                     </div>
                   )}
                 </div>
@@ -566,7 +609,7 @@ export default function Plan() {
         <ActivityModal
           draft={modal} members={members} groups={data.groups ?? []} tripId={tripId}
           onClose={() => setModal(null)}
-          onSaved={() => { setModal(null); load(); }}
+          onSaved={() => { setModal(null); toast(t.tActivitySaved); load(); }}
         />
       )}
       {seModal && (
@@ -580,6 +623,10 @@ export default function Plan() {
       {wizardOpen && (
         <WizardModal tripId={tripId} trip={trip} jpyRate={jpyRate}
           onClose={() => setWizardOpen(false)} onDone={() => { setWizardOpen(false); load(); }} />
+      )}
+      {suggestOpen && (
+        <SuggestModal tripId={tripId} trip={trip} day={selDay} canEdit={canEdit}
+          onClose={() => setSuggestOpen(false)} onAdded={() => load()} />
       )}
     </div>
   );
@@ -668,6 +715,7 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
       notes: d.notes || null, location_name: d.location_name || null, lat: d.lat, lng: d.lng,
       est_cost_myr: d.est_cost_myr === '' ? null : Number(d.est_cost_myr),
       participant_ids: d.participant_ids,
+      category: d.category || null,
     };
     try {
       let actId = d.id;
@@ -706,7 +754,16 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
             </div></label>
           <label className="field"><span>{t.estCost}</span>
             <input type="number" step="0.01" min="0" value={d.est_cost_myr ?? ''} onChange={e => set({ est_cost_myr: e.target.value })} /></label>
-          <label className="field"><span>{t.notes}</span>
+          <label className="field"><span>{t.activityCategory}</span>
+            <select value={d.category ?? ''} onChange={e => set({ category: e.target.value || null })}>
+              <option value="">—</option>
+              {ACTIVITY_CATEGORIES.map(cval => (
+                <option key={cval} value={cval}>
+                  {ACTIVITY_CAT_ICON[cval]} {(t as any)[`cat${cval.charAt(0).toUpperCase()}${cval.slice(1)}`]}
+                </option>
+              ))}
+            </select></label>
+          <label className="field full"><span>{t.notes}</span>
             <input value={d.notes ?? ''} onChange={e => set({ notes: e.target.value })} /></label>
         </div>
 
@@ -964,7 +1021,7 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
 }) {
   const { t } = useT();
   const [grid, setGrid] = useState<string[][] | null>(null);
-  const [map2, setMap2] = useState<any>({ date: -1, time: -1, title: -1, notes: [], overnight: -1, bTransport: -1, bAccom: -1, bFood: -1, bAttr: -1, bMisc: -1, bTotal: -1 });
+  const [map2, setMap2] = useState<any>({ date: -1, time: -1, title: -1, notes: [], category: -1, price: -1, overnight: -1, bTransport: -1, bAccom: -1, bFood: -1, bAttr: -1, bMisc: -1, bTotal: -1 });
   const [result, setResult] = useState<any>(null);
   const [geo, setGeo] = useState<Map<string, { name: string; lat: number; lng: number }>>(new Map());
   const [geoProg, setGeoProg] = useState<[number, number] | null>(null);
@@ -981,6 +1038,8 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
     setMap2({
       date: find(/date/), time: find(/time/), title: find(/activity|route|title|plan/),
       notes: [find(/parking|note|remark/)].filter(i => i >= 0),
+      category: find(/category|type|kategori/),
+      price: find(/^price|cost(?!.*day)|fee|harga|ticket/),
       overnight: find(/overnight|hotel|stay|lodg/),
       bTransport: find(/transport/), bAccom: find(/accom/), bFood: find(/food/),
       bAttr: find(/attraction/), bMisc: find(/misc/), bTotal: find(/total.*¥|day total \(?¥/),
@@ -992,6 +1051,9 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
     time: map2.time >= 0 ? map2.time : undefined,
     title: map2.title,
     notes: map2.notes,
+    category: map2.category >= 0 ? map2.category : undefined,
+    price: map2.price >= 0 ? map2.price : undefined,
+    priceRate: jpyRate ?? 0.031, // client CSV prices are ¥ — store as an MYR estimate
     overnight: map2.overnight >= 0 ? map2.overnight : undefined,
     budgets: {
       transport: map2.bTransport >= 0 ? map2.bTransport : undefined,
@@ -1038,7 +1100,7 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
         return {
           day: a.day, title: a.title, start_time: a.start_time, end_time: a.end_time,
           notes: a.notes, location_name: g2?.name ?? null, lat: g2?.lat ?? null, lng: g2?.lng ?? null,
-          est_cost_myr: null, participant_ids: [], done: false,
+          est_cost_myr: a.est_cost_myr ?? null, category: a.category ?? null, participant_ids: [], done: false,
         };
       });
       const budgets = result.budgets.map((b: any) => ({
@@ -1082,6 +1144,8 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
               <label className="field"><span>{t.fieldTime}</span>{colSelect(map2.time, v => setMap2({ ...map2, time: v }))}</label>
               <label className="field"><span>{t.fieldTitle}</span>{colSelect(map2.title, v => setMap2({ ...map2, title: v }))}</label>
               <label className="field"><span>{t.fieldNotes}</span>{colSelect(map2.notes[0] ?? -1, v => setMap2({ ...map2, notes: v >= 0 ? [v] : [] }))}</label>
+              <label className="field"><span>{t.fieldCategory}</span>{colSelect(map2.category, v => setMap2({ ...map2, category: v }))}</label>
+              <label className="field"><span>{t.fieldPrice}</span>{colSelect(map2.price, v => setMap2({ ...map2, price: v }))}</label>
               <label className="field"><span>{t.fieldOvernight}</span>{colSelect(map2.overnight, v => setMap2({ ...map2, overnight: v }))}</label>
               <label className="field"><span>{t.fieldBudgets} (🚆/🏨/🍜/🎟️/📦/Σ)</span>
                 <div className="row" style={{ gap: 3, flexWrap: 'wrap' }}>
@@ -1135,6 +1199,129 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
                 </div>
               </>
             )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** v0.12: AI itinerary suggestions — the model proposes, the human taps Add. */
+function SuggestModal({ tripId, trip, day, canEdit, onClose, onAdded }: {
+  tripId: number; trip: any; day: string; canEdit: boolean;
+  onClose: () => void; onAdded: () => void;
+}) {
+  const { t } = useT();
+  const { toast } = useToast();
+  const [prompt, setPrompt] = useState('');
+  const [scope, setScope] = useState<'day' | 'trip'>('day');
+  const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState<number | 'all' | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
+  const [added, setAdded] = useState<Set<number>>(new Set());
+  const [err, setErr] = useState('');
+
+  const ask = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!prompt.trim() || busy) return;
+    setBusy(true);
+    setErr('');
+    setSuggestions(null);
+    setAdded(new Set());
+    try {
+      const r = await api.post(`/trips/${tripId}/assistant/suggest`, {
+        prompt, day: scope === 'day' ? day : undefined,
+      });
+      setSuggestions(r.suggestions);
+    } catch (ex: any) {
+      const code = ex?.body?.error ?? '';
+      setErr(code === 'ai_rate_limited' ? t.aiResting : code === 'ai_not_configured' ? t.aiNotConfigured : code === 'ai_unreachable' ? t.aiUnreachable : t.aiError);
+    } finally { setBusy(false); }
+  };
+
+  const addOne = async (s: Suggestion, idx: number) => {
+    if (added.has(idx)) return;
+    setAdding(idx);
+    try {
+      let geo: { name: string; lat: number; lng: number } | null = null;
+      if (s.place) {
+        const hint = (trip.destination ?? '').split(',').pop()?.trim() ?? '';
+        geo = (await geocode(`${s.place} ${hint}`))[0] ?? (await geocode(s.place))[0] ?? null;
+      }
+      let end: string | null = null;
+      if (s.start_time && s.duration_min) {
+        const m = Number(s.start_time.slice(0, 2)) * 60 + Number(s.start_time.slice(3, 5)) + s.duration_min;
+        end = `${String(Math.floor(Math.min(m, 1435) / 60)).padStart(2, '0')}:${String(Math.min(m, 1435) % 60).padStart(2, '0')}`;
+      }
+      const r = await api.post(`/trips/${tripId}/activities`, {
+        title: s.title, day: s.day, start_time: s.start_time, end_time: end,
+        notes: s.why ?? null, category: s.category ?? null,
+        location_name: geo?.name ?? s.place ?? null, lat: geo?.lat ?? null, lng: geo?.lng ?? null,
+        participant_ids: [],
+      });
+      if (geo && r?.id) {
+        const sts = await nearestStations(geo.lat, geo.lng).catch(() => []);
+        if (sts.length) await api.patch(`/activities/${r.id}/stations`, { stations_json: sts, station_idx: 0 }).catch(() => {});
+      }
+      setAdded(prev => new Set(prev).add(idx));
+      toast(t.tSuggestionAdded);
+      onAdded();
+    } finally { setAdding(null); }
+  };
+
+  const addAll = async () => {
+    if (!suggestions) return;
+    setAdding('all');
+    for (let i = 0; i < suggestions.length; i++) {
+      if (!added.has(i)) await addOne(suggestions[i], i);
+    }
+    setAdding(null);
+  };
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="row-between">
+          <h2>✨ {t.suggestAi}</h2>
+          <button className="icon" onClick={onClose}>✕</button>
+        </div>
+        <form className="row" onSubmit={ask} style={{ flexWrap: 'nowrap', marginBottom: 8 }}>
+          <input value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={t.suggestPlaceholder} style={{ flex: 1 }} />
+          <button className="btn btn-sm" type="submit" disabled={busy || !prompt.trim()}>{busy ? '…' : t.suggestGo}</button>
+        </form>
+        <div className="row tiny" style={{ gap: 4 }}>
+          <span className={`chip ${scope === 'day' ? 'on' : ''}`} onClick={() => setScope('day')}>📅 {day}</span>
+          <span className={`chip ${scope === 'trip' ? 'on' : ''}`} onClick={() => setScope('trip')}>🧳 {trip.name}</span>
+        </div>
+        {busy && <p className="muted" style={{ marginTop: 10 }}>🤖 {t.suggesting}</p>}
+        {err && <p className="callout warn">{err}</p>}
+        {suggestions && suggestions.length === 0 && <p className="muted" style={{ marginTop: 10 }}>—</p>}
+        {suggestions && suggestions.length > 0 && (
+          <>
+            <div className="row-between" style={{ marginTop: 10 }}>
+              <span className="tiny">⚠️ {t.aiDisclaimer}</span>
+              {canEdit && (
+                <button className="btn btn-ghost btn-sm" onClick={addAll} disabled={adding !== null}>
+                  ＋ {t.addAll} ({suggestions.length})
+                </button>
+              )}
+            </div>
+            {suggestions.map((s, i) => (
+              <div key={i} className={`suggest-card ${added.has(i) ? 'added' : ''}`}>
+                <div className="sc-time">{s.day.slice(5)}<br />{s.start_time ?? '—'}</div>
+                <div className="sc-body">
+                  <div className="sc-title">{ACTIVITY_CAT_ICON[(s.category as ActivityCategory) ?? 'sightseeing'] ?? '📍'} {s.title}</div>
+                  {s.why && <div className="tiny">{s.why}</div>}
+                  {s.place && <div className="tiny">📍 {s.place}</div>}
+                </div>
+                {canEdit && (
+                  <button className="btn btn-sm" disabled={added.has(i) || adding !== null}
+                    onClick={() => addOne(s, i)}>
+                    {added.has(i) ? `✓ ${t.addedLbl}` : adding === i ? '…' : `＋ ${t.add}`}
+                  </button>
+                )}
+              </div>
+            ))}
           </>
         )}
       </div>

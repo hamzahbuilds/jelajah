@@ -59,8 +59,15 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
     const all: Pin[] = [...pins, ...(picked ? [picked] : []), ...arcs.flatMap(a => [a.from, a.to])];
     pins.forEach((p, i) => {
       const inner = (p as any).icon ?? String(i + 1);
+      // the rotated teardrop's tip sits ~17px below its centre, so the icon
+      // box is 26x32 with the anchor exactly on the tip — pins stay planted
+      // on the true coordinate at every zoom level
       L.marker([p.lat, p.lng], {
-        icon: L.divIcon({ className: '', html: `<div class="pin-dot" style="background:${color}"><span>${inner}</span></div>`, iconSize: [26, 26], iconAnchor: [13, 26] }),
+        icon: L.divIcon({
+          className: '',
+          html: `<div class="pin-wrap"><div class="pin-dot" style="background:${color}"><span>${inner}</span></div></div>`,
+          iconSize: [26, 32], iconAnchor: [13, 30], popupAnchor: [0, -28],
+        }),
       }).addTo(layer).bindPopup(p.label ?? '');
     });
     for (const a of arcs) {
@@ -72,7 +79,11 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
     }
     if (picked) {
       L.marker([picked.lat, picked.lng], {
-        icon: L.divIcon({ className: '', html: '<div class="pin-dot picked"><span>✓</span></div>', iconSize: [26, 26], iconAnchor: [13, 26] }),
+        icon: L.divIcon({
+          className: '',
+          html: '<div class="pin-wrap"><div class="pin-dot picked"><span>✓</span></div></div>',
+          iconSize: [26, 32], iconAnchor: [13, 30], popupAnchor: [0, -28],
+        }),
       }).addTo(layer);
     }
     if (line && pins.length > 1) {

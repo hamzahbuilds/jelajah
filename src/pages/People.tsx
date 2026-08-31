@@ -3,10 +3,13 @@ import { useOutletContext } from 'react-router-dom';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { TripCtx, Participant } from './TripShell';
+import { useToast } from '../components/Toast';
 
 export default function People() {
   const { t } = useT();
+  const { toast } = useToast();
   const { trip, tripId, members, reload } = useOutletContext<TripCtx>();
+  const [canEditPlan, setCanEditPlan] = useState<boolean>(!!(trip as any).member_can_edit_plan);
   const [all, setAll] = useState<Participant[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [newName, setNewName] = useState('');
@@ -27,6 +30,7 @@ export default function People() {
       ? members.filter(m => m.id !== pid).map(m => m.id)
       : [...members.map(m => m.id), pid];
     await api.put(`/trips/${tripId}/members`, { participant_ids: ids });
+    toast(memberIds.has(pid) ? t.tParticipantRemoved : t.tParticipantAdded);
     await reload();
   };
 
@@ -36,6 +40,7 @@ export default function People() {
     const r = await api.post('/participants', { name: newName, is_infant: newInfant });
     await api.put(`/trips/${tripId}/members`, { participant_ids: [...members.map(m => m.id), r.id] });
     setNewName(''); setNewInfant(false);
+    toast(t.tParticipantAdded);
     await Promise.all([load(), reload()]);
   };
 
@@ -47,6 +52,7 @@ export default function People() {
     await api.post('/users', { ...uform, password, participant_id: uform.participant_id || null });
     setShowTemp(password);
     setUform({ name: '', email: '', password: '', role: 'member', participant_id: 0 });
+    toast(t.tAccountCreated);
     await load();
   };
 
@@ -68,6 +74,14 @@ export default function People() {
     const next = hidden.includes(f) ? hidden.filter(x => x !== f) : [...hidden, f];
     setHidden(next); // optimistic — checkbox flips immediately
     await api.patch(`/trips/${tripId}`, { hidden_features: next });
+    toast(t.tVisibilitySaved);
+    await reload();
+  };
+  const toggleEditPlan = async () => {
+    const next = !canEditPlan;
+    setCanEditPlan(next);
+    await api.patch(`/trips/${tripId}`, { member_can_edit_plan: next });
+    toast(t.tVisibilitySaved);
     await reload();
   };
 
@@ -76,13 +90,18 @@ export default function People() {
       <div className="card">
         <h3>{t.visibility}</h3>
         <p className="tiny">{t.visibilityHint}</p>
-        {(['plan', 'documents', 'ledger', 'payments'] as const).map(f => (
+        {(['plan', 'documents', 'ledger', 'payments', 'assistant'] as const).map(f => (
           <label key={f} className="row" style={{ gap: 8, padding: '4px 0' }}>
             <input type="checkbox" checked={!hidden.includes(f)} onChange={() => toggleFeature(f)}
               style={{ width: 17, height: 17, accentColor: 'var(--brand)' }} />
-            <span>{(t as any)[f === 'ledger' ? 'ledger' : f]}</span>
+            <span>{f === 'assistant' ? `💬 ${t.assistantFeature}` : (t as any)[f === 'ledger' ? 'ledger' : f]}</span>
           </label>
         ))}
+        <label className="row" style={{ gap: 8, padding: '10px 0 4px', borderTop: '1px solid var(--line)', marginTop: 8 }}>
+          <input type="checkbox" checked={canEditPlan} onChange={toggleEditPlan}
+            style={{ width: 17, height: 17, accentColor: 'var(--brand)' }} />
+          <span>✏️ {t.memberCanEditPlan}</span>
+        </label>
       </div>
       <div className="card">
         <h3>{t.tripMembers}</h3>

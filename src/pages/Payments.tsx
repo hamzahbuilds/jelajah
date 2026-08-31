@@ -4,10 +4,12 @@ import { api, fmtMYR, fmtDate } from '../api';
 import { useT } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
+import { useToast } from '../components/Toast';
 
 export default function Payments() {
   const { t, lang } = useT();
   const { user } = useSession();
+  const { toast } = useToast();
   const { tripId, members } = useOutletContext<TripCtx>();
   const [bal, setBal] = useState<any>(null);
   const [payments, setPayments] = useState<any[]>([]);
@@ -49,6 +51,7 @@ export default function Payments() {
       amount_myr: amount, pay_date: new Date().toISOString().slice(0, 10),
       note: item ? item.description : t.settleAll, expense_id: item?.expense_id ?? null,
     });
+    toast(t.tSettled);
     const fresh = await load();
     const nb = fresh.balances.find((x: any) => x.participant.id === b.participant.id);
     const nbp = nb?.byPayee.find((x: any) => x.to_participant_id === bp.to_participant_id);
@@ -61,6 +64,7 @@ export default function Payments() {
     e.preventDefault();
     await api.post(`/trips/${tripId}/payments`, { ...form, amount_myr: Number(form.amount_myr) });
     setForm({ ...form, amount_myr: '', note: '' });
+    toast(t.tPaymentRecorded);
     await load();
   };
 

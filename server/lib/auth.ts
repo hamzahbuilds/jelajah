@@ -33,6 +33,12 @@ export async function verifyPassword(password: string, saltB64: string, hashB64:
   return diff === 0;
 }
 
+/** SHA-256 hex of an API token — tokens are stored hashed, shown once. */
+export async function hashToken(token: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', enc.encode(token));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export function randomToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');

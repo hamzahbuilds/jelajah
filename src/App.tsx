@@ -13,6 +13,8 @@ import Review from './pages/Review';
 import Ledger from './pages/Ledger';
 import Payments from './pages/Payments';
 import People from './pages/People';
+import Settings from './pages/Settings';
+import { ToastProvider } from './components/Toast';
 
 export interface User {
   id: number; email: string; name: string; role: 'admin' | 'member';
@@ -52,9 +54,11 @@ function Shell() {
   return (
     <I18nProvider initial={state.user.lang}>
       <SessionCtx.Provider value={{ ...state, refresh, logout }}>
+        <ToastProvider>
         <Chrome>
           <Routes>
             <Route path="/" element={<Trips />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="/trips/:tripId" element={<TripShell />}>
               <Route index element={<Dashboard />} />
               <Route path="plan" element={<Plan />} />
@@ -68,6 +72,7 @@ function Shell() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Chrome>
+        </ToastProvider>
       </SessionCtx.Provider>
     </I18nProvider>
   );
@@ -83,6 +88,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
         <div className="topbar-inner">
           <a className="logo" href="/">🧭 {t.appName}</a>
           <div className="spacer" />
+          {user.role === 'admin' && <a href="/settings" style={{ color: '#fff', textDecoration: 'none', fontSize: '.85rem' }}>⚙️ {t.settings}</a>}
           <select value={lang} onChange={e => changeLang(e.target.value as Lang)} aria-label={t.language}>
             <option value="en">EN</option>
             <option value="ms">BM</option>

@@ -7,6 +7,7 @@ import { TripCtx } from './TripShell';
 import { extractPdfText, renderPdfPages } from '../pdf';
 import { parseDocument } from '../../shared/parsers';
 import { OCR_LANGS, savedLangs, saveLangs, looksScanned, ocrImages, OcrProgress } from '../ocr';
+import { useToast } from '../components/Toast';
 
 const ICONS: Record<string, string> = {
   receipt: '🧾', itinerary: '🛫', confirmation: '🏠', other: '📄',
@@ -17,6 +18,7 @@ export default function Documents() {
   const { user } = useSession();
   const { tripId } = useOutletContext<TripCtx>();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [docs, setDocs] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
@@ -44,6 +46,8 @@ export default function Documents() {
   useEffect(() => { load(); }, [tripId]);
 
   const [ocrQueue, setOcrQueue] = useState<{ files: File[]; single: boolean } | null>(null);
+  // v0.12: visible import pipeline — ✈️ progress, counts, per-file errors
+  const [prog, setProg] = useState<{ done: number; total: number; current: string; errors: Array<{ name: string; reason: string }> } | null>(null);
 
   const emptyParse = (warning?: string) => ({
     parser: 'none', docType: 'other', people: [], legs: [], fields: {},
@@ -60,49 +64,84 @@ export default function Documents() {
   };
 
   const handleFiles = async (files: FileList | null) => {
-    if (!files?.length || busy) return;
+    if (!files?.length || busy || ocrQueue) return;
     setBusy(true);
+    const all = Array.from(files);
+    const errors: Array<{ name: string; reason: string }> = [];
+    let done = 0;
+    setProg({ done: 0, total: all.length, current: all[0]?.name ?? '', errors: [] });
+    const tick = (current: string) => setProg({ done, total: all.length, current, errors: [...errors] });
     try {
       const needOcr: File[] = [];
-      const all = Array.from(files);
       for (const file of all) {
+        tick(file.name);
         const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
         const isImage = /^image\//.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name);
-        if (isPdf) {
-          let text = '';
-          try { text = await extractPdfText(file); } catch { /* treat as scan */ }
-          if (looksScanned(text)) { needOcr.push(file); continue; } // scanned PDF → OCR prompt
-          await uploadOne(file, parseDocument(text), all.length === 1);
-          if (all.length === 1) return;
-        } else if (isImage) {
-          needOcr.push(file); // photos always go through the OCR prompt
-        } else {
-          await uploadOne(file, emptyParse(), false);
+        try {
+          if (isPdf) {
+            let text = '';
+            try { text = await extractPdfText(file); } catch { /* treat as scan */ }
+            if (looksScanned(text)) { needOcr.push(file); continue; } // scanned PDF → OCR prompt
+            await uploadOne(file, parseDocument(text), all.length === 1);
+            if (all.length === 1) return;
+          } else if (isImage) {
+            needOcr.push(file); // photos always go through the OCR prompt
+          } else {
+            await uploadOne(file, emptyParse(), false);
+          }
+          done++;
+        } catch {
+          errors.push({ name: file.name, reason: t.uploadFailedRow });
         }
+        tick(file.name);
       }
+      if (all.length > 1 || errors.length) toast(t.uploadDone(done, errors.length), errors.length ? 'error' : 'ok');
       if (needOcr.length) { setOcrQueue({ files: needOcr, single: all.length === 1 && needOcr.length === 1 }); return; }
       await load();
     } finally {
       setBusy(false);
+      setProg(p => (p && p.errors.length === 0 && errors.length === 0 ? null : p ? { ...p, done, errors: [...errors] } : null));
+      if (!errors.length) setProg(null);
     }
   };
 
   return (
     <div>
       {user.role === 'admin' && (
-        <div
-          className={`dropzone ${drag ? 'drag' : ''}`}
-          onClick={() => fileRef.current?.click()}
-          onDragOver={e => { e.preventDefault(); setDrag(true); }}
-          onDragLeave={() => setDrag(false)}
-          onDrop={e => { e.preventDefault(); setDrag(false); handleFiles(e.dataTransfer.files); }}
-        >
-          <div style={{ fontSize: '1.6rem' }}>📥</div>
-          <strong>{busy ? t.parsing : t.uploadDoc}</strong>
-          <div className="tiny">{t.dropHint}</div>
-          <input ref={fileRef} type="file" accept="application/pdf,image/*" multiple hidden
-            onChange={e => handleFiles(e.target.files)} />
-        </div>
+        <>
+          <div
+            className={`dropzone ${drag ? 'drag' : ''} ${busy || ocrQueue ? 'disabled' : ''}`}
+            onClick={() => !busy && !ocrQueue && fileRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); if (!busy && !ocrQueue) setDrag(true); }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={e => { e.preventDefault(); setDrag(false); handleFiles(e.dataTransfer.files); }}
+          >
+            <div style={{ fontSize: '1.6rem' }}>📥</div>
+            <strong>{busy ? t.parsing : t.uploadDoc}</strong>
+            <div className="tiny">{t.dropHint}</div>
+            <input ref={fileRef} type="file" accept="application/pdf,image/*" multiple hidden
+              onChange={e => { handleFiles(e.target.files); e.target.value = ''; }} />
+          </div>
+          {prog && (
+            <div className="upload-strip">
+              <div className="row-between tiny" style={{ marginBottom: 3 }}>
+                <span>{busy ? t.uploadingDocs : t.uploadDone(prog.done, prog.errors.length)}</span>
+                <span>{t.uploadCount(prog.done, prog.total)}{prog.errors.length ? ` · ⚠️ ${prog.errors.length}` : ''}</span>
+              </div>
+              <div className="upload-track">
+                <div className="fillbar" style={{ width: `${Math.round((prog.done / Math.max(1, prog.total)) * 100)}%` }} />
+                <span className="plane" style={{ left: `${Math.max(4, Math.min(96, Math.round((prog.done / Math.max(1, prog.total)) * 100)))}%` }}>✈️</span>
+              </div>
+              {busy && <div className="tiny" style={{ marginTop: 2 }}>{prog.current}</div>}
+              {prog.errors.length > 0 && !busy && (
+                <div className="callout warn" style={{ marginTop: 6 }}>
+                  {prog.errors.map((er, i) => <div key={i} className="tiny">⚠️ {er.name} — {er.reason}</div>)}
+                  <button className="btn btn-ghost btn-sm" style={{ marginTop: 4 }} onClick={() => setProg(null)}>✕ {t.close}</button>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       <div className="card" style={{ marginTop: 16 }}>
