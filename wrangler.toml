@@ -12,12 +12,12 @@ run_worker_first = ["/api/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "jelajah-db"
-database_id = "REPLACE_WITH_YOUR_D1_ID"   # from the D1 dashboard, or: wrangler d1 create jelajah-db
+database_id = "42a248b3-2738-4d21-ba83-fb27d9686880"   # from the D1 dashboard, or: wrangler d1 create jelajah-db
 
 # File storage: Workers KV — free, no credit card, 1 GB (≈700 PDFs).
 [[kv_namespaces]]
 binding = "FILES"
-id = "REPLACE_WITH_YOUR_KV_ID"            # from the KV dashboard, or: wrangler kv namespace create FILES
+id = "4a56d2d032824d98963a2f33ef299319"            # from the KV dashboard, or: wrangler kv namespace create FILES
 
 # If you ever outgrow KV, replace the kv_namespaces block with this R2 block
 # (requires a card on file with Cloudflare; 10 GB free). The app auto-detects
@@ -28,4 +28,4 @@ id = "REPLACE_WITH_YOUR_KV_ID"            # from the KV dashboard, or: wrangler 
 
 [vars]
 # Change this to any long random string before deploying (cookie signing secret)
-SESSION_SECRET = "change-me-to-a-long-random-string"
+SESSION_SECRET = "C@t15CurtinJ@dirahAzr@s"
