@@ -73,6 +73,8 @@ export const SCHEMA: string[] = [
     amount_myr REAL NOT NULL,
     payer_participant_id INTEGER REFERENCES participants(id),
     meta_json TEXT,
+    lat REAL,
+    lng REAL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS expense_shares (
@@ -87,6 +89,7 @@ export const SCHEMA: string[] = [
     due_date TEXT NOT NULL,
     amount_myr REAL,
     note TEXT,
+    participant_id INTEGER REFERENCES participants(id),  -- NULL = whole payment
     settled INTEGER NOT NULL DEFAULT 0
   )`,
   `CREATE TABLE IF NOT EXISTS payments (
@@ -156,6 +159,38 @@ export const SCHEMA: string[] = [
     participant_id INTEGER NOT NULL REFERENCES participants(id),
     PRIMARY KEY (group_id, participant_id)
   )`,
+  `CREATE TABLE IF NOT EXISTS day_settings (
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    day TEXT NOT NULL,            -- YYYY-MM-DD or '*' for the trip default
+    start_name TEXT, start_lat REAL, start_lng REAL,
+    end_name TEXT, end_lat REAL, end_lng REAL,
+    PRIMARY KEY (trip_id, day)
+  )`,
+  `CREATE TABLE IF NOT EXISTS leg_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    day TEXT NOT NULL,
+    leg_key TEXT NOT NULL,        -- "<fromRef>-><toRef>" refs: start|end|act:<id>|auto:<expenseId>
+    mode TEXT,
+    fare_jpy REAL,
+    note TEXT,
+    UNIQUE (trip_id, day, leg_key)
+  )`,
+  `CREATE TABLE IF NOT EXISTS personal_expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    spend_date TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'other',
+    description TEXT NOT NULL,
+    amount_original REAL NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'JPY',
+    fx_rate REAL NOT NULL DEFAULT 1,
+    amount_myr REAL NOT NULL,
+    behalf_note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_personal_user ON personal_expenses(trip_id, user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_activities_trip ON activities(trip_id, day)`,
   `CREATE INDEX IF NOT EXISTS idx_documents_trip ON documents(trip_id)`,
   `CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id)`,
@@ -168,7 +203,12 @@ export const SCHEMA: string[] = [
 // Run one by one with failures ignored (e.g. ALTER on a column that already exists).
 export const UPGRADES: string[] = [
   `ALTER TABLE trips ADD COLUMN hidden_features TEXT NOT NULL DEFAULT '[]'`,
-  ...SCHEMA.filter(s => /activities|activity_participants|groups|group_members|idx_activities_trip/.test(s)),
+  `ALTER TABLE expenses ADD COLUMN lat REAL`,
+  `ALTER TABLE expenses ADD COLUMN lng REAL`,
+  `ALTER TABLE due_dates ADD COLUMN participant_id INTEGER REFERENCES participants(id)`,
+  ...SCHEMA.filter(s =>
+    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses)\b/.test(s)
+    || /idx_activities_trip|idx_personal_user/.test(s)),
 ];
 
 // Optional first-run seed: the Japan Nov/Dec 2026 trip with its 16 travellers,

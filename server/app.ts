@@ -355,11 +355,15 @@ app.delete('/documents/:id', requireAdmin, async c => {
   const id = Number(c.req.param('id'));
   const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first<any>();
   if (!doc) return bad(c, 'not_found', 404);
-  const linked = await c.env.DB.prepare('SELECT id FROM expenses WHERE document_id = ?').bind(id).first();
-  if (linked) return bad(c, 'has_expense', 409);
+  // A linked expense survives — it is just unlinked from the deleted file.
+  const linked = await c.env.DB.prepare('SELECT id FROM expenses WHERE document_id = ?').bind(id).first<any>();
+  if (linked) {
+    await c.env.DB.prepare('UPDATE expenses SET document_id = NULL WHERE document_id = ?').bind(id).run();
+  }
   await filesDelete(c.env, doc.r2_key);
   await c.env.DB.prepare('DELETE FROM documents WHERE id = ?').bind(id).run();
-  return c.json({ ok: true });
+  await audit(c.env, c.get('user').id, 'document_delete', 'document', id);
+  return c.json({ ok: true, unlinked_expense_id: linked?.id ?? null });
 });
 
 /* -------- expense payload helpers -------- */
@@ -370,7 +374,7 @@ interface ExpensePayload {
   amount_original: number; currency: string; fx_rate: number; amount_myr: number;
   payer_participant_id: number;
   shares: Array<{ participant_id: number; amount_myr: number }>;
-  due_dates?: Array<{ due_date: string; amount_myr?: number; note?: string }>;
+  due_dates?: Array<{ due_date: string; amount_myr?: number; note?: string; participant_id?: number | null }>;
   meta?: unknown;
 }
 
@@ -401,8 +405,8 @@ async function insertExpense(env: Env, tripId: number, documentId: number | null
     env.DB.prepare('INSERT INTO expense_shares (expense_id, participant_id, amount_myr) VALUES (?,?,?)')
       .bind(eid, s.participant_id, s.amount_myr));
   for (const d of p.due_dates ?? []) {
-    stmts.push(env.DB.prepare('INSERT INTO due_dates (expense_id, due_date, amount_myr, note) VALUES (?,?,?,?)')
-      .bind(eid, d.due_date, d.amount_myr ?? null, d.note ?? null));
+    stmts.push(env.DB.prepare('INSERT INTO due_dates (expense_id, due_date, amount_myr, note, participant_id) VALUES (?,?,?,?,?)')
+      .bind(eid, d.due_date, d.amount_myr ?? null, d.note ?? null, d.participant_id ?? null));
   }
   if (stmts.length) await env.DB.batch(stmts);
   return eid;
@@ -476,8 +480,8 @@ app.put('/expenses/:id', requireAdmin, async c => {
     c.env.DB.prepare('INSERT INTO expense_shares (expense_id, participant_id, amount_myr) VALUES (?,?,?)')
       .bind(id, s.participant_id, s.amount_myr));
   for (const d of p.due_dates ?? []) {
-    stmts.push(c.env.DB.prepare('INSERT INTO due_dates (expense_id, due_date, amount_myr, note) VALUES (?,?,?,?)')
-      .bind(id, d.due_date, d.amount_myr ?? null, d.note ?? null));
+    stmts.push(c.env.DB.prepare('INSERT INTO due_dates (expense_id, due_date, amount_myr, note, participant_id) VALUES (?,?,?,?,?)')
+      .bind(id, d.due_date, d.amount_myr ?? null, d.note ?? null, d.participant_id ?? null));
   }
   if (stmts.length) await c.env.DB.batch(stmts);
   await audit(c.env, c.get('user').id, 'expense_update', 'expense', id);
@@ -684,11 +688,148 @@ app.get('/trips/:id/plan', async c => {
     membersByGroup.get(r.group_id)!.push(r.participant_id);
   }
 
+  const stays = (exps.results as any[])
+    .filter(e => e.category === 'accommodation')
+    .map(e => ({ expense_id: e.id, description: e.description, location: e.location, lat: e.lat, lng: e.lng, checkin: e.expense_date, checkout: e.end_date }));
+  const daySettings = await c.env.DB.prepare('SELECT * FROM day_settings WHERE trip_id = ?').bind(id).all();
+  const legOverrides = await c.env.DB.prepare('SELECT * FROM leg_overrides WHERE trip_id = ?').bind(id).all();
+
   return c.json({
     autoEvents,
     activities: (acts.results as any[]).map(a => ({ ...a, participant_ids: partsByAct.get(a.id) ?? [] })),
     groups: (groups.results as any[]).map(g => ({ ...g, member_ids: membersByGroup.get(g.id) ?? [] })),
+    stays,
+    daySettings: daySettings.results,
+    legOverrides: legOverrides.results,
   });
+});
+
+/* ---- day start/end settings & leg overrides (admin) ---- */
+
+app.put('/trips/:id/daysettings', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.json<any>();
+  if (!b.day) return bad(c, 'day_required');
+  await c.env.DB.prepare(
+    `INSERT INTO day_settings (trip_id, day, start_name, start_lat, start_lng, end_name, end_lat, end_lng)
+     VALUES (?,?,?,?,?,?,?,?)
+     ON CONFLICT (trip_id, day) DO UPDATE SET start_name=excluded.start_name, start_lat=excluded.start_lat,
+       start_lng=excluded.start_lng, end_name=excluded.end_name, end_lat=excluded.end_lat, end_lng=excluded.end_lng`,
+  ).bind(id, b.day, b.start_name ?? null, b.start_lat ?? null, b.start_lng ?? null,
+    b.end_name ?? null, b.end_lat ?? null, b.end_lng ?? null).run();
+  return c.json({ ok: true });
+});
+
+app.delete('/trips/:id/daysettings/:day', requireAdmin, async c => {
+  await c.env.DB.prepare('DELETE FROM day_settings WHERE trip_id = ? AND day = ?')
+    .bind(Number(c.req.param('id')), c.req.param('day')).run();
+  return c.json({ ok: true });
+});
+
+app.put('/trips/:id/legs', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.json<any>();
+  if (!b.day || !b.leg_key) return bad(c, 'missing_fields');
+  if (b.mode === null && b.fare_jpy == null) {
+    await c.env.DB.prepare('DELETE FROM leg_overrides WHERE trip_id = ? AND day = ? AND leg_key = ?')
+      .bind(id, b.day, b.leg_key).run();
+    return c.json({ ok: true, cleared: true });
+  }
+  await c.env.DB.prepare(
+    `INSERT INTO leg_overrides (trip_id, day, leg_key, mode, fare_jpy, note) VALUES (?,?,?,?,?,?)
+     ON CONFLICT (trip_id, day, leg_key) DO UPDATE SET mode=excluded.mode, fare_jpy=excluded.fare_jpy, note=excluded.note`,
+  ).bind(id, b.day, b.leg_key, b.mode ?? null, b.fare_jpy ?? null, b.note ?? null).run();
+  return c.json({ ok: true });
+});
+
+app.patch('/expenses/:id/coords', requireAdmin, async c => {
+  const { lat, lng } = await c.req.json<any>();
+  await c.env.DB.prepare('UPDATE expenses SET lat = ?, lng = ? WHERE id = ?')
+    .bind(lat ?? null, lng ?? null, Number(c.req.param('id'))).run();
+  return c.json({ ok: true });
+});
+
+/* ---- My spend: private per-user tracker. Every query is scoped to the session
+   user; there is deliberately NO endpoint that reads another user's items. ---- */
+
+app.get('/trips/:id/myspend', async c => {
+  const id = Number(c.req.param('id'));
+  if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
+  const rows = await c.env.DB.prepare(
+    'SELECT * FROM personal_expenses WHERE trip_id = ? AND user_id = ? ORDER BY spend_date DESC, id DESC',
+  ).bind(id, c.get('user').id).all();
+  return c.json(rows.results);
+});
+
+app.post('/trips/:id/myspend', async c => {
+  const id = Number(c.req.param('id'));
+  if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
+  const b = await c.req.json<any>();
+  if (!b.description?.trim() || !(b.amount_original > 0) || !b.spend_date) return bad(c, 'missing_fields');
+  const r = await c.env.DB.prepare(
+    `INSERT INTO personal_expenses (trip_id, user_id, spend_date, category, description,
+      amount_original, currency, fx_rate, amount_myr, behalf_note)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  ).bind(id, c.get('user').id, b.spend_date, b.category ?? 'other', b.description.trim(),
+    b.amount_original, b.currency ?? 'JPY', b.fx_rate ?? 1, b.amount_myr ?? b.amount_original,
+    b.behalf_note ?? null).run();
+  return c.json({ id: r.meta.last_row_id });
+});
+
+async function ownPersonal(c: any, id: number): Promise<any | null> {
+  const row = await c.env.DB.prepare('SELECT * FROM personal_expenses WHERE id = ?').bind(id).first();
+  if (!row || (row as any).user_id !== c.get('user').id) return null; // even admins see only their own
+  return row;
+}
+
+app.patch('/myspend/:id', async c => {
+  const row = await ownPersonal(c, Number(c.req.param('id')));
+  if (!row) return bad(c, 'not_found', 404);
+  const b = await c.req.json<any>();
+  await c.env.DB.prepare(
+    `UPDATE personal_expenses SET spend_date=COALESCE(?,spend_date), category=COALESCE(?,category),
+      description=COALESCE(?,description), amount_original=COALESCE(?,amount_original),
+      currency=COALESCE(?,currency), fx_rate=COALESCE(?,fx_rate), amount_myr=COALESCE(?,amount_myr),
+      behalf_note=COALESCE(?,behalf_note) WHERE id=?`,
+  ).bind(b.spend_date ?? null, b.category ?? null, b.description ?? null, b.amount_original ?? null,
+    b.currency ?? null, b.fx_rate ?? null, b.amount_myr ?? null, b.behalf_note ?? null, row.id).run();
+  return c.json({ ok: true });
+});
+
+app.delete('/myspend/:id', async c => {
+  const row = await ownPersonal(c, Number(c.req.param('id')));
+  if (!row) return bad(c, 'not_found', 404);
+  await c.env.DB.prepare('DELETE FROM personal_expenses WHERE id = ?').bind(row.id).run();
+  return c.json({ ok: true });
+});
+
+app.post('/myspend/:id/promote', async c => {
+  const row = await ownPersonal(c, Number(c.req.param('id')));
+  if (!row) return bad(c, 'not_found', 404);
+  const user = c.get('user');
+  if (!user.participant_id) return bad(c, 'no_linked_participant', 400);
+  const members = await c.env.DB.prepare(
+    'SELECT participant_id FROM trip_members WHERE trip_id = ?',
+  ).bind(row.trip_id).all();
+  const ids = (members.results as any[]).map(m => m.participant_id);
+  if (!ids.length) return bad(c, 'no_members', 400);
+  const cents = Math.round(row.amount_myr * 100);
+  const base = Math.floor(cents / ids.length);
+  let rem = cents - base * ids.length;
+  const shares = ids.map(pid => {
+    const amt = (base + (rem > 0 ? 1 : 0)) / 100;
+    if (rem > 0) rem--;
+    return { participant_id: pid, amount_myr: amt };
+  });
+  const eid = await insertExpense(c.env, row.trip_id, null, {
+    category: row.category, description: row.description, vendor: undefined,
+    location: undefined, expense_date: row.spend_date, payment_date: row.spend_date,
+    amount_original: row.amount_original, currency: row.currency, fx_rate: row.fx_rate,
+    amount_myr: row.amount_myr, payer_participant_id: user.participant_id, shares,
+  } as any);
+  await c.env.DB.prepare('DELETE FROM personal_expenses WHERE id = ?').bind(row.id).run();
+  await audit(c.env, user.id, 'myspend_promote', 'expense', eid);
+  return c.json({ expense_id: eid });
 });
 
 async function saveActivityParticipants(env: Env, activityId: number, ids: number[]) {
@@ -741,6 +882,49 @@ app.delete('/activities/:id', requireAdmin, async c => {
   return c.json({ ok: true });
 });
 
+/** Bulk upsert from the CSV template. Rows with an id update that activity
+    (must belong to this trip); rows without create new ones. Never deletes. */
+app.post('/trips/:id/activities/bulk', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  const { rows } = await c.req.json<{ rows: any[] }>();
+  if (!Array.isArray(rows) || rows.length === 0 || rows.length > 300) return bad(c, 'rows_required');
+  let created = 0, updated = 0;
+  const errors: Array<{ row: number; error: string }> = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r.title?.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(r.day ?? '')) {
+      errors.push({ row: i + 1, error: 'title/day invalid' });
+      continue;
+    }
+    try {
+      if (r.id) {
+        const own = await c.env.DB.prepare('SELECT id FROM activities WHERE id = ? AND trip_id = ?')
+          .bind(Number(r.id), id).first();
+        if (!own) { errors.push({ row: i + 1, error: 'unknown id' }); continue; }
+        await c.env.DB.prepare(
+          `UPDATE activities SET title=?, day=?, start_time=?, end_time=?, notes=?, location_name=?, lat=?, lng=?, est_cost_myr=?, done=? WHERE id=?`,
+        ).bind(r.title.trim(), r.day, r.start_time ?? null, r.end_time ?? null, r.notes ?? null,
+          r.location_name ?? null, r.lat ?? null, r.lng ?? null, r.est_cost_myr ?? null,
+          r.done ? 1 : 0, Number(r.id)).run();
+        await saveActivityParticipants(c.env, Number(r.id), r.participant_ids ?? []);
+        updated++;
+      } else {
+        const ins = await c.env.DB.prepare(
+          `INSERT INTO activities (trip_id, title, day, start_time, end_time, notes, location_name, lat, lng, est_cost_myr, done)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        ).bind(id, r.title.trim(), r.day, r.start_time ?? null, r.end_time ?? null, r.notes ?? null,
+          r.location_name ?? null, r.lat ?? null, r.lng ?? null, r.est_cost_myr ?? null, r.done ? 1 : 0).run();
+        await saveActivityParticipants(c.env, Number(ins.meta.last_row_id), r.participant_ids ?? []);
+        created++;
+      }
+    } catch {
+      errors.push({ row: i + 1, error: 'save failed' });
+    }
+  }
+  await audit(c.env, c.get('user').id, 'activities_bulk', 'trip', id);
+  return c.json({ created, updated, errors });
+});
+
 app.post('/trips/:id/groups', requireAdmin, async c => {
   const id = Number(c.req.param('id'));
   const { name, member_ids } = await c.req.json<any>();
@@ -767,8 +951,10 @@ app.get('/trips/:id/duedates', async c => {
   const id = Number(c.req.param('id'));
   if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
   const rows = await c.env.DB.prepare(
-    `SELECT d.*, e.description, e.vendor FROM due_dates d
-     JOIN expenses e ON e.id = d.expense_id WHERE e.trip_id = ? ORDER BY d.due_date`,
+    `SELECT d.*, e.description, e.vendor, p.name AS participant_name FROM due_dates d
+     JOIN expenses e ON e.id = d.expense_id
+     LEFT JOIN participants p ON p.id = d.participant_id
+     WHERE e.trip_id = ? ORDER BY d.due_date`,
   ).bind(id).all();
   return c.json(rows.results);
 });

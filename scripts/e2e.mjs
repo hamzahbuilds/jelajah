@@ -2,7 +2,7 @@
 // Covers: login → dashboard → upload+parse Trip.com receipt → review → confirm expense
 // → ledger → record payment → balances.
 import { chromium } from 'playwright';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const BASE = 'http://127.0.0.1:8788';
 const OUT = 'e2e-shots';
@@ -194,5 +194,165 @@ if (status !== 403) await fail(`member expenses API should be 403, got ${status}
 console.log('feature hiding ok (tabs, dashboard, API 403)');
 await ctx2.close();
 
+/* ---------------- v0.6 ---------------- */
+page.on('dialog', d => d.accept());
+
+// 14. give activities coordinates (via API with the admin session), then check legs
+const plan0 = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json()));
+const act0 = plan0.activities[0];
+await page.evaluate(async (a) => {
+  await fetch(`/api/activities/${a.id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...a, lat: 35.6491, lng: 139.7898 }), // teamLab Planets
+  });
+  await fetch('/api/trips/1/activities', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'Sensoji Temple', day: a.day, start_time: '15:00', lat: 35.7148, lng: 139.7967, participant_ids: [] }),
+  });
+}, act0);
+await page.click('nav.tabs a:has-text("Plan")');
+await page.waitForSelector('.daychips');
+await page.click('.daychip:has-text("D2")');
+await page.waitForSelector('.leg-row');
+const legText = await page.textContent('body');
+if (!legText.includes('¥')) await fail('leg fare in ¥ missing');
+if (!/🚇|🚶/.test(legText)) await fail('leg mode icon missing');
+await shot('16-plan-legs');
+console.log('legs ok (mode + ¥ fare)');
+
+// override first leg to taxi and verify persistence
+await page.click('.leg-row .chip >> nth=2'); // taxi chip
+await page.waitForTimeout(600);
+const ov = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json()).then(p => p.legOverrides));
+if (!ov.length || ov[0].mode !== 'taxi') await fail('leg override not persisted');
+console.log('leg override ok');
+
+// 15. My spend (admin's own) + privacy vs member + promote
+await page.click('nav.tabs a:has-text("My spend")');
+await page.waitForSelector('text=Add spending');
+await page.fill('form.card input[type=date]', '2026-12-04');
+await page.fill('form.card .form-grid input:not([type=date]):not([type=number]) >> nth=0', 'Ichiran ramen');
+await page.fill('form.card input[type=number]', '8400');
+await page.click('form.card button.btn');
+await page.waitForSelector('text=Ichiran ramen');
+await shot('17-myspend');
+console.log('my spend add ok');
+
+// member adds a private item; admin must not see it
+const ctx3 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const p3 = await ctx3.newPage();
+p3.setDefaultTimeout(25000);
+await blockExternal(p3);
+p3.on('dialog', d => d.accept());
+await p3.goto(`${BASE}/login`);
+await p3.fill('input[type=email]', 'hairuni@family.local');
+await p3.fill('input[type=password]', temp);
+await p3.click('.login-card button');
+await p3.waitForURL(`${BASE}/`);
+await p3.evaluate(() => fetch('/api/trips/1/myspend', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ spend_date: '2026-12-05', category: 'shopping', description: 'Rahsia Donki haul', amount_original: 12000, currency: 'JPY', fx_rate: 0.03, amount_myr: 360 }),
+}));
+const adminView = await page.evaluate(() => fetch('/api/trips/1/myspend').then(r => r.json()));
+if (adminView.some((x) => x.description.includes('Rahsia'))) await fail('PRIVACY BREACH: admin sees member item');
+console.log('privacy ok (admin cannot see member items)');
+
+// member promotes their item → appears in shared ledger
+const mine = await p3.evaluate(() => fetch('/api/trips/1/myspend').then(r => r.json()));
+const promoted = await p3.evaluate((id) =>
+  fetch(`/api/myspend/${id}/promote`, { method: 'POST' }).then(r => r.json()), mine[0].id);
+if (!promoted.expense_id) await fail('promote failed');
+const mineAfter = await p3.evaluate(() => fetch('/api/trips/1/myspend').then(r => r.json()));
+if (mineAfter.length !== 0) await fail('promoted item still in private list');
+await page.click('nav.tabs a:has-text("Ledger")');
+await page.waitForSelector('text=Rahsia Donki haul');
+console.log('promote ok (moved to shared ledger)');
+await ctx3.close();
+
+// 16. AirAsia invoice upload → parse → confirm
+await page.click('nav.tabs a:has-text("Documents")');
+await page.waitForSelector('.dropzone');
+await page.setInputFiles('input[type=file]', 'docs-samples/45e16bd7-AirAsia_Invoice.pdf');
+await page.waitForURL(/review/, { timeout: 30000 });
+await page.waitForSelector('text=SH3P9K');
+const aaDesc = await page.inputValue('.card form input[required]');
+if (!aaDesc.includes('AirAsia')) await fail(`AirAsia parse: ${aaDesc}`);
+await page.selectOption('.card form select[required]', { label: 'Hamzah Bin Hamizan' });
+await page.click('.card form button.btn:not(.btn-ghost) >> nth=-1');
+await page.waitForURL(/ledger/);
+await page.waitForSelector('text=AirAsia booking SH3P9K');
+console.log('AirAsia parse + confirm ok (4 pax matched, RM934.70)');
+
+// 17. delete a linked document; expense must survive
+await page.click('nav.tabs a:has-text("Documents")');
+await page.waitForSelector('.doc-row');
+const docCountBefore = (await page.$$('.doc-row')).length;
+await page.click(`.doc-row:has-text("AirAsia") button[aria-label="Delete"]`);
+await page.waitForTimeout(700);
+const docCountAfter = (await page.$$('.doc-row')).length;
+if (docCountAfter !== docCountBefore - 1) await fail('document not deleted');
+await page.click('nav.tabs a:has-text("Ledger")');
+await page.waitForSelector('text=AirAsia booking SH3P9K');
+console.log('doc delete ok (expense survived unlinked)');
+
+/* ---------------- v0.7 ---------------- */
+
+// 18. CSV export → edit → import round trip
+await page.click('nav.tabs a:has-text("Plan")');
+await page.waitForSelector('.daychips');
+const dlPromise = page.waitForEvent('download');
+await page.click('button:has-text("Export CSV")');
+const dl = await dlPromise;
+const csvPath = await dl.path();
+let csv = readFileSync(csvPath, 'utf8').replace(/^﻿/, '');
+if (!csv.includes('id,day,start_time')) await fail('CSV header missing');
+if (!csv.includes('Sensoji Temple')) await fail('CSV missing existing activity');
+console.log('CSV export ok');
+
+csv = csv.replace('15:00', '16:30'); // move Sensoji
+csv += '\r\n,2026-12-01,09:00,,Ueno Park,,Ueno Park,35.7141,139.7745,,ALL,';
+writeFileSync('/tmp/plan-import.csv', csv);
+await page.setInputFiles('label:has-text("Import CSV") input', '/tmp/plan-import.csv');
+await page.waitForSelector('text=Import preview');
+const previewText = await page.textContent('.modal');
+if (!previewText.includes('Ueno Park')) await fail('preview missing new row');
+if (!previewText.includes('New')) await fail('preview missing New badge');
+await page.click('.modal button:has-text("Apply")');
+await page.waitForSelector('.modal', { state: 'detached' });
+await page.waitForTimeout(700);
+const planAfter = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json()));
+const ueno = planAfter.activities.find(a => a.title === 'Ueno Park');
+const sensoji = planAfter.activities.find(a => a.title === 'Sensoji Temple');
+if (!ueno || ueno.lat !== 35.7141) await fail('Ueno Park not imported with coords');
+if (ueno.participant_ids.length !== 16) await fail(`Ueno ALL participants: ${ueno.participant_ids.length}`);
+if (sensoji.start_time !== '16:30') await fail(`Sensoji not updated: ${sensoji.start_time}`);
+console.log('CSV import ok (1 new with ALL+coords, 1 updated time)');
+
+// 19. per-person due date
+const parts = await page.evaluate(() => fetch('/api/participants').then(r => r.json()));
+const hairuni = parts.find(p => p.name.includes('Hairuni'));
+const hamzah = parts.find(p => p.name === 'Hamzah Bin Hamizan');
+await page.evaluate(async ({ h, z }) => {
+  await fetch('/api/trips/1/expenses', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      category: 'pass', description: 'JR Pass instalment', expense_date: '2026-11-29',
+      amount_original: 100, currency: 'MYR', fx_rate: 1, amount_myr: 100,
+      payer_participant_id: z,
+      shares: [{ participant_id: h, amount_myr: 50 }, { participant_id: z, amount_myr: 50 }],
+      due_dates: [
+        { due_date: '2026-09-15', amount_myr: 50, participant_id: h },
+        { due_date: '2026-09-20', amount_myr: 100 },
+      ],
+    }),
+  });
+}, { h: hairuni.id, z: hamzah.id });
+await page.click('nav.tabs a:has-text("Dashboard")');
+await page.waitForSelector('text=JR Pass instalment');
+const dashText = await page.textContent('body');
+if (!dashText.includes('Hairuni Binti Hassim')) await fail('per-person due date name missing on dashboard');
+await shot('18-duedates-perperson');
+console.log('per-person due date ok (dashboard shows 👤 Hairuni)');
+
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6 + v0.7)');

@@ -93,6 +93,13 @@ export default function Documents() {
               <Link className="btn btn-sm" style={{ textDecoration: 'none' }}
                 to={`/trips/${tripId}/documents/${d.id}/review`}>{t.reviewNow}</Link>
             )}
+            {user.role === 'admin' && (
+              <button className="icon" aria-label={t.delete} onClick={async () => {
+                if (!window.confirm(d.expense_id ? t.deleteDocLinked : t.deleteDocConfirm)) return;
+                await api.del(`/documents/${d.id}`);
+                await load();
+              }}>🗑️</button>
+            )}
           </div>
         ))}
       </div>

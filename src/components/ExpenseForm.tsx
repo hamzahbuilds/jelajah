@@ -14,7 +14,7 @@ export interface ExpenseDraft {
   participant_ids: number[];
   custom: boolean;
   customShares: Record<number, number>;
-  due_dates: Array<{ due_date: string; amount_myr?: number; note?: string }>;
+  due_dates: Array<{ due_date: string; amount_myr?: number; note?: string; participant_id?: number | null }>;
 }
 
 export function emptyDraft(): ExpenseDraft {
@@ -229,12 +229,18 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
             onClick={() => set({ due_dates: [...d.due_dates, { due_date: '' }] })}>＋ {t.addDueDate}</button>
         </div>
         {d.due_dates.map((dd, i) => (
-          <div className="row" key={i} style={{ marginTop: 6, flexWrap: 'nowrap' }}>
-            <input type="date" value={dd.due_date} style={{ width: 160 }}
+          <div className="row" key={i} style={{ marginTop: 6 }}>
+            <input type="date" value={dd.due_date} style={{ width: 150, flex: '0 0 auto' }}
               onChange={e => set({ due_dates: d.due_dates.map((x, j) => j === i ? { ...x, due_date: e.target.value } : x) })} />
-            <input type="number" step="0.01" placeholder="MYR" value={dd.amount_myr ?? ''} style={{ width: 110 }}
+            <input type="number" step="0.01" placeholder="MYR" value={dd.amount_myr ?? ''} style={{ width: 100, flex: '0 0 auto' }}
               onChange={e => set({ due_dates: d.due_dates.map((x, j) => j === i ? { ...x, amount_myr: Number(e.target.value) || undefined } : x) })} />
-            <input placeholder={t.note} value={dd.note ?? ''}
+            <select value={dd.participant_id ?? 0} style={{ width: 170, flex: '0 0 auto' }}
+              title={t.forWhom}
+              onChange={e => set({ due_dates: d.due_dates.map((x, j) => j === i ? { ...x, participant_id: Number(e.target.value) || null } : x) })}>
+              <option value={0}>👥 {t.wholePayment}</option>
+              {members.map(m => <option key={m.id} value={m.id}>👤 {m.name}</option>)}
+            </select>
+            <input placeholder={t.note} value={dd.note ?? ''} style={{ flex: 1, minWidth: 90 }}
               onChange={e => set({ due_dates: d.due_dates.map((x, j) => j === i ? { ...x, note: e.target.value } : x) })} />
             <button type="button" className="icon"
               onClick={() => set({ due_dates: d.due_dates.filter((_, j) => j !== i) })}>✕</button>

@@ -110,3 +110,28 @@ describe('generic fallback', () => {
     expect(d.warnings.length).toBeGreaterThan(0);
   });
 });
+
+describe('AirAsia invoice parser', () => {
+  it('parses the 4-pax MOVE invoice (SH3P9K)', () => {
+    const d = parseDocument(fx('45e16bd7-AirAsia_Invoice'));
+    expect(d.parser).toBe('airasia-invoice');
+    expect(d.vendor).toBe('AirAsia');
+    expect(d.category).toBe('flight');
+    expect(d.bookingNo).toBe('SH3P9K');
+    expect(d.totalAmount).toBeCloseTo(934.70);
+    expect(d.currency).toBe('MYR');
+    expect(d.paymentDate).toBe('2026-03-09');
+    expect(d.paymentMethod).toBe('Visa');
+    expect(d.people).toHaveLength(4);
+    expect(d.people).toContain('Hamzah Bin Hamizan');
+    expect(d.people).toContain('Jadirah Azra Binti Kamarolzeman');
+    expect(d.warnings.join(' ')).toMatch(/no flight route/i);
+  });
+
+  it('parses the 2-pax invoice (AJ6ZYE)', () => {
+    const d = parseDocument(fx('50c0ce7c-KUL_NRT_Invoice'));
+    expect(d.bookingNo).toBe('AJ6ZYE');
+    expect(d.totalAmount).toBeCloseTo(506.80);
+    expect(d.people).toEqual(['Mohammad Indera Bin Zamri', 'Haziqah Binti Hassan']);
+  });
+});

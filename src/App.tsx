@@ -7,6 +7,7 @@ import Trips from './pages/Trips';
 import TripShell from './pages/TripShell';
 import Dashboard from './pages/Dashboard';
 import Plan from './pages/Plan';
+import MySpend from './pages/MySpend';
 import Documents from './pages/Documents';
 import Review from './pages/Review';
 import Ledger from './pages/Ledger';
@@ -57,6 +58,7 @@ function Shell() {
             <Route path="/trips/:tripId" element={<TripShell />}>
               <Route index element={<Dashboard />} />
               <Route path="plan" element={<Plan />} />
+              <Route path="myspend" element={<MySpend />} />
               <Route path="documents" element={<Documents />} />
               <Route path="documents/:docId/review" element={<Review />} />
               <Route path="ledger" element={<Ledger />} />

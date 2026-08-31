@@ -21,9 +21,10 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
     if (!divRef.current || mapRef.current) return;
     const map = L.map(divRef.current, { attributionControl: true, zoomControl: true })
       .setView([35.68, 139.76], 10);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    // CARTO Voyager: OSM data with international (latin) labels instead of local-only
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19, subdomains: 'abcd',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
     }).addTo(map);
     map.on('click', e => onPickRef.current?.(e.latlng.lat, e.latlng.lng));
     mapRef.current = map;

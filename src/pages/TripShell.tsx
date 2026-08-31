@@ -45,6 +45,7 @@ export default function TripShell() {
         {!hidden.has('documents') && tab(`/trips/${tripId}/documents`, t.documents)}
         {!hidden.has('ledger') && tab(`/trips/${tripId}/ledger`, t.ledger)}
         {!hidden.has('payments') && tab(`/trips/${tripId}/payments`, t.payments)}
+        {tab(`/trips/${tripId}/myspend`, t.myspend)}
         {user.role === 'admin' && tab(`/trips/${tripId}/people`, t.people)}
       </nav>
       <Outlet context={ctx} />

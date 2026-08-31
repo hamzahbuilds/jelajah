@@ -5,8 +5,45 @@ import { useT } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import LeafletMap, { Pin } from '../components/LeafletMap';
+import { estimates, haversine, MODE_ICON, Mode } from '../../shared/fares';
+import { toCsv, parseCsv, PLAN_COLUMNS, PLAN_EXAMPLE_ROW } from '../../shared/csv';
+
+const normName = (s: string) => s.toUpperCase().replace(/[^A-Z]/g, '');
+
+function downloadCsv(filename: string, content: string) {
+  const url = URL.createObjectURL(new Blob(['﻿' + content], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
 
 const KIND_ICON: Record<string, string> = { flight: '✈️', checkin: '🔑', checkout: '🧳' };
+
+interface ChainPt { ref: string; name: string; lat: number; lng: number }
+export interface Leg {
+  key: string; from: ChainPt; to: ChainPt; distM: number;
+  chosen: Mode; fareJpy: number; minutes: number; overridden: boolean;
+}
+
+function buildLegs(chain: ChainPt[], overrides: any[], day: string): Leg[] {
+  const ovMap = new Map<string, any>(overrides.filter(o => o.day === day).map(o => [o.leg_key, o]));
+  const legs: Leg[] = [];
+  for (let i = 1; i < chain.length; i++) {
+    const from = chain[i - 1], to = chain[i];
+    const key = `${from.ref}->${to.ref}`;
+    const distM = haversine(from.lat, from.lng, to.lat, to.lng);
+    const ests = estimates(distM);
+    const ov = ovMap.get(key);
+    const chosen: Mode = (ov?.mode as Mode) ?? ests.find(e => e.recommended)!.mode;
+    const est = ests.find(e => e.mode === chosen) ?? ests[0];
+    legs.push({
+      key, from, to, distM, chosen,
+      fareJpy: ov?.fare_jpy ?? est.fareJpy, minutes: est.minutes,
+      overridden: !!ov,
+    });
+  }
+  return legs;
+}
 
 interface PlanItem {
   key: string; day: string; time: string | null; end_time: string | null;
@@ -38,6 +75,15 @@ export default function Plan() {
   const [data, setData] = useState<any>(null);
   const [view, setView] = useState<'day' | 'week' | 'month'>('day');
   const [modal, setModal] = useState<any | null>(null);
+  const [seModal, setSeModal] = useState<'start' | 'end' | null>(null);
+  const [jpyRate, setJpyRate] = useState<number | null>(null);
+  const [preview, setPreview] = useState<{ rows: any[]; badRows: Array<{ row: number; error: string }> } | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+
+  useEffect(() => {
+    api.get(`/fx?date=${new Date().toISOString().slice(0, 10)}&from=JPY&to=MYR`)
+      .then(r => setJpyRate(r.rate)).catch(() => setJpyRate(null));
+  }, []);
 
   const days = useMemo(() => {
     const base = trip.start_date && trip.end_date ? daysBetween(trip.start_date, trip.end_date) : [];
@@ -79,7 +125,144 @@ export default function Plan() {
 
   const dayNo = (d: string) => days.indexOf(d) + 1;
   const items = itemsByDay.get(selDay) ?? [];
-  const pins: Pin[] = items.filter(i => i.activity?.lat != null).map(i => ({ lat: i.activity.lat, lng: i.activity.lng, label: i.title }));
+
+  // ---- day chain: start → located activities → end ----
+  const stays: any[] = data.stays ?? [];
+  const dsList: any[] = data.daySettings ?? [];
+  const ds = dsList.find((x: any) => x.day === selDay) ?? dsList.find((x: any) => x.day === '*');
+  const stayMorning = stays.find(s => s.checkin < selDay && selDay <= (s.checkout ?? '9999'));
+  const stayNight = stays.find(s => s.checkin <= selDay && selDay < (s.checkout ?? '9999'));
+  const startPt: ChainPt | null = ds?.start_lat != null
+    ? { ref: 'start', name: ds.start_name ?? '', lat: ds.start_lat, lng: ds.start_lng }
+    : stayMorning?.lat != null
+      ? { ref: 'start', name: `🏨 ${stayMorning.description}`, lat: stayMorning.lat, lng: stayMorning.lng }
+      : null;
+  const endPt: ChainPt | null = ds?.end_lat != null
+    ? { ref: 'end', name: ds.end_name ?? '', lat: ds.end_lat, lng: ds.end_lng }
+    : stayNight?.lat != null
+      ? { ref: 'end', name: `🏨 ${stayNight.description}`, lat: stayNight.lat, lng: stayNight.lng }
+      : null;
+  const locatedActs: ChainPt[] = items
+    .filter(i => i.activity?.lat != null)
+    .map(i => ({ ref: `act:${i.activity.id}`, name: i.title, lat: i.activity.lat, lng: i.activity.lng }));
+  const chain: ChainPt[] = [
+    ...(startPt ? [startPt] : []),
+    ...locatedActs,
+    ...(endPt && !(locatedActs.length === 0 && startPt && endPt.lat === startPt.lat && endPt.lng === startPt.lng) ? [endPt] : []),
+  ];
+  const legs = buildLegs(chain, data.legOverrides ?? [], selDay);
+  const unpinnedStay = user.role === 'admin' ? stays.find(s => s.lat == null) : null;
+
+  const setLegOverride = async (leg: Leg, mode: Mode | null, fareJpy?: number) => {
+    await api.put(`/trips/${tripId}/legs`, { day: selDay, leg_key: leg.key, mode, fare_jpy: fareJpy ?? null });
+    load();
+  };
+  const logFare = async (leg: Leg, target: 'shared' | 'private') => {
+    const raw = window.prompt(t.fareJpyPrompt, String(leg.fareJpy || ''));
+    if (!raw) return;
+    const jpy = Number(raw);
+    if (!(jpy > 0)) return;
+    const rate = jpyRate ?? 0.03;
+    const desc = `${leg.from.name} → ${leg.to.name}`.replace(/🏨 /g, '');
+    if (target === 'private') {
+      await api.post(`/trips/${tripId}/myspend`, {
+        spend_date: selDay, category: 'transport', description: desc,
+        amount_original: jpy, currency: 'JPY', fx_rate: rate,
+        amount_myr: Math.round(jpy * rate * 100) / 100,
+      });
+    } else {
+      if (!user.participant_id) { window.alert(t.linkParticipantFirst); return; }
+      const ids = members.map(m => m.id);
+      const myr = Math.round(jpy * rate * 100) / 100;
+      const cents = Math.round(myr * 100);
+      const base = Math.floor(cents / ids.length);
+      let rem = cents - base * ids.length;
+      await api.post(`/trips/${tripId}/expenses`, {
+        category: 'transport', description: desc, expense_date: selDay, payment_date: selDay,
+        amount_original: jpy, currency: 'JPY', fx_rate: rate, amount_myr: myr,
+        payer_participant_id: user.participant_id,
+        shares: ids.map(id => { const a = (base + (rem > 0 ? 1 : 0)) / 100; if (rem > 0) rem--; return { participant_id: id, amount_myr: a }; }),
+      });
+    }
+    window.alert('✓');
+  };
+
+  const pins: Pin[] = chain.map(p => ({ lat: p.lat, lng: p.lng, label: p.name }));
+
+  // ---- CSV template export / import ----
+  const exportCsv = () => {
+    const acts = [...(data.activities ?? [])].sort((a: any, b: any) =>
+      a.day === b.day ? (a.start_time ?? '99').localeCompare(b.start_time ?? '99') : a.day.localeCompare(b.day));
+    const rows: any[][] = [[...PLAN_COLUMNS]];
+    for (const a of acts) {
+      const pcell = a.participant_ids.length === 0 ? ''
+        : a.participant_ids.length === members.length ? 'ALL'
+          : a.participant_ids.map((id2: number) => members.find(m => m.id === id2)?.name).filter(Boolean).join('; ');
+      rows.push([a.id, a.day, a.start_time, a.end_time, a.title, a.notes,
+        a.location_name, a.lat, a.lng, a.est_cost_myr, pcell, a.done ? 'x' : '']);
+    }
+    downloadCsv(`${trip.name.replace(/\W+/g, '-')}-plan.csv`, toCsv(rows));
+  };
+  const blankTemplate = () => downloadCsv('plan-template.csv', toCsv([[...PLAN_COLUMNS], PLAN_EXAMPLE_ROW]));
+
+  const onImportFile = async (file: File | null) => {
+    if (!file) return;
+    const grid = parseCsv(await file.text());
+    if (!grid.length) return;
+    const header = grid[0].map(h => h.trim().replace(/^﻿/, '').toLowerCase());
+    const col = (name: string) => header.indexOf(name);
+    const badRows: Array<{ row: number; error: string }> = [];
+    if (col('title') < 0 || col('day') < 0) {
+      setPreview({ rows: [], badRows: [{ row: 0, error: 'missing "title"/"day" columns — use the exported template' }] });
+      return;
+    }
+    const rows: any[] = [];
+    grid.slice(1).forEach((g, idx) => {
+      const get = (n: string) => { const i2 = col(n); return i2 >= 0 ? (g[i2] ?? '').trim() : ''; };
+      const day = get('day'), title = get('title');
+      if (!title && !day) return;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !title) {
+        badRows.push({ row: idx + 2, error: `invalid day/title (${day || '—'} / ${title || '—'})` });
+        return;
+      }
+      let participant_ids: number[] = [];
+      const pcell = get('participants');
+      if (pcell.toUpperCase() === 'ALL') participant_ids = members.map(m => m.id);
+      else if (pcell) {
+        for (const nm of pcell.split(/[;|]/).map(s => s.trim()).filter(Boolean)) {
+          const hit = members.find(m => {
+            const a2 = normName(m.name), b2 = normName(nm);
+            return a2 === b2 || a2.includes(b2) || b2.includes(a2);
+          });
+          if (hit) participant_ids.push(hit.id);
+          else badRows.push({ row: idx + 2, error: `unknown participant "${nm}" (row still imported)` });
+        }
+      }
+      rows.push({
+        id: get('id') ? Number(get('id')) : undefined,
+        day, title,
+        start_time: get('start_time') || null, end_time: get('end_time') || null,
+        notes: get('notes') || null, location_name: get('location_name') || null,
+        lat: get('lat') ? Number(get('lat')) : null, lng: get('lng') ? Number(get('lng')) : null,
+        est_cost_myr: get('est_cost_myr') ? Number(get('est_cost_myr')) : null,
+        participant_ids: [...new Set(participant_ids)],
+        done: !!get('done'),
+      });
+    });
+    setPreview({ rows, badRows });
+  };
+
+  const applyImport = async () => {
+    if (!preview?.rows.length) { setPreview(null); return; }
+    setImportBusy(true);
+    try {
+      const res = await api.post(`/trips/${tripId}/activities/bulk`, { rows: preview.rows });
+      window.alert(t.importDone(res.created, res.updated)
+        + (res.errors?.length ? `\n${t.rowErrors}: ${res.errors.map((e2: any) => e2.row).join(', ')}` : ''));
+      setPreview(null);
+      await load();
+    } finally { setImportBusy(false); }
+  };
 
   const participantsLabel = (ids: number[]) =>
     ids.length === members.length ? t.everyone
@@ -96,9 +279,59 @@ export default function Plan() {
           ))}
         </div>
         {user.role === 'admin' && (
-          <button className="btn" onClick={() => setModal(emptyActivity(selDay || days[0] || today))}>＋ {t.addActivity}</button>
+          <div className="row">
+            <button className="btn btn-ghost btn-sm" onClick={exportCsv}>⬇️ {t.exportCsv}</button>
+            <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer' }}>
+              ⬆️ {t.importCsv}
+              <input type="file" accept=".csv,text/csv" hidden
+                onChange={e => { onImportFile(e.target.files?.[0] ?? null); e.target.value = ''; }} />
+            </label>
+            <button className="btn btn-ghost btn-sm" onClick={blankTemplate}>📄 {t.blankTemplate}</button>
+            <button className="btn" onClick={() => setModal(emptyActivity(selDay || days[0] || today))}>＋ {t.addActivity}</button>
+          </div>
         )}
       </div>
+
+      {preview && (
+        <div className="overlay" onClick={() => setPreview(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="row-between">
+              <h2>{t.importPreview}</h2>
+              <button className="icon" onClick={() => setPreview(null)}>✕</button>
+            </div>
+            <p className="tiny">{t.importHint}</p>
+            {preview.badRows.length > 0 && (
+              <div className="callout warn">
+                <strong>{t.rowErrors}:</strong>
+                {preview.badRows.slice(0, 8).map((b, i) => <div key={i} className="tiny">Row {b.row}: {b.error}</div>)}
+              </div>
+            )}
+            <div className="tablewrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
+              <table>
+                <thead><tr><th></th><th>{t.date}</th><th>{t.timeLabel}</th><th>{t.activityTitle}</th><th>{t.participants}</th><th>📍</th></tr></thead>
+                <tbody>
+                  {preview.rows.map((r, i) => (
+                    <tr key={i}>
+                      <td><span className={`badge ${r.id ? '' : 'ok'}`}>{r.id ? `${t.updateRow} #${r.id}` : t.newRow}</span></td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{r.day}</td>
+                      <td>{r.start_time ?? ''}</td>
+                      <td>{r.title}<div className="tiny">{r.location_name ?? ''}</div></td>
+                      <td>{r.participant_ids.length === members.length ? t.everyone : r.participant_ids.length}</td>
+                      <td>{r.lat != null ? '✓' : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+              <button className="btn btn-ghost" onClick={() => setPreview(null)}>{t.cancel}</button>
+              <button className="btn" disabled={importBusy || preview.rows.length === 0} onClick={applyImport}>
+                {t.applyImport} ({preview.rows.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {view === 'day' && (
         <>
@@ -147,6 +380,58 @@ export default function Plan() {
               ))}
             </div>
             <div className="card">
+              <div className="row-between">
+                <h3>🧭 {t.directions}</h3>
+                {user.role === 'admin' && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => setSeModal('start')}>{t.editStartEnd}</button>
+                )}
+              </div>
+              <p className="tiny">
+                {t.dayStart}: {startPt ? startPt.name : t.noStartPoint} · {t.dayEnd}: {endPt ? endPt.name : '—'}
+              </p>
+              {unpinnedStay && (
+                <p className="callout info" style={{ cursor: 'pointer' }} onClick={() => setSeModal('start')}>
+                  📌 {t.setStayPin}: {unpinnedStay.description}
+                </p>
+              )}
+              {legs.length === 0 && <p className="muted tiny">—</p>}
+              {legs.map(leg => (
+                <div className="leg-row" key={leg.key}>
+                  <div className="leg-head">
+                    <span className="leg-names">{leg.from.name} → {leg.to.name}</span>
+                    <a target="_blank" rel="noreferrer" className="tiny"
+                      href={`https://www.google.com/maps/dir/?api=1&origin=${leg.from.lat},${leg.from.lng}&destination=${leg.to.lat},${leg.to.lng}&travelmode=transit`}>
+                      🗺️
+                    </a>
+                  </div>
+                  <div className="row" style={{ gap: 6 }}>
+                    <span className="badge brand">{MODE_ICON[leg.chosen]} {t.minsLabel(leg.minutes)}</span>
+                    <span className="badge">
+                      {leg.fareJpy === 0 ? t.freeLabel : <>
+                        {leg.overridden ? '' : `${t.estBadge} `}¥{leg.fareJpy.toLocaleString()}
+                        {jpyRate ? ` (~${fmtMYR(leg.fareJpy * jpyRate)})` : ''}
+                        {leg.chosen === 'taxi' ? ` · ${t.perCab}` : ''}
+                      </>}
+                    </span>
+                    <span className="tiny">{(leg.distM / 1000).toFixed(1)} km</span>
+                  </div>
+                  <div className="row" style={{ gap: 4, marginTop: 3 }}>
+                    {user.role === 'admin' && (['walk', 'train', 'taxi'] as Mode[]).map(m => (
+                      <button key={m} className={`chip ${leg.chosen === m ? 'on' : ''}`} style={{ padding: '2px 8px' }}
+                        onClick={() => setLegOverride(leg, m)}>{MODE_ICON[m]}</button>
+                    ))}
+                    {user.role === 'admin' && leg.overridden && (
+                      <button className="icon" title="reset" onClick={() => setLegOverride(leg, null)}>↺</button>
+                    )}
+                    {user.role === 'admin' && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => logFare(leg, 'shared')}>💰 {t.toShared}</button>
+                    )}
+                    <button className="btn btn-ghost btn-sm" onClick={() => logFare(leg, 'private')}>👤 {t.toPrivate}</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="card">
               <LeafletMap pins={pins} line height={340} />
               <p className="tiny" style={{ marginTop: 6 }}>{pins.length} 📍</p>
             </div>
@@ -178,6 +463,10 @@ export default function Plan() {
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load(); }}
         />
+      )}
+      {seModal && (
+        <StartEndModal tripId={tripId} day={selDay} ds={ds} stays={stays}
+          onClose={() => setSeModal(null)} onSaved={() => { setSeModal(null); load(); }} />
       )}
     </div>
   );
@@ -359,6 +648,124 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
           <button className="btn" disabled={busy}>{t.save}</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function PlacePicker({ value, onChange }: {
+  value: { name: string; lat: number; lng: number } | null;
+  onChange: (v: { name: string; lat: number; lng: number }) => void;
+}) {
+  const { t } = useT();
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+  const search = async () => {
+    if (!q.trim()) return;
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`);
+      setResults(await res.json());
+    } catch { setResults([]); }
+  };
+  return (
+    <div>
+      <div className="row" style={{ flexWrap: 'nowrap' }}>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder={t.searchPlace}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); search(); } }} />
+        <button type="button" className="btn btn-ghost btn-sm" onClick={search}>{t.searchBtn}</button>
+      </div>
+      {results.map((r, i) => (
+        <div key={i} className="search-result" onClick={() => {
+          onChange({ name: r.display_name.split(',').slice(0, 2).join(','), lat: Number(r.lat), lng: Number(r.lon) });
+          setResults([]);
+        }}>📍 {r.display_name}</div>
+      ))}
+      {value && <p className="tiny" style={{ margin: '4px 0' }}>📍 {value.name}</p>}
+      <div style={{ marginTop: 6 }}>
+        <LeafletMap pins={[]} picked={value ? { lat: value.lat, lng: value.lng } : null}
+          onPick={(lat, lng) => onChange({ name: value?.name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`, lat, lng })}
+          height={160} />
+      </div>
+    </div>
+  );
+}
+
+function StartEndModal({ tripId, day, ds, stays, onClose, onSaved }: {
+  tripId: number; day: string; ds: any; stays: any[];
+  onClose: () => void; onSaved: () => void;
+}) {
+  const { t } = useT();
+  const [scope, setScope] = useState<'day' | '*'>(ds?.day === '*' ? '*' : 'day');
+  const [start, setStart] = useState<{ name: string; lat: number; lng: number } | null>(
+    ds?.start_lat != null ? { name: ds.start_name ?? '', lat: ds.start_lat, lng: ds.start_lng } : null);
+  const [end, setEnd] = useState<{ name: string; lat: number; lng: number } | null>(
+    ds?.end_lat != null ? { name: ds.end_name ?? '', lat: ds.end_lat, lng: ds.end_lng } : null);
+  const [pinStay, setPinStay] = useState<any | null>(null);
+  const [pinLoc, setPinLoc] = useState<{ name: string; lat: number; lng: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const unpinned = stays.filter(s => s.lat == null);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      if (pinStay && pinLoc) {
+        await api.patch(`/expenses/${pinStay.expense_id}/coords`, { lat: pinLoc.lat, lng: pinLoc.lng });
+      }
+      await api.put(`/trips/${tripId}/daysettings`, {
+        day: scope === '*' ? '*' : day,
+        start_name: start?.name ?? null, start_lat: start?.lat ?? null, start_lng: start?.lng ?? null,
+        end_name: end?.name ?? null, end_lat: end?.lat ?? null, end_lng: end?.lng ?? null,
+      });
+      onSaved();
+    } finally { setBusy(false); }
+  };
+
+  const side = (label: string, val: any, setVal: any) => (
+    <div style={{ marginBottom: 12 }}>
+      <div className="row-between">
+        <strong style={{ fontSize: '.88rem' }}>{label}</strong>
+        <label className="row tiny" style={{ gap: 5 }}>
+          <input type="radio" checked={val === null} onChange={() => setVal(null)} /> {t.useStay}
+        </label>
+      </div>
+      {val !== null ? <PlacePicker value={val} onChange={setVal} />
+        : <button type="button" className="btn btn-ghost btn-sm"
+            onClick={() => setVal({ name: '', lat: 35.68, lng: 139.76 })}>✏️ {t.edit}</button>}
+    </div>
+  );
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="row-between">
+          <h2>{t.editStartEnd} · {day}</h2>
+          <button className="icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="row" style={{ marginBottom: 10 }}>
+          <label className="row tiny" style={{ gap: 5 }}>
+            <input type="radio" checked={scope === 'day'} onChange={() => setScope('day')} /> {t.thisDayOnly}
+          </label>
+          <label className="row tiny" style={{ gap: 5 }}>
+            <input type="radio" checked={scope === '*'} onChange={() => setScope('*')} /> {t.wholeTrip}
+          </label>
+        </div>
+        {side(t.dayStart, start, setStart)}
+        {side(t.dayEnd, end, setEnd)}
+        {unpinned.length > 0 && (
+          <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, marginBottom: 10 }}>
+            <strong style={{ fontSize: '.88rem' }}>📌 {t.setStayPin}</strong>
+            <select style={{ margin: '6px 0' }} value={pinStay?.expense_id ?? ''}
+              onChange={e => setPinStay(unpinned.find(s => s.expense_id === Number(e.target.value)) ?? null)}>
+              <option value="">—</option>
+              {unpinned.map(s => <option key={s.expense_id} value={s.expense_id}>{s.description}</option>)}
+            </select>
+            {pinStay && <PlacePicker value={pinLoc} onChange={setPinLoc} />}
+          </div>
+        )}
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onClose}>{t.cancel}</button>
+          <button className="btn" disabled={busy} onClick={save}>{t.save}</button>
+        </div>
+      </div>
     </div>
   );
 }

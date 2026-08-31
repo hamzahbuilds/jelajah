@@ -1,0 +1,25 @@
+Booking no. Booking date
+09 Mar 2026
+AJ6ZYE
+Payment details Customer Details
+Hamzah Bin Hamizan
+Move Travel Sdn Bhd
+hamuzahax1809@gmail.com
+West Wing, Level 4, Stesen Sentral Kuala Lumpur 1110101809
+50470 Kuala Lumpur, Malaysia
+Service Tax Number : 1808-32000018
+Guests
+Mohammad Indera Bin Zamri (Adult) Haziqah Binti Hassan (Adult)
+Payment details
+Base fare MYR 106.80
+Taxes, fees & surcharges MYR 400.00
+• Malaysia Departure Levy MYR 16.00
+• Regulatory Service Charge MYR 2.00
+• Advance Passenger Processing Service MYR 12.00
+• Fuel Surcharge MYR 254.00
+• International Arrival and Departure Fees (Thailand) MYR 16.00
+• Passenger Service Charge MYR 100.00
+Total amount MYR 506.80
+Total amount paid MYR 506.80
+Payment date Payment method
+Mon, 09 Mar 2026 (UTC) Visa MYR 506.80

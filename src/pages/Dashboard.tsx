@@ -24,14 +24,37 @@ export default function Dashboard() {
   const [dues, setDues] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
   const [newTask, setNewTask] = useState('');
+  const [plan, setPlan] = useState<any>(null);
+  const [mySpendTotal, setMySpendTotal] = useState<number | null>(null);
 
   const loadChecklist = async () => setItems(await api.get(`/trips/${tripId}/checklist`));
   useEffect(() => {
     // money widgets disappear gracefully when the admin hid payments/ledger from members
     api.get(`/trips/${tripId}/balances`).then(setBal).catch(() => setBal({ hidden: true }));
     api.get(`/trips/${tripId}/duedates`).then(setDues).catch(() => setDues([]));
+    api.get(`/trips/${tripId}/plan`).then(setPlan).catch(() => setPlan(null));
+    api.get(`/trips/${tripId}/myspend`)
+      .then((rows: any[]) => setMySpendTotal(rows.reduce((a, r) => a + r.amount_myr, 0)))
+      .catch(() => setMySpendTotal(null));
     loadChecklist();
   }, [tripId]);
+
+  // upcoming events: auto events (whole-group) + activities the viewer is part of (members) / all (admin)
+  const upcoming = (() => {
+    if (!plan) return [];
+    const now = new Date();
+    const all: Array<{ when: Date; time: string | null; title: string; icon: string }> = [];
+    for (const e of plan.autoEvents ?? []) {
+      all.push({ when: new Date(`${e.day}T${e.time ?? '00:00'}:00`), time: e.time, title: e.title, icon: e.kind === 'flight' ? '✈️' : e.kind === 'checkin' ? '🔑' : '🧳' });
+    }
+    for (const a of plan.activities ?? []) {
+      if (user.role !== 'admin' && user.participant_id && a.participant_ids.length > 0
+        && !a.participant_ids.includes(user.participant_id)) continue;
+      all.push({ when: new Date(`${a.day}T${a.start_time ?? '00:00'}:00`), time: a.start_time, title: a.title, icon: '📍' });
+    }
+    return all.filter(x => x.when.getTime() >= now.getTime() - 3600e3).sort((a, b) => a.when.getTime() - b.when.getTime());
+  })();
+  const daysUntil = (d: Date) => Math.max(0, Math.round((new Date(d.toDateString()).getTime() - new Date(new Date().toDateString()).getTime()) / 86400000));
 
   const cd = countdown(t, trip.start_date, trip.end_date);
   const moneyHidden = !!bal?.hidden;
@@ -43,7 +66,9 @@ export default function Dashboard() {
     ?.filter((b: any) => b.outstanding > 0.004)
     .sort((a: any, b: any) => b.outstanding - a.outstanding) ?? [];
   const mine = bal?.balances?.find((b: any) => b.participant.id === user.participant_id);
-  const openDues = dues.filter(d => !d.settled);
+  // members see whole-payment dues + their own personal ones; admin sees all
+  const openDues = dues.filter(d => !d.settled)
+    .filter(d => user.role === 'admin' || d.participant_id == null || d.participant_id === user.participant_id);
 
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,11 +113,35 @@ export default function Dashboard() {
             <div className="sub">{t.owed} {fmtMYR(mine.owed)} · {t.paid} {fmtMYR(mine.paid)}</div>
           </div>
         ) : null}
+        {mySpendTotal != null && (
+          <div className="stat">
+            <div className="label">👤 {t.myspend}</div>
+            <div className="value">{fmtMYR(mySpendTotal)}</div>
+          </div>
+        )}
+        {!moneyHidden && (
         <div className="stat">
           <div className="label">{t.upcomingDues}</div>
           <div className="value">{openDues.length}</div>
         </div>
+        )}
       </div>
+
+      {upcoming.length > 0 ? (
+        <div className="card" style={{ borderLeft: '4px solid var(--data)' }}>
+          <h3>⏭️ {t.upNext}</h3>
+          {upcoming.slice(0, user.role === 'admin' ? 3 : 1).map((u2, i) => (
+            <div className="row-between" key={i} style={{ padding: '4px 0' }}>
+              <span>{u2.icon} <strong>{u2.title}</strong></span>
+              <span className="muted" style={{ whiteSpace: 'nowrap' }}>
+                {fmtDate(u2.when.toISOString().slice(0, 10), lang)}{u2.time ? ` · ${u2.time}` : ''} · {t.inDays(daysUntil(u2.when))}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : plan ? (
+        <div className="card"><h3>⏭️ {t.upNext}</h3><p className="muted">{t.nothingUpcoming}</p></div>
+      ) : null}
 
       <div className="grid grid-2">
         {!moneyHidden && (
@@ -142,7 +191,7 @@ export default function Dashboard() {
           {openDues.map(d => (
             <div className="row-between" key={d.id} style={{ padding: '5px 0' }}>
               <div>
-                <div>{d.description}</div>
+                <div>{d.description} {d.participant_id != null && <span className="badge">👤 {d.participant_name}</span>}</div>
                 <div className="tiny">{fmtDate(d.due_date, lang)}{d.vendor ? ` · ${d.vendor}` : ''}</div>
               </div>
               <div className="row">

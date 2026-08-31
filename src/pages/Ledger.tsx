@@ -47,7 +47,7 @@ export default function Ledger() {
       custom: true,
       customShares: Object.fromEntries(shares.map((s: any) => [s.participant_id, s.amount_myr])),
       due_dates: (data?.due_dates ?? []).filter((x: any) => x.expense_id === e.id)
-        .map((x: any) => ({ due_date: x.due_date, amount_myr: x.amount_myr ?? undefined, note: x.note ?? undefined })),
+        .map((x: any) => ({ due_date: x.due_date, amount_myr: x.amount_myr ?? undefined, note: x.note ?? undefined, participant_id: x.participant_id ?? null })),
     });
     return d;
   };
