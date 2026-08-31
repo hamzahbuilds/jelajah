@@ -513,12 +513,12 @@ app.get('/trips/:id/payments', async c => {
 
 app.post('/trips/:id/payments', requireAdmin, async c => {
   const id = Number(c.req.param('id'));
-  const { from_participant_id, to_participant_id, amount_myr, pay_date, note } = await c.req.json<any>();
+  const { from_participant_id, to_participant_id, amount_myr, pay_date, note, expense_id } = await c.req.json<any>();
   if (!from_participant_id || !to_participant_id || !(amount_myr > 0) || !pay_date) return bad(c, 'missing_fields');
   const r = await c.env.DB.prepare(
-    `INSERT INTO payments (trip_id, from_participant_id, to_participant_id, amount_myr, pay_date, note, created_by)
-     VALUES (?,?,?,?,?,?,?)`,
-  ).bind(id, from_participant_id, to_participant_id, amount_myr, pay_date, note ?? null, c.get('user').id).run();
+    `INSERT INTO payments (trip_id, from_participant_id, to_participant_id, amount_myr, pay_date, note, expense_id, created_by)
+     VALUES (?,?,?,?,?,?,?,?)`,
+  ).bind(id, from_participant_id, to_participant_id, amount_myr, pay_date, note ?? null, expense_id ?? null, c.get('user').id).run();
   await audit(c.env, c.get('user').id, 'payment_create', 'payment', Number(r.meta.last_row_id));
   return c.json({ id: r.meta.last_row_id });
 });
@@ -556,12 +556,23 @@ app.get('/trips/:id/balances', async c => {
       date: e.expense_date, amount: s.amount_myr, remaining: s.amount_myr,
     });
   }
-  // apply payments oldest-item-first per (from,to); track credit if overpaid
+  // apply payments per (from,to): targeted payments hit their expense's item first,
+  // then any remainder — and all untargeted payments — flow oldest-item-first.
+  // Track credit if overpaid.
   const credit = new Map<string, number>();
   for (const p of payments.results as any[]) {
     const key = `${p.from_participant_id}->${p.to_participant_id}`;
     let left = p.amount_myr;
-    for (const it of items.get(key) ?? []) {
+    const list = items.get(key) ?? [];
+    if (p.expense_id) {
+      const target = list.find(it => it.expense_id === p.expense_id);
+      if (target && left > 0) {
+        const take = Math.min(left, target.remaining);
+        target.remaining = Math.round((target.remaining - take) * 100) / 100;
+        left = Math.round((left - take) * 100) / 100;
+      }
+    }
+    for (const it of list) {
       if (left <= 0) break;
       const take = Math.min(left, it.remaining);
       it.remaining = Math.round((it.remaining - take) * 100) / 100;
@@ -591,10 +602,15 @@ app.get('/trips/:id/balances', async c => {
   const totalsByCategory: Record<string, number> = {};
   for (const e of exps) totalsByCategory[e.category] = r2((totalsByCategory[e.category] ?? 0) + e.amount_myr);
   const tripTotal = r2(exps.reduce((a, e) => a + e.amount_myr, 0));
+  // per-item summary for chart tooltips / by-item breakdown
+  const expenseItems = exps.map(e => ({
+    id: e.id, description: e.description, category: e.category,
+    amount_myr: e.amount_myr, expense_date: e.expense_date, vendor: e.vendor,
+  }));
 
   const user = c.get('user');
   const visible = user.role === 'admin' ? balances : balances.filter(b => b.participant.id === user.participant_id);
-  return c.json({ balances: visible, totalsByCategory, tripTotal, expenseCount: exps.length });
+  return c.json({ balances: visible, totalsByCategory, tripTotal, expenseCount: exps.length, expenseItems });
 });
 
 /* ---------------- planner ---------------- */

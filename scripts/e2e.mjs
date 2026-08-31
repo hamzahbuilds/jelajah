@@ -348,11 +348,55 @@ await page.evaluate(async ({ h, z }) => {
   });
 }, { h: hairuni.id, z: hamzah.id });
 await page.click('nav.tabs a:has-text("Dashboard")');
-await page.waitForSelector('text=JR Pass instalment');
+await page.waitForSelector('a:has-text("JR Pass instalment")');
 const dashText = await page.textContent('body');
 if (!dashText.includes('Hairuni Binti Hassim')) await fail('per-person due date name missing on dashboard');
 await shot('18-duedates-perperson');
 console.log('per-person due date ok (dashboard shows 👤 Hairuni)');
 
+/* ---------------- v0.8 ---------------- */
+
+// 20. spending chart: by-item toggle + category breakdown tooltip
+await page.click('nav.tabs a:has-text("Dashboard")');
+await page.waitForSelector('a:has-text("JR Pass instalment")');
+await page.click('.barlist .chip:has-text("Item")');
+await page.waitForSelector('.barlist .scroll-cap-lg');
+if (!(await page.textContent('.barlist')).includes('JR Pass instalment')) await fail('by-item chart missing item');
+console.log('chart by-item ok');
+await page.click('.barlist .chip:has-text("Category")');
+await page.click('.barlist .barrow >> nth=0');
+await page.waitForSelector('.barlist .tip-wrap.open .tip:has-text("Breakdown")');
+console.log('chart category tooltip ok');
+await page.click('.scroll-cap .tip-wrap >> nth=0');
+await page.waitForSelector('.scroll-cap .tip-wrap.open .tip');
+console.log('outstanding breakdown tooltip ok');
+
+// 21. due-date deep link → statement modal with highlighted item
+await page.click('a:has-text("JR Pass instalment")');
+await page.waitForURL(/payments/);
+await page.waitForSelector('.modal .hl-row');
+if (!(await page.textContent('.modal')).includes('JR Pass instalment')) await fail('deep link wrong statement');
+console.log('due-date deep link ok (statement auto-opened, item highlighted)');
+
+// 22. targeted settle: settle JR Pass only; the OLDER flight debt must stay outstanding
+await page.click('.modal tr:has-text("JR Pass instalment") button:has-text("Settle")');
+await page.waitForTimeout(900);
+const modalTxt2 = await page.textContent('.modal');
+if (!/1,336\.00/.test(modalTxt2)) await fail('older flight item should still be outstanding after targeted settle');
+if (!(await page.textContent('.modal tr:has-text("JR Pass instalment")')).includes('Paid')) await fail('JR Pass not settled');
+console.log('targeted settle ok (specific item paid, older item untouched)');
+await shot('19-statement-settle');
+
+// 23. settle the whole statement
+await page.click('.modal button:has-text("Settle all remaining")');
+await page.waitForTimeout(900);
+if ((await page.textContent('.modal')).includes('Settle all remaining')) await fail('settle-all should disappear once zero');
+console.log('settle-all ok');
+await page.click('.modal button.icon');
+
+// 24. balances list is capped+scrollable with 16 people
+await page.waitForSelector('.scroll-cap-lg');
+console.log('balances scroll cap ok');
+
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6 + v0.7)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6 + v0.7 + v0.8)');

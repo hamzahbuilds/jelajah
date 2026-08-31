@@ -100,6 +100,7 @@ export const SCHEMA: string[] = [
     amount_myr REAL NOT NULL,
     pay_date TEXT NOT NULL,
     note TEXT,
+    expense_id INTEGER REFERENCES expenses(id),  -- NULL = lump sum (oldest-first)
     created_by INTEGER REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
@@ -206,6 +207,7 @@ export const UPGRADES: string[] = [
   `ALTER TABLE expenses ADD COLUMN lat REAL`,
   `ALTER TABLE expenses ADD COLUMN lng REAL`,
   `ALTER TABLE due_dates ADD COLUMN participant_id INTEGER REFERENCES participants(id)`,
+  `ALTER TABLE payments ADD COLUMN expense_id INTEGER REFERENCES expenses(id)`,
   ...SCHEMA.filter(s =>
     /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses)\b/.test(s)
     || /idx_activities_trip|idx_personal_user/.test(s)),

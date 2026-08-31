@@ -26,6 +26,8 @@ export default function Dashboard() {
   const [newTask, setNewTask] = useState('');
   const [plan, setPlan] = useState<any>(null);
   const [mySpendTotal, setMySpendTotal] = useState<number | null>(null);
+  const [chartBy, setChartBy] = useState<'category' | 'item'>('category');
+  const [tipOpen, setTipOpen] = useState<string | null>(null); // tap-to-toggle on touch screens
 
   const loadChecklist = async () => setItems(await api.get(`/trips/${tripId}/checklist`));
   useEffect(() => {
@@ -146,15 +148,46 @@ export default function Dashboard() {
       <div className="grid grid-2">
         {!moneyHidden && (
         <div className="card barlist">
-          <h3>{t.byCategory}</h3>
+          <div className="row-between">
+            <h3>{t.byCategory}</h3>
+            <span className="row" style={{ gap: 4 }}>
+              <button className={`chip ${chartBy === 'category' ? 'on' : ''}`} onClick={() => setChartBy('category')}>{t.byCategoryLbl}</button>
+              <button className={`chip ${chartBy === 'item' ? 'on' : ''}`} onClick={() => setChartBy('item')}>{t.byItemLbl}</button>
+            </span>
+          </div>
           {catTotals.length === 0 && <p className="muted">{t.noExpenses}</p>}
-          {catTotals.map(([cat, val]) => (
-            <div className="barrow" key={cat}>
-              <div className="name">{(t as any)[cat] ?? cat}</div>
-              <div className="track"><div className="fill" style={{ width: `${(val / maxCat) * 100}%` }} /></div>
-              <div className="val">{fmtMYR(val)}</div>
+          {chartBy === 'category' ? catTotals.map(([cat, val]) => {
+            const catItems = (bal?.expenseItems ?? []).filter((x: any) => x.category === cat)
+              .sort((a: any, b: any) => b.amount_myr - a.amount_myr);
+            return (
+              <div className={`barrow tip-wrap ${tipOpen === cat ? 'open' : ''}`} key={cat}
+                onClick={() => setTipOpen(tipOpen === cat ? null : cat)}>
+                <div className="name">{(t as any)[cat] ?? cat}</div>
+                <div className="track"><div className="fill" style={{ width: `${(val / maxCat) * 100}%` }} /></div>
+                <div className="val">{fmtMYR(val)}</div>
+                <div className="tip">
+                  <div className="tip-head">{(t as any)[cat] ?? cat} · {t.breakdown}</div>
+                  {catItems.slice(0, 6).map((x: any) => (
+                    <div className="tip-row" key={x.id}><span>{x.description}</span><span className="amt">{fmtMYR(x.amount_myr)}</span></div>
+                  ))}
+                  {catItems.length > 6 && <div className="tiny">{t.moreItems(catItems.length - 6)}</div>}
+                </div>
+              </div>
+            );
+          }) : (
+            <div className="scroll-cap-lg">
+              {[...(bal?.expenseItems ?? [])].sort((a: any, b: any) => b.amount_myr - a.amount_myr).map((x: any) => {
+                const maxItem = Math.max(1, ...(bal?.expenseItems ?? []).map((y: any) => y.amount_myr));
+                return (
+                  <div className="barrow" key={x.id} title={`${(t as any)[x.category] ?? x.category}${x.vendor ? ` · ${x.vendor}` : ''}`}>
+                    <div className="name">{x.description}</div>
+                    <div className="track"><div className="fill" style={{ width: `${(x.amount_myr / maxItem) * 100}%` }} /></div>
+                    <div className="val">{fmtMYR(x.amount_myr)}</div>
+                  </div>
+                );
+              })}
             </div>
-          ))}
+          )}
         </div>
         )}
 
@@ -162,12 +195,26 @@ export default function Dashboard() {
           <div className="card">
             <h3>{t.topOutstanding}</h3>
             {outstanding.length === 0 && <p className="muted">{t.allSettled}</p>}
-            {outstanding.slice(0, 8).map((b: any) => (
-              <div className="row-between" key={b.participant.id} style={{ padding: '5px 0' }}>
-                <span>{b.participant.name}</span>
-                <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtMYR(b.outstanding)}</strong>
-              </div>
-            ))}
+            <div className="scroll-cap">
+              {outstanding.map((b: any) => {
+                const openItems = b.byPayee.flatMap((bp: any) => bp.items.filter((it: any) => it.remaining > 0.004));
+                const key = `o${b.participant.id}`;
+                return (
+                  <div className={`row-between tip-wrap ${tipOpen === key ? 'open' : ''}`} key={key}
+                    style={{ padding: '5px 0' }} onClick={() => setTipOpen(tipOpen === key ? null : key)}>
+                    <span>{b.participant.name}</span>
+                    <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtMYR(b.outstanding)}</strong>
+                    <div className="tip">
+                      <div className="tip-head">{b.participant.name} · {t.breakdown}</div>
+                      {openItems.slice(0, 6).map((it: any, i: number) => (
+                        <div className="tip-row" key={i}><span>{it.description}</span><span className="amt">{fmtMYR(it.remaining)}</span></div>
+                      ))}
+                      {openItems.length > 6 && <div className="tiny">{t.moreItems(openItems.length - 6)}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
             <Link to={`/trips/${tripId}/payments`} className="tiny">{t.payments} →</Link>
           </div>
         ) : (
@@ -190,10 +237,11 @@ export default function Dashboard() {
           {openDues.length === 0 && <p className="muted">{t.none}</p>}
           {openDues.map(d => (
             <div className="row-between" key={d.id} style={{ padding: '5px 0' }}>
-              <div>
-                <div>{d.description} {d.participant_id != null && <span className="badge">👤 {d.participant_name}</span>}</div>
+              <Link style={{ color: 'inherit', display: 'block' }}
+                to={`/trips/${tripId}/payments?expense=${d.expense_id}${d.participant_id ? `&participant=${d.participant_id}` : ''}`}>
+                <div>{d.description} {d.participant_id != null && <span className="badge">👤 {d.participant_name}</span>} <span className="tiny">→</span></div>
                 <div className="tiny">{fmtDate(d.due_date, lang)}{d.vendor ? ` · ${d.vendor}` : ''}</div>
-              </div>
+              </Link>
               <div className="row">
                 {d.amount_myr ? <strong>{fmtMYR(d.amount_myr)}</strong> : null}
                 {user.role === 'admin' && (

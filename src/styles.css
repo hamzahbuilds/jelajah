@@ -254,6 +254,24 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 /* leaflet pane under our modals/header */
 .leaflet-pane, .leaflet-top, .leaflet-bottom { z-index: 5 !important; }
 
+/* hover/tap breakdown tooltip */
+.tip-wrap { position: relative; cursor: pointer; }
+.tip-wrap .tip {
+  display: none; position: absolute; z-index: 30; left: 0; top: calc(100% + 4px);
+  background: #1f2937; color: #f9fafb; border-radius: 8px; padding: 9px 12px;
+  font-size: .76rem; min-width: 230px; max-width: 320px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+.tip-wrap:hover .tip, .tip-wrap.open .tip { display: block; }
+.tip .tip-row { display: flex; justify-content: space-between; gap: 12px; padding: 1.5px 0; }
+.tip .tip-row .amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tip .tip-head { font-weight: 700; margin-bottom: 3px; border-bottom: 1px solid rgba(255,255,255,.2); padding-bottom: 3px; }
+
+/* capped scrolling lists (~5 rows visible) */
+.scroll-cap { max-height: 190px; overflow-y: auto; padding-right: 4px; }
+.scroll-cap-lg { max-height: 420px; overflow-y: auto; padding-right: 4px; }
+.hl-row { background: #fef9c3; border-radius: 6px; }
+
 /* ---------- responsive hardening ---------- */
 img, iframe, .preview { max-width: 100%; }
 .modal { max-height: 92dvh; overflow-y: auto; }
