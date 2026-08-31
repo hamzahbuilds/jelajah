@@ -1,5 +1,11 @@
 # 🧭 Jelajah — Family Travel Planner & Expense Splitter
 
+> **Taking over this project? Start with [HANDOVER.md](./HANDOVER.md)** — it
+> links the build history (`docs/build-status.md`), the dev runbook with every
+> operational trap (`docs/DEV-RUNBOOK.md`), and all feature specs (`docs/`).
+> Current version: **v0.12.2** (far beyond the Phase 1 description below).
+
+
 Phase 1 (money engine) of the platform specced in `travel-platform-spec.md`:
 upload travel PDFs → rule-based extraction → review screen → categorised ledger →
 per-person splits → who-owes-whom → payment tracker → bilingual (EN/BM) dashboard.

@@ -96,6 +96,7 @@ const en = {
   mcpHelp: 'Claude, Codex and other MCP clients can read your trips and plan itineraries through this app’s MCP endpoint. Create a token, then point your client at:',
   accessTokens: 'Access tokens', newToken: 'New token', tokenName: 'Token name',
   tokenOnce: 'Copy this token now — it will not be shown again.',
+  mcpUrlTokenHint: 'claude.ai connectors cannot send auth headers, so put the token in the URL instead. The whole URL is then a secret — revoke the token if it ever leaks.',
   revoke: 'Revoke', revokedLbl: 'revoked', lastUsed: 'last used', neverUsed: 'never used',
   tokenCreated: 'Token created', tokenRevoked: 'Token revoked',
   // v0.12 — suggestions & chat
@@ -297,6 +298,7 @@ const ms: typeof en = {
   mcpHelp: 'Claude, Codex dan klien MCP lain boleh membaca perjalanan anda dan merancang itinerari melalui endpoint MCP aplikasi ini. Cipta token, kemudian halakan klien anda ke:',
   accessTokens: 'Token akses', newToken: 'Token baharu', tokenName: 'Nama token',
   tokenOnce: 'Salin token ini sekarang — ia tidak akan dipaparkan lagi.',
+  mcpUrlTokenHint: 'Penyambung claude.ai tidak boleh menghantar pengepala auth, jadi letakkan token dalam URL. Seluruh URL itu adalah rahsia — batalkan token jika ia terbocor.',
   revoke: 'Batal', revokedLbl: 'dibatalkan', lastUsed: 'terakhir digunakan', neverUsed: 'belum digunakan',
   tokenCreated: 'Token dicipta', tokenRevoked: 'Token dibatalkan',
   // v0.12 — cadangan & sembang

@@ -120,7 +120,7 @@ app.post('/auth/logout', async c => {
 
 app.use('*', async (c, next) => {
   if (c.req.path === '/api/auth/login' || c.req.path === '/api/health' || c.req.path.startsWith('/api/setup')) return next();
-  if (c.req.path === '/api/mcp') return next(); // MCP authenticates with its own bearer token
+  if (c.req.path.startsWith('/api/mcp')) return next(); // MCP authenticates with its own token (header or path)
   const user = await getSessionUser(c.env, getCookie(c, 'sid'));
   if (!user) return bad(c, 'unauthorized', 401);
   c.set('user', user);
@@ -1798,7 +1798,7 @@ async function mcpHandleOne(env: Env, user: SessionUser, msg: any): Promise<any 
   }
 }
 
-app.all('/mcp', async c => {
+async function mcpHttp(c: any, rawToken: string | null): Promise<Response> {
   const cors = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -1809,7 +1809,7 @@ app.all('/mcp', async c => {
   if (c.req.method === 'DELETE') return c.body(null, 200, cors);
   if (c.req.method !== 'POST') return c.json({ error: 'method_not_allowed' }, 405, cors);
 
-  const user = await mcpUser(c.env, c.req.header('authorization'));
+  const user = await mcpUser(c.env, rawToken ? `Bearer ${rawToken}` : c.req.header('authorization'));
   if (!user) return c.json({ error: 'invalid_token' }, 401, cors);
 
   let body: any;
@@ -1817,11 +1817,20 @@ app.all('/mcp', async c => {
     return c.json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }, 400, cors);
   }
   if (Array.isArray(body)) {
-    const replies = (await Promise.all(body.map(m => mcpHandleOne(c.env, user, m)))).filter(r => r !== null);
+    const replies = (await Promise.all(body.map((m: any) => mcpHandleOne(c.env, user, m)))).filter((r: any) => r !== null);
     return replies.length ? c.json(replies, 200, cors) : c.body(null, 202, cors);
   }
   const reply = await mcpHandleOne(c.env, user, body);
   return reply ? c.json(reply, 200, cors) : c.body(null, 202, cors);
-});
+}
+
+// Header-auth endpoint — Claude Code / Claude Desktop / Codex (Authorization: Bearer).
+app.all('/mcp', c => mcpHttp(c, null));
+
+// Token-in-URL endpoint — for clients that cannot send custom headers, e.g.
+// claude.ai custom connectors (which only support open or full-OAuth servers).
+// The token is the same revocable personal access token, just carried in the
+// path: https://<host>/api/mcp/t/<token>. Treat the URL as a secret.
+app.all('/mcp/t/:token', c => mcpHttp(c, c.req.param('token')));
 
 export default app;

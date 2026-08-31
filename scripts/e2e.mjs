@@ -831,12 +831,30 @@ const mTrips = await mcp('tools/call', { name: 'list_trips', arguments: {} }, me
 if (!mTrips.result?.content?.[0]?.text.includes('Jelajah Jepun')) await fail('member token should list its trips');
 console.log('MCP member token ok (reads allowed, mutations blocked)');
 
+// token-in-URL endpoint (claude.ai custom connectors can't send headers)
+const pathInit = await fetch(`${BASE}/api/mcp/t/${mcpToken}`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'initialize', params: { protocolVersion: '2025-03-26' } }),
+}).then(r => r.json());
+if (pathInit.result?.serverInfo?.name !== 'jelajah') await fail('path-token MCP initialize failed');
+const pathBad = await fetch(`${BASE}/api/mcp/t/jlj_wrongtoken`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'ping' }),
+});
+if (pathBad.status !== 401) await fail(`path-token wrong token should be 401, got ${pathBad.status}`);
+console.log('MCP token-in-URL endpoint ok (claude.ai connector path)');
+
 // revoke → 401
 await page.click('.row-between:has-text("e2e-claude") button:has-text("Revoke")');
 await page.waitForSelector('.toast:has-text("Token revoked")');
 await page.waitForTimeout(300);
 const dead = await mcp('ping', {});
 if (dead.status !== 401) await fail(`revoked token should be 401, got ${JSON.stringify(dead)}`);
+const deadPath = await fetch(`${BASE}/api/mcp/t/${mcpToken}`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'ping' }),
+});
+if (deadPath.status !== 401) await fail('revoked token must also die on the path endpoint');
 console.log('MCP revoke ok (token dead)');
 await shot('37-mcp-tokens');
 await ctx5.close();

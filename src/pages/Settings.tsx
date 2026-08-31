@@ -122,6 +122,11 @@ export default function Settings() {
 url = "${window.location.origin}/api/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_TOKEN" }`}</pre>
         </details>
+        <details className="tiny" style={{ margin: '8px 0' }}>
+          <summary>claude.ai custom connector (no header support)</summary>
+          <p style={{ margin: '4px 0' }}>{t.mcpUrlTokenHint}</p>
+          <pre className="mcp-snippet">{`${window.location.origin}/api/mcp/t/YOUR_TOKEN`}</pre>
+        </details>
         <TokenCard />
       </div>
     </div>
