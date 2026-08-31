@@ -398,5 +398,33 @@ await page.click('.modal button.icon');
 await page.waitForSelector('.scroll-cap-lg');
 console.log('balances scroll cap ok');
 
+/* ---------------- v0.9 ---------------- */
+
+// 25. AirAsia itinerary parsing: legs with dates + guest matching
+await page.click('nav.tabs a:has-text("Documents")');
+await page.waitForSelector('.dropzone');
+await page.setInputFiles('input[type=file]', 'docs-samples/72159215-KUL_NRT_Itinerary.pdf');
+await page.waitForURL(/review/, { timeout: 30000 });
+await page.waitForSelector('text=AJ6ZYE');
+const rvw = await page.textContent('body');
+if (!rvw.includes('2026-11-28')) await fail('AirAsia itin: leg date missing');
+if (!rvw.includes('AK892')) await fail('AirAsia itin: flight AK892 missing');
+if (!rvw.includes('XJ602')) await fail('AirAsia itin: second leg XJ602 missing');
+if ((await page.$$('.badge.ok')).length < 2) await fail('AirAsia itin: guests not matched to participants');
+await page.click('button:has-text("Save as document only")');
+await page.waitForURL(/documents/);
+console.log('AirAsia itinerary parse ok (dates, 2 legs, names matched)');
+
+// 26. bulk delete all documents; ledger must survive
+await page.waitForSelector('.doc-row');
+await page.click('label:has-text("Select all") input');
+await page.waitForSelector('button:has-text("Delete selected")');
+await page.click('button:has-text("Delete selected")');
+await page.waitForTimeout(1500);
+if ((await page.$$('.doc-row')).length !== 0) await fail('bulk delete left documents behind');
+await page.click('nav.tabs a:has-text("Ledger")');
+await page.waitForSelector('text=AirAsia booking SH3P9K');
+console.log('bulk delete ok (all docs removed, expenses intact)');
+
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6 + v0.7 + v0.8)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6 + v0.7 + v0.8 + v0.9)');

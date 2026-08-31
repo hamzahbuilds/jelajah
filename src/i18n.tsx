@@ -68,6 +68,8 @@ const en = {
   rowErrors: 'Rows with problems (skipped)',
   importDone: (c2: number, u: number) => `Imported: ${c2} new, ${u} updated.`,
   deleteDocConfirm: 'Delete this file permanently?',
+  deleteSelected: 'Delete selected',
+  bulkDeleteConfirm: (n: number) => `Delete ${n} file${n === 1 ? '' : 's'} permanently? Expenses created from them stay in the ledger (without attachments).`,
   deleteDocLinked: 'Delete this file permanently? The expense created from it stays in the ledger (just without the attachment).',
   // dashboard
   tripTotal: 'Trip total', byCategory: 'Spending by category',
@@ -178,6 +180,8 @@ const ms: typeof en = {
   rowErrors: 'Baris bermasalah (dilangkau)',
   importDone: (c2: number, u: number) => `Diimport: ${c2} baharu, ${u} dikemas kini.`,
   deleteDocConfirm: 'Padam fail ini secara kekal?',
+  deleteSelected: 'Padam yang dipilih',
+  bulkDeleteConfirm: (n: number) => `Padam ${n} fail secara kekal? Perbelanjaan daripadanya kekal dalam lejar (tanpa lampiran).`,
   deleteDocLinked: 'Padam fail ini secara kekal? Perbelanjaan yang dicipta daripadanya kekal dalam lejar (tanpa lampiran).',
   tripTotal: 'Jumlah perjalanan', byCategory: 'Perbelanjaan ikut kategori',
   outstanding: 'Belum jelas', topOutstanding: 'Baki tertunggak terbesar',

@@ -19,7 +19,25 @@ export default function Documents() {
   const [docs, setDocs] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const toggleSel = (id: number) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const bulkDelete = async () => {
+    if (!selected.size || !window.confirm(t.bulkDeleteConfirm(selected.size))) return;
+    setBusy(true);
+    try {
+      for (const id of selected) await api.del(`/documents/${id}`);
+      setSelected(new Set());
+      await load();
+    } finally { setBusy(false); }
+  };
 
   const load = async () => setDocs(await api.get(`/trips/${tripId}/documents`));
   useEffect(() => { load(); }, [tripId]);
@@ -72,9 +90,28 @@ export default function Documents() {
       )}
 
       <div className="card" style={{ marginTop: 16 }}>
+        {user.role === 'admin' && docs.length > 0 && (
+          <div className="row-between" style={{ paddingBottom: 8, borderBottom: '1px solid var(--line)' }}>
+            <label className="row tiny" style={{ gap: 6 }}>
+              <input type="checkbox"
+                checked={selected.size === docs.length && docs.length > 0}
+                onChange={e => setSelected(e.target.checked ? new Set(docs.map(d => d.id)) : new Set())} />
+              {t.selectAll}
+            </label>
+            {selected.size > 0 && (
+              <button className="btn btn-danger btn-sm" disabled={busy} onClick={bulkDelete}>
+                🗑️ {t.deleteSelected} ({selected.size})
+              </button>
+            )}
+          </div>
+        )}
         {docs.length === 0 && <p className="muted">{t.noDocs}</p>}
         {docs.map(d => (
           <div className="doc-row" key={d.id}>
+            {user.role === 'admin' && (
+              <input type="checkbox" checked={selected.has(d.id)} onChange={() => toggleSel(d.id)}
+                style={{ width: 17, height: 17, flex: '0 0 auto', accentColor: 'var(--brand)' }} />
+            )}
             <span className="ic">{ICONS[d.doc_type] ?? '📄'}</span>
             <div className="grow">
               <div className="fname">{d.filename}</div>

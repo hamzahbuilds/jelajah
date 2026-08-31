@@ -135,3 +135,34 @@ describe('AirAsia invoice parser', () => {
     expect(d.people).toEqual(['Mohammad Indera Bin Zamri', 'Haziqah Binti Hassan']);
   });
 });
+
+describe('AirAsia itinerary parser', () => {
+  it('parses KUL→NRT via Bangkok (2 legs, overnight rollover)', () => {
+    const d = parseDocument(fx('72159215-KUL_NRT_Itinerary'));
+    expect(d.parser).toBe('airasia-itinerary');
+    expect(d.docType).toBe('itinerary');
+    expect(d.bookingNo).toBe('AJ6ZYE');
+    expect(d.people).toEqual(['Mohammad Indera Bin Zamri', 'Haziqah Binti Hassan']);
+    expect(d.legs).toHaveLength(2);
+    expect(d.legs[0]).toMatchObject({
+      from: 'Kuala Lumpur', date: '2026-11-28', depTime: '16:45', arrTime: '18:05', flightNo: 'AK892',
+    });
+    expect(d.legs[0].to).toMatch(/Bangkok/);
+    expect(d.legs[1]).toMatchObject({ date: '2026-11-29', depTime: '02:35', arrTime: '10:45', flightNo: 'XJ602' });
+    expect(d.legs[1].to).toMatch(/Tokyo/);
+    expect(d.suggestExpense).toBe(false);
+  });
+
+  it('parses KIX→MYY with technical stop + KL transfer (3 legs, Dec 7→8)', () => {
+    const d = parseDocument(fx('7c926ffa-KIX_MYY_Itinerary'));
+    expect(d.bookingNo).toBe('SH3P9K');
+    expect(d.people).toHaveLength(4);
+    expect(d.people).toContain('Hamzah Bin Hamizan');
+    expect(d.legs).toHaveLength(3);
+    expect(d.legs[0]).toMatchObject({ date: '2026-12-07', depTime: '20:45', flightNo: 'D7379' });
+    expect(d.legs[0].from).toMatch(/Osaka/);
+    expect(d.legs[1]).toMatchObject({ date: '2026-12-08', depTime: '00:20', flightNo: 'D7379' });
+    expect(d.legs[2]).toMatchObject({ date: '2026-12-08', depTime: '06:30', arrTime: '08:55', flightNo: 'AK5651' });
+    expect(d.legs[2].to).toBe('Miri');
+  });
+});
