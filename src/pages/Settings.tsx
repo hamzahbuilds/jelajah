@@ -105,13 +105,19 @@ export default function Settings() {
   --header "Authorization: Bearer YOUR_TOKEN"`}</pre>
         </details>
         <details className="tiny" style={{ margin: '8px 0' }}>
-          <summary>Claude Desktop (mcpServers JSON)</summary>
+          <summary>Claude Desktop / claude.ai (custom connector)</summary>
+          <p style={{ margin: '4px 0' }}>{t.mcpDesktopHint}</p>
+          <pre className="mcp-snippet">{`${window.location.origin}/api/mcp/t/YOUR_TOKEN`}</pre>
+        </details>
+        <details className="tiny" style={{ margin: '8px 0' }}>
+          <summary>Claude Desktop via config file (mcp-remote bridge, needs Node.js)</summary>
           <pre className="mcp-snippet">{`{
   "mcpServers": {
     "jelajah": {
-      "type": "http",
-      "url": "${window.location.origin}/api/mcp",
-      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "${window.location.origin}/api/mcp",
+               "--transport", "http-only",
+               "--header", "Authorization: Bearer YOUR_TOKEN"]
     }
   }
 }`}</pre>
@@ -121,11 +127,6 @@ export default function Settings() {
           <pre className="mcp-snippet">{`[mcp_servers.jelajah]
 url = "${window.location.origin}/api/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_TOKEN" }`}</pre>
-        </details>
-        <details className="tiny" style={{ margin: '8px 0' }}>
-          <summary>claude.ai custom connector (no header support)</summary>
-          <p style={{ margin: '4px 0' }}>{t.mcpUrlTokenHint}</p>
-          <pre className="mcp-snippet">{`${window.location.origin}/api/mcp/t/YOUR_TOKEN`}</pre>
         </details>
         <TokenCard />
       </div>

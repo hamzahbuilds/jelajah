@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../api';
 import { useT } from '../i18n';
@@ -23,15 +23,25 @@ export default function People() {
   };
   useEffect(() => { load(); }, []);
 
-  const memberIds = new Set(members.map(m => m.id));
+  // v0.13: optimistic membership — the chip flips instantly, the PUT runs in
+  // the background, and the context resyncs when the server confirms.
+  const [memberIds, setMemberIds] = useState<Set<number>>(new Set(members.map(m => m.id)));
+  const inFlight = useRef(0);
+  useEffect(() => {
+    if (inFlight.current === 0) setMemberIds(new Set(members.map(m => m.id)));
+  }, [members]);
 
-  const toggleMember = async (pid: number) => {
-    const ids = memberIds.has(pid)
-      ? members.filter(m => m.id !== pid).map(m => m.id)
-      : [...members.map(m => m.id), pid];
-    await api.put(`/trips/${tripId}/members`, { participant_ids: ids });
-    toast(memberIds.has(pid) ? t.tParticipantRemoved : t.tParticipantAdded);
-    await reload();
+  const toggleMember = (pid: number) => {
+    const removing = memberIds.has(pid);
+    const next = new Set(memberIds);
+    removing ? next.delete(pid) : next.add(pid);
+    setMemberIds(next);
+    toast(removing ? t.tParticipantRemoved : t.tParticipantAdded);
+    inFlight.current++;
+    api.put(`/trips/${tripId}/members`, { participant_ids: [...next] })
+      .then(() => reload())
+      .catch(() => { setMemberIds(new Set(members.map(m => m.id))); toast(t.tSaveFailed, 'error'); })
+      .finally(() => { inFlight.current--; });
   };
 
   const addParticipant = async (e: React.FormEvent) => {
@@ -70,19 +80,22 @@ export default function People() {
   const [hidden, setHidden] = useState<string[]>(() => {
     try { return JSON.parse((trip as any).hidden_features ?? '[]'); } catch { return []; }
   });
-  const toggleFeature = async (f: string) => {
+  const toggleFeature = (f: string) => {
+    const prev = hidden;
     const next = hidden.includes(f) ? hidden.filter(x => x !== f) : [...hidden, f];
     setHidden(next); // optimistic — checkbox flips immediately
-    await api.patch(`/trips/${tripId}`, { hidden_features: next });
     toast(t.tVisibilitySaved);
-    await reload();
+    api.patch(`/trips/${tripId}`, { hidden_features: next })
+      .then(() => reload())
+      .catch(() => { setHidden(prev); toast(t.tSaveFailed, 'error'); });
   };
-  const toggleEditPlan = async () => {
+  const toggleEditPlan = () => {
     const next = !canEditPlan;
     setCanEditPlan(next);
-    await api.patch(`/trips/${tripId}`, { member_can_edit_plan: next });
     toast(t.tVisibilitySaved);
-    await reload();
+    api.patch(`/trips/${tripId}`, { member_can_edit_plan: next })
+      .then(() => reload())
+      .catch(() => { setCanEditPlan(!next); toast(t.tSaveFailed, 'error'); });
   };
 
   return (

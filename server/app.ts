@@ -750,9 +750,11 @@ app.get('/trips/:id/plan', async c => {
   const daySettings = await c.env.DB.prepare('SELECT * FROM day_settings WHERE trip_id = ?').bind(id).all();
   const legOverrides = await c.env.DB.prepare('SELECT * FROM leg_overrides WHERE trip_id = ?').bind(id).all();
   const dayBudgets = await c.env.DB.prepare('SELECT * FROM day_budgets WHERE trip_id = ? ORDER BY day').bind(id).all();
+  const dayNotes = await c.env.DB.prepare('SELECT * FROM day_notes WHERE trip_id = ? ORDER BY day, sort, id').bind(id).all();
 
   return c.json({
     dayBudgets: dayBudgets.results,
+    dayNotes: dayNotes.results,
     autoEvents,
     activities: (acts.results as any[]).map(a => ({ ...a, participant_ids: partsByAct.get(a.id) ?? [] })),
     groups: (groups.results as any[]).map(g => ({ ...g, member_ids: membersByGroup.get(g.id) ?? [] })),
@@ -1023,6 +1025,60 @@ app.delete('/activities/:id', async c => {
     c.env.DB.prepare('DELETE FROM activity_participants WHERE activity_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM activities WHERE id = ?').bind(id),
   ]);
+  return c.json({ ok: true });
+});
+
+/** v0.13 bulk delete — one permission check, one batch, only this trip's rows. */
+app.post('/trips/:id/activities/delete', async c => {
+  const id = Number(c.req.param('id'));
+  if (!(await canEditPlan(c, id))) return bad(c, 'forbidden', 403);
+  const { ids } = await c.req.json<{ ids: number[] }>();
+  if (!Array.isArray(ids) || !ids.length || ids.length > 300) return bad(c, 'ids_required');
+  const marks = ids.map(() => '?').join(',');
+  const rows = await c.env.DB.prepare(`SELECT id FROM activities WHERE trip_id = ? AND id IN (${marks})`)
+    .bind(id, ...ids.map(Number)).all();
+  const own = (rows.results as any[]).map(r => r.id);
+  if (own.length) {
+    const stmts: any[] = [];
+    for (const aid of own) {
+      stmts.push(c.env.DB.prepare('DELETE FROM activity_participants WHERE activity_id = ?').bind(aid));
+      stmts.push(c.env.DB.prepare('DELETE FROM activities WHERE id = ?').bind(aid));
+    }
+    await c.env.DB.batch(stmts);
+  }
+  await audit(c.env, c.get('user').id, 'activities_bulk_delete', 'trip', id);
+  return c.json({ deleted: own.length });
+});
+
+/* ---- v0.13 day notes: per-day notes & checklist under the plan ---- */
+
+app.post('/trips/:id/daynotes', async c => {
+  const id = Number(c.req.param('id'));
+  if (!(await canEditPlan(c, id))) return bad(c, 'forbidden', 403);
+  const b = await c.req.json<any>();
+  if (!b.content?.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(b.day ?? '')) return bad(c, 'missing_fields');
+  const mx: any = await c.env.DB.prepare('SELECT COALESCE(MAX(sort),0) AS m FROM day_notes WHERE trip_id = ? AND day = ?').bind(id, b.day).first();
+  const r = await c.env.DB.prepare('INSERT INTO day_notes (trip_id, day, content, is_check, sort) VALUES (?,?,?,?,?)')
+    .bind(id, b.day, b.content.trim().slice(0, 500), b.is_check ? 1 : 0, (mx?.m ?? 0) + 1).run();
+  return c.json({ id: r.meta.last_row_id });
+});
+
+app.patch('/daynotes/:id', async c => {
+  const nid = Number(c.req.param('id'));
+  const row: any = await c.env.DB.prepare('SELECT * FROM day_notes WHERE id = ?').bind(nid).first();
+  if (!row || !(await canEditPlan(c, row.trip_id))) return bad(c, 'forbidden', 403);
+  const b = await c.req.json<any>();
+  await c.env.DB.prepare('UPDATE day_notes SET content = COALESCE(?, content), is_check = COALESCE(?, is_check), done = COALESCE(?, done) WHERE id = ?')
+    .bind(b.content?.trim().slice(0, 500) ?? null, b.is_check != null ? (b.is_check ? 1 : 0) : null,
+      b.done != null ? (b.done ? 1 : 0) : null, nid).run();
+  return c.json({ ok: true });
+});
+
+app.delete('/daynotes/:id', async c => {
+  const nid = Number(c.req.param('id'));
+  const row: any = await c.env.DB.prepare('SELECT * FROM day_notes WHERE id = ?').bind(nid).first();
+  if (!row || !(await canEditPlan(c, row.trip_id))) return bad(c, 'forbidden', 403);
+  await c.env.DB.prepare('DELETE FROM day_notes WHERE id = ?').bind(nid).run();
   return c.json({ ok: true });
 });
 

@@ -234,6 +234,17 @@ export const SCHEMA: string[] = [
     last_used_at TEXT,
     revoked INTEGER NOT NULL DEFAULT 0
   )`,
+  `CREATE TABLE IF NOT EXISTS day_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    day TEXT NOT NULL,
+    content TEXT NOT NULL,
+    is_check INTEGER NOT NULL DEFAULT 0,
+    done INTEGER NOT NULL DEFAULT 0,
+    sort INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_day_notes ON day_notes(trip_id, day)`,
   `CREATE INDEX IF NOT EXISTS idx_personal_user ON personal_expenses(trip_id, user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_activities_trip ON activities(trip_id, day)`,
   `CREATE INDEX IF NOT EXISTS idx_documents_trip ON documents(trip_id)`,
@@ -258,8 +269,8 @@ export const UPGRADES: string[] = [
   `ALTER TABLE activities ADD COLUMN stations_json TEXT`,
   `ALTER TABLE activities ADD COLUMN station_idx INTEGER`,
   ...SCHEMA.filter(s =>
-    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares)\b/.test(s)
-    || /idx_activities_trip|idx_personal_user|idx_personal_shares/.test(s)),
+    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes)\b/.test(s)
+    || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes/.test(s)),
 ];
 
 // Optional first-run seed: the Japan Nov/Dec 2026 trip with its 16 travellers,

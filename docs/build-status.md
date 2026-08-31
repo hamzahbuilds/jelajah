@@ -1,6 +1,6 @@
 # Jelajah — Build Status
 
-Updated: 31 Aug 2026 (v0.12.2)
+Updated: 31 Aug 2026 (v0.13)
 
 ## Done — Phase 1 (money engine), v0.3
 Built on the approved Plan C stack (Cloudflare Pages + Workers + D1 + **KV**),
@@ -304,6 +304,40 @@ treat-the-URL-as-secret warning. Header endpoint unchanged for Claude Code /
 Desktop / Codex. e2e extended (path init OK, wrong token 401, revoked token
 dies on both endpoints); full suite green. Optional future: real OAuth flow
 for the polished claude.ai "Connect" experience.
+
+## Done — v0.13 "Snappy Days" (`jelajah-v0.13.zip`)
+Sage's asks: bulk delete for the plan, fix the sluggish feel of checkboxes and
+moves on Plan/People, and a per-day notes area so the timeline stays pure
+activities.
+- Instant UI (optimistic updates): the done checkbox, ▲▼/drag reorder, single
+  delete (Plan) and the member chips / visibility / members-can-edit-plan
+  toggles (People) now update local state immediately and send the write in
+  the background — no more waiting on the heavy full-plan refetch per click.
+  A failed write reverts the control and shows a persistent red toast
+  (`tSaveFailed`, EN+BM); reorder/delete failures also trigger a reload to
+  resync. People keeps an in-flight counter so a background context refresh
+  never clobbers rapid chip toggling.
+- Bulk delete (Plan): per-trip endpoint `POST /trips/:id/activities/delete`
+  {ids} — one canEditPlan check, rows filtered to the trip, one D1 batch
+  (activity_participants + activities), audited, returns {deleted}. UI: a
+  "☑️ Select" toggle in the day header (canEdit-gated), per-row checkboxes,
+  a Select-all-for-this-day bar, one confirm, "n activities deleted" toast,
+  list updates instantly.
+- Day notes (new `day_notes` table — in BOTH SCHEMA and UPGRADES per the
+  fresh-DB rule): per-day plain notes or ☑️ checklist items under each day's
+  timeline. Add/tick/delete gated by canEditPlan (members see them read-only
+  unless the edit toggle is on); ticking is optimistic; included in the plan
+  payload (`dayNotes`). Routes: POST /trips/:id/daynotes, PATCH/DELETE
+  /daynotes/:id.
+- Also ships the corrected Claude Desktop connector instructions in Settings
+  (token-URL for the Connectors UI; mcp-remote bridge JSON for the config
+  file — the old invalid "type":"http" snippet is gone), previously applied
+  but unverified.
+- Verified: tsc clean, 61 unit tests, full e2e green including new steps —
+  optimistic done-toggle persisted server-side, notes+checklist add/tick/
+  delete persisted, bulk delete removes only the selected day's rows and
+  other days untouched. Version 0.13.0; zip has no wrangler.toml. Deploy is
+  the usual: upload changed files, no manual SQL (day_notes auto-creates).
 
 ## Handover prepared (31 Aug 2026)
 Sage is moving development to another Claude account. The repo is now the

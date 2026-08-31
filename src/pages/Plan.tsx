@@ -113,6 +113,12 @@ export default function Plan() {
   const [dragId, setDragId] = useState<number | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [budgetModal, setBudgetModal] = useState(false);
+  // v0.13: bulk-select mode for deleting many activities at once
+  const [selMode, setSelMode] = useState(false);
+  const [selIds, setSelIds] = useState<Set<number>>(new Set());
+  // v0.13: day notes / checklist under each day
+  const [noteText, setNoteText] = useState('');
+  const [noteCheck, setNoteCheck] = useState(false);
 
   useEffect(() => {
     api.get(`/fx?date=${new Date().toISOString().slice(0, 10)}&from=JPY&to=MYR`)
@@ -137,6 +143,22 @@ export default function Plan() {
     try { setData(await api.get(`/trips/${tripId}/plan`)); } catch { setData({ hidden: true }); }
   };
   useEffect(() => { load(); }, [tripId]);
+
+  // v0.13: optimistic local patches — the UI answers instantly, the server
+  // catches up in the background, and a failed write reverts with a toast.
+  const patchActivityLocal = (id: number, p: any) =>
+    setData((d: any) => d?.activities ? { ...d, activities: d.activities.map((a: any) => (a.id === id ? { ...a, ...p } : a)) } : d);
+  const removeActivitiesLocal = (ids: number[]) => {
+    const gone = new Set(ids);
+    setData((d: any) => d?.activities ? { ...d, activities: d.activities.filter((a: any) => !gone.has(a.id)) } : d);
+  };
+  const patchNoteLocal = (id: number, p: any) =>
+    setData((d: any) => d?.dayNotes ? { ...d, dayNotes: d.dayNotes.map((n: any) => (n.id === id ? { ...n, ...p } : n)) } : d);
+  const toggleDone = (act: any, v: boolean) => {
+    patchActivityLocal(act.id, { done: v ? 1 : 0 });
+    api.patch(`/activities/${act.id}`, { done: v })
+      .catch(() => { patchActivityLocal(act.id, { done: v ? 0 : 1 }); toast(t.tSaveFailed, 'error'); });
+  };
 
   const itemsByDay = useMemo(() => {
     // Activities keep the user's chosen order (sort column) as the primary
@@ -318,28 +340,28 @@ export default function Plan() {
     }
     return 10;
   };
-  const applyOrder = async (order: any[]) => {
+  const applyOrder = (order: any[]) => {
+    // optimistic: the list rearranges immediately; the PUT happens in the background
     setUndoSnap(dayActs.map(a => ({ id: a.id, start_time: a.start_time, end_time: a.end_time, sort: a.sort ?? 0 })));
     const reflowed = reflowDay(
       order.map(a => ({ id: a.id, start_time: a.start_time, end_time: a.end_time, lat: a.lat, lng: a.lng })),
       (x, y) => travelBetween(order.find(o => o.id === x.id), order.find(o => o.id === y.id)),
     );
-    await api.put(`/trips/${tripId}/reorder`, {
-      day: selDay,
-      items: reflowed.map((r, i2) => ({ id: r.id, start_time: r.start_time, end_time: r.end_time, sort: i2 })),
-    });
+    const items2 = reflowed.map((r, i2) => ({ id: r.id, start_time: r.start_time, end_time: r.end_time, sort: i2 }));
+    for (const it of items2) patchActivityLocal(it.id, it);
     toast(t.tOrderUpdated);
-    await load();
+    api.put(`/trips/${tripId}/reorder`, { day: selDay, items: items2 })
+      .catch(() => { toast(t.tSaveFailed, 'error'); load(); });
   };
-  const moveActivity = async (actId: number, dir: -1 | 1) => {
+  const moveActivity = (actId: number, dir: -1 | 1) => {
     const order = [...dayActs];
     const idx = order.findIndex(a => a.id === actId);
     const j = idx + dir;
     if (idx < 0 || j < 0 || j >= order.length) return;
     [order[idx], order[j]] = [order[j], order[idx]];
-    await applyOrder(order);
+    applyOrder(order);
   };
-  const dropOn = async (targetId: number) => {
+  const dropOn = (targetId: number) => {
     if (dragId == null || dragId === targetId) return;
     const order = [...dayActs];
     const fromIdx = order.findIndex(a => a.id === dragId);
@@ -348,13 +370,57 @@ export default function Plan() {
     const [moved] = order.splice(fromIdx, 1);
     order.splice(toIdx, 0, moved);
     setDragId(null);
-    await applyOrder(order);
+    applyOrder(order);
   };
-  const undoReorder = async () => {
+  const undoReorder = () => {
     if (!undoSnap) return;
-    await api.put(`/trips/${tripId}/reorder`, { day: selDay, items: undoSnap.map((s, i2) => ({ ...s, sort: s.sort ?? i2 })) });
+    const items2 = undoSnap.map((s, i2) => ({ ...s, sort: s.sort ?? i2 }));
+    for (const it of items2) patchActivityLocal(it.id, it);
     setUndoSnap(null);
-    await load();
+    api.put(`/trips/${tripId}/reorder`, { day: selDay, items: items2 })
+      .catch(() => { toast(t.tSaveFailed, 'error'); load(); });
+  };
+
+  // v0.13: bulk delete — one confirm, one request, list updates instantly
+  const toggleSel = (id: number) =>
+    setSelIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const dayActIds = dayActs.map(a => a.id);
+  const allDaySelected = dayActIds.length > 0 && dayActIds.every(id2 => selIds.has(id2));
+  const selectAllDay = () =>
+    setSelIds(prev => { const n = new Set(prev); allDaySelected ? dayActIds.forEach(id2 => n.delete(id2)) : dayActIds.forEach(id2 => n.add(id2)); return n; });
+  const bulkDelete = async () => {
+    const ids = [...selIds];
+    if (!ids.length || !window.confirm(t.confirmBulkDelete(ids.length))) return;
+    removeActivitiesLocal(ids);
+    setSelIds(new Set());
+    setSelMode(false);
+    try {
+      const r = await api.post(`/trips/${tripId}/activities/delete`, { ids });
+      toast(t.tBulkDeleted(r.deleted));
+    } catch { toast(t.tSaveFailed, 'error'); load(); }
+  };
+
+  // v0.13: day notes — plain notes or checklist items, kept out of the timeline
+  const dayNotesList = ((data?.dayNotes ?? []) as any[]).filter(n => n.day === selDay);
+  const addNote = async () => {
+    const content = noteText.trim();
+    if (!content) return;
+    setNoteText('');
+    try {
+      const r = await api.post(`/trips/${tripId}/daynotes`, { day: selDay, content, is_check: noteCheck });
+      setData((d: any) => ({ ...d, dayNotes: [...(d.dayNotes ?? []), { id: r.id, trip_id: tripId, day: selDay, content, is_check: noteCheck ? 1 : 0, done: 0, sort: 9999 }] }));
+      toast(t.tNoteAdded);
+    } catch { setNoteText(content); toast(t.tSaveFailed, 'error'); }
+  };
+  const toggleNote = (n: any, v: boolean) => {
+    patchNoteLocal(n.id, { done: v ? 1 : 0 });
+    api.patch(`/daynotes/${n.id}`, { done: v })
+      .catch(() => { patchNoteLocal(n.id, { done: v ? 0 : 1 }); toast(t.tSaveFailed, 'error'); });
+  };
+  const deleteNote = (n: any) => {
+    setData((d: any) => ({ ...d, dayNotes: (d.dayNotes ?? []).filter((x: any) => x.id !== n.id) }));
+    toast(t.tNoteDeleted);
+    api.del(`/daynotes/${n.id}`).catch(() => { toast(t.tSaveFailed, 'error'); load(); });
   };
 
   const budget = (data.dayBudgets ?? []).find((b: any) => b.day === selDay);
@@ -473,8 +539,24 @@ export default function Plan() {
                   {undoSnap && (
                     <button className="btn btn-ghost btn-sm" onClick={undoReorder}>↩️ {t.undoReflow}</button>
                   )}
+                  {canEdit && dayActs.length > 0 && (
+                    <button className={`btn btn-sm ${selMode ? '' : 'btn-ghost'}`}
+                      onClick={() => { setSelMode(!selMode); setSelIds(new Set()); }}>
+                      ☑️ {selMode ? t.cancel : t.selectBtn}
+                    </button>
+                  )}
                 </span>
               </div>
+              {selMode && (
+                <div className="row bulkbar">
+                  <label className="row tiny" style={{ gap: 6 }}>
+                    <input type="checkbox" checked={allDaySelected} onChange={selectAllDay} /> {t.selectAll}
+                  </label>
+                  <button className="btn btn-sm btn-danger" disabled={selIds.size === 0} onClick={bulkDelete}>
+                    🗑️ {t.deleteSelectedN(selIds.size)}
+                  </button>
+                </div>
+              )}
               {items.length === 0 && <p className="muted">{t.noEvents}</p>}
               {items.map(i => (
                 <div className={`plan-item ${i.activity?.done ? 'done' : ''} ${dragId === i.activity?.id ? 'dragging' : ''}`} key={i.key}
@@ -483,6 +565,10 @@ export default function Plan() {
                   onDragEnd={() => setDragId(null)}
                   onDragOver={e => { if (i.activity) e.preventDefault(); }}
                   onDrop={() => i.activity && dropOn(i.activity.id)}>
+                  {selMode && i.activity && (
+                    <input type="checkbox" className="sel-box" checked={selIds.has(i.activity.id)}
+                      onChange={() => toggleSel(i.activity.id)} />
+                  )}
                   <div className="pi-time">{i.time ?? '—'}{i.end_time ? `–${i.end_time}` : ''}</div>
                   <div className="pi-ic">{i.auto ? KIND_ICON[i.kind ?? ''] ?? '•' : ACTIVITY_CAT_ICON[(i.activity?.category as ActivityCategory) ?? 'other'] ?? '📍'}</div>
                   <div className="pi-body">
@@ -514,13 +600,46 @@ export default function Plan() {
                           onClick={() => moveActivity(i.activity.id, 1)}>▼</button>
                       </span>
                       <input type="checkbox" checked={!!i.activity.done} title={t.doneLabel}
-                        onChange={async e => { await api.patch(`/activities/${i.activity.id}`, { done: e.target.checked }); load(); }} />
+                        onChange={e => toggleDone(i.activity, e.target.checked)} />
                       <button className="icon" onClick={() => setModal({ ...i.activity, est_cost_myr: i.activity.est_cost_myr ?? '' })}>✏️</button>
-                      <button className="icon" onClick={async () => { if (window.confirm(t.confirmDelete)) { await api.del(`/activities/${i.activity.id}`); toast(t.tActivityDeleted); load(); } }}>🗑️</button>
+                      <button className="icon" onClick={() => {
+                        if (!window.confirm(t.confirmDelete)) return;
+                        const aid = i.activity.id;
+                        removeActivitiesLocal([aid]);
+                        toast(t.tActivityDeleted);
+                        api.del(`/activities/${aid}`).catch(() => { toast(t.tSaveFailed, 'error'); load(); });
+                      }}>🗑️</button>
                     </div>
                   )}
                 </div>
               ))}
+              {(dayNotesList.length > 0 || canEdit) && (
+                <div className="daynotes">
+                  <div className="tiny" style={{ fontWeight: 700, margin: '12px 0 4px' }}>🗒️ {t.dayNotes}</div>
+                  {dayNotesList.map((n: any) => (
+                    <div className={`note-row ${n.is_check && n.done ? 'done' : ''}`} key={n.id}>
+                      {n.is_check
+                        ? <input type="checkbox" checked={!!n.done} disabled={!canEdit}
+                            onChange={e => toggleNote(n, e.target.checked)} />
+                        : <span className="note-dot">•</span>}
+                      <span className="note-text">{n.content}</span>
+                      {canEdit && <button className="icon" title={t.delete} onClick={() => deleteNote(n)}>✕</button>}
+                    </div>
+                  ))}
+                  {canEdit && (
+                    <form className="row" style={{ flexWrap: 'nowrap', marginTop: 6 }}
+                      onSubmit={e => { e.preventDefault(); addNote(); }}>
+                      <input value={noteText} onChange={e => setNoteText(e.target.value)}
+                        placeholder={t.notePlaceholder} style={{ flex: 1, minWidth: 0 }} />
+                      <label className="row tiny" style={{ gap: 4, whiteSpace: 'nowrap' }}>
+                        <input type="checkbox" checked={noteCheck} onChange={e => setNoteCheck(e.target.checked)} />
+                        ☑️ {t.checklistLabel}
+                      </label>
+                      <button className="btn btn-sm" disabled={!noteText.trim()}>{t.add}</button>
+                    </form>
+                  )}
+                </div>
+              )}
             </div>
             <div className="card">
               <div className="row-between">

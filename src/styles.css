@@ -429,3 +429,19 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
 .peer-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: .85rem; align-items: center; }
 .peer-row .amt { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
 .peer-row.settled { opacity: .55; text-decoration: line-through; }
+
+/* ---------- v0.13: bulk select + day notes ---------- */
+.bulkbar {
+  justify-content: space-between; align-items: center; gap: 10px;
+  background: var(--bg); border: 1px dashed var(--line); border-radius: 10px;
+  padding: 6px 10px; margin: 6px 0 10px;
+}
+.plan-item .sel-box { width: 17px; height: 17px; accent-color: var(--danger); align-self: center; flex-shrink: 0; }
+.daynotes { border-top: 1px dashed var(--line); margin-top: 10px; }
+.note-row { display: flex; gap: 8px; align-items: center; padding: 3px 0; font-size: .86rem; }
+.note-row .note-dot { color: var(--brand); font-weight: 700; width: 17px; text-align: center; flex-shrink: 0; }
+.note-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--brand); flex-shrink: 0; }
+.note-row .note-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.note-row.done .note-text { text-decoration: line-through; opacity: .55; }
+.note-row .icon { opacity: .5; }
+.note-row:hover .icon { opacity: 1; }

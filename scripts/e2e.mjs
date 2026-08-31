@@ -513,6 +513,66 @@ const undone = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.
 if (undone[0].title !== 'Lawatan teamLab Planets' || undone[0].start_time !== '10:30') await fail('undo did not restore order/times');
 console.log('undo reorder ok');
 
+// 29b. v0.13 — instant done-toggle, day notes + checklist, bulk delete
+// throwaway activities on a quiet day (D5 = 2026-12-03)
+await page.evaluate(() => Promise.all([
+  fetch('/api/trips/1/activities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'Bulk One', day: '2026-12-03', participant_ids: [] }) }),
+  fetch('/api/trips/1/activities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'Bulk Two', day: '2026-12-03', participant_ids: [] }) }),
+]));
+await page.reload();
+await page.waitForSelector('.daychips');
+await page.click('.daychip:has-text("D5")');
+await page.waitForSelector('.plan-item:has-text("Bulk One")');
+// optimistic done toggle: the row greys out immediately, server catches up
+await page.click('.plan-item:has-text("Bulk One") input[type=checkbox][title="Done"]');
+await page.waitForSelector('.plan-item.done:has-text("Bulk One")');
+await page.waitForTimeout(400);
+const doneSrv = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
+  .then(p => p.activities.find(a => a.title === 'Bulk One')?.done));
+if (doneSrv !== 1) await fail('optimistic done-toggle did not persist to server');
+console.log('optimistic done-toggle ok');
+// day notes: a plain note + a checklist item that gets ticked
+await page.fill('.daynotes input[placeholder="Add a note…"]', 'Bring the JR passes');
+await page.click('.daynotes form button:has-text("Add")');
+await page.waitForSelector('.note-row:has-text("Bring the JR passes")');
+await page.check('.daynotes form input[type=checkbox]'); // switch to checklist mode
+await page.fill('.daynotes input[placeholder="Add a note…"]', 'Top up Suica');
+await page.click('.daynotes form button:has-text("Add")');
+await page.waitForSelector('.note-row:has-text("Top up Suica") input[type=checkbox]');
+await page.check('.note-row:has-text("Top up Suica") input[type=checkbox]');
+await page.waitForSelector('.note-row.done:has-text("Top up Suica")');
+await page.waitForTimeout(400);
+const notesSrv = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
+  .then(p => p.dayNotes.filter(n => n.day === '2026-12-03')));
+if (notesSrv.length !== 2) await fail(`expected 2 day notes on server, got ${notesSrv.length}`);
+if (!notesSrv.find(n => n.content === 'Top up Suica' && n.is_check === 1 && n.done === 1)) await fail('checklist note not persisted as done');
+if (!notesSrv.find(n => n.content === 'Bring the JR passes' && n.is_check === 0)) await fail('plain note not persisted');
+await shot('22b-daynotes');
+await page.click('.note-row:has-text("Bring the JR passes") button.icon');
+await page.waitForSelector('.note-row:has-text("Bring the JR passes")', { state: 'detached' });
+await page.waitForTimeout(400);
+const notesLeft = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
+  .then(p => p.dayNotes.filter(n => n.day === '2026-12-03').length));
+if (notesLeft !== 1) await fail(`note delete did not persist, ${notesLeft} left`);
+console.log('day notes + checklist ok');
+// bulk delete: select mode → select all (this day only) → one confirm
+await page.click('button:has-text("☑️ Select")');
+await page.waitForSelector('.bulkbar');
+await page.check('.bulkbar input[type=checkbox]');
+await page.click('.bulkbar button:has-text("Delete selected (2)")');
+await page.waitForSelector('.plan-item:has-text("Bulk One")', { state: 'detached' });
+await page.waitForSelector('.toast:has-text("2 activities deleted")');
+await page.waitForTimeout(400);
+const bulkLeft = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
+  .then(p => p.activities.filter(a => a.day === '2026-12-03').length));
+if (bulkLeft !== 0) await fail(`bulk delete left ${bulkLeft} activities on the server`);
+// other days untouched
+const d2Left = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
+  .then(p => p.activities.filter(a => a.day === '2026-11-30').length));
+if (d2Left < 2) await fail('bulk delete leaked into another day');
+await shot('22c-bulkdelete');
+console.log('bulk delete ok');
+
 // 30. new trip with emoji + accent colour, then the foreign-CSV mapping wizard
 await page.goto(`${BASE}/`);
 await page.waitForSelector('button:has-text("New trip")');
@@ -888,4 +948,4 @@ await shot('27-mobile-plan');
 console.log('mobile 360px ok (no horizontal scroll)');
 
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.12)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.13)');
