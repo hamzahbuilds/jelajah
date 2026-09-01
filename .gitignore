@@ -15,6 +15,9 @@ graphify-out/
 # Incremental TypeScript build info
 *.tsbuildinfo
 
+# Local secrets for `wrangler dev` (never commit; put real secrets here)
+.dev.vars
+
 # Delivery zips
 *.zip
 

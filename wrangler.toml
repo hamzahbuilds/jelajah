@@ -25,7 +25,3 @@ id = "4a56d2d032824d98963a2f33ef299319"            # from the KV dashboard, or: 
 # [[r2_buckets]]
 # binding = "FILES"
 # bucket_name = "jelajah-files"
-
-[vars]
-# Change this to any long random string before deploying (cookie signing secret)
-SESSION_SECRET = "C@t15CurtinJ@dirahAzr@s"
