@@ -766,17 +766,24 @@ app.get('/trips/:id/plan', async c => {
 
 /* ---- day start/end settings & leg overrides (admin) ---- */
 
+const DAY_SETTING_COLS = ['start_name', 'start_lat', 'start_lng', 'end_name', 'end_lat', 'end_lng', 'title'] as const;
+
 app.put('/trips/:id/daysettings', requireAdmin, async c => {
   const id = Number(c.req.param('id'));
   const b = await c.req.json<any>();
   if (!b.day) return bad(c, 'day_required');
+  // Only the columns actually present in the body are written, so the day-title
+  // editor and the start/end editor can each save without clobbering the other.
+  // An explicit null still clears a column — that is how "use the stay" resets it.
+  const cols = DAY_SETTING_COLS.filter(k => k in b);
+  if (!cols.length) return bad(c, 'nothing_to_update');
+  const vals = cols.map(k => (k === 'title'
+    ? (b.title == null || !String(b.title).trim() ? null : String(b.title).trim().slice(0, 80))
+    : b[k] ?? null));
   await c.env.DB.prepare(
-    `INSERT INTO day_settings (trip_id, day, start_name, start_lat, start_lng, end_name, end_lat, end_lng)
-     VALUES (?,?,?,?,?,?,?,?)
-     ON CONFLICT (trip_id, day) DO UPDATE SET start_name=excluded.start_name, start_lat=excluded.start_lat,
-       start_lng=excluded.start_lng, end_name=excluded.end_name, end_lat=excluded.end_lat, end_lng=excluded.end_lng`,
-  ).bind(id, b.day, b.start_name ?? null, b.start_lat ?? null, b.start_lng ?? null,
-    b.end_name ?? null, b.end_lat ?? null, b.end_lng ?? null).run();
+    `INSERT INTO day_settings (trip_id, day, ${cols.join(', ')}) VALUES (?,?${',?'.repeat(cols.length)})
+     ON CONFLICT (trip_id, day) DO UPDATE SET ${cols.map(k => `${k}=excluded.${k}`).join(', ')}`,
+  ).bind(id, b.day, ...vals).run();
   return c.json({ ok: true });
 });
 
@@ -1457,9 +1464,34 @@ async function tripContext(c: any, tripId: number, includeMoney: boolean): Promi
     const acts = await env.DB.prepare(
       'SELECT * FROM activities WHERE trip_id = ? ORDER BY day, sort, start_time, id',
     ).bind(tripId).all();
+    const dayTitles = await env.DB.prepare(
+      `SELECT day, title FROM day_settings WHERE trip_id = ? AND title IS NOT NULL AND title <> ''`,
+    ).bind(tripId).all();
+    const titleOf = new Map((dayTitles.results as any[]).map(d => [d.day, d.title]));
     const lines = (acts.results as any[]).slice(0, 120).map(a =>
-      `${a.day} ${a.start_time ?? '--:--'}${a.end_time ? '-' + a.end_time : ''} ${a.title}${a.location_name ? ` @ ${a.location_name}` : ''}${a.notes ? ` (${String(a.notes).slice(0, 80)})` : ''}${a.done ? ' [done]' : ''}`);
+      `${a.day}${titleOf.has(a.day) ? ` [${titleOf.get(a.day)}]` : ''} ${a.start_time ?? '--:--'}${a.end_time ? '-' + a.end_time : ''} ${a.title}${a.location_name ? ` @ ${a.location_name}` : ''}${a.notes ? ` (${String(a.notes).slice(0, 80)})` : ''}${a.done ? ' [done]' : ''}`);
     blocks.push(`ITINERARY:\n${lines.join('\n') || '(empty)'}`);
+    const titledEmptyDays = (dayTitles.results as any[])
+      .filter(d => d.day !== '*' && !(acts.results as any[]).some(a => a.day === d.day));
+    if (titledEmptyDays.length) {
+      blocks.push(`DAY THEMES (no activities planned yet):\n${titledEmptyDays.map(d => `${d.day}: ${d.title}`).join('\n')}`);
+    }
+    // Day notes & checklist — the free-text intentions and to-dos the planner
+    // jots under each day. Same 'plan' visibility gate as the itinerary above.
+    const notes = await env.DB.prepare(
+      'SELECT day, content, is_check, done FROM day_notes WHERE trip_id = ? ORDER BY day, sort, id',
+    ).bind(tripId).all();
+    if (notes.results.length) {
+      const byDay = new Map<string, string[]>();
+      for (const n of (notes.results as any[]).slice(0, 150)) {
+        const mark = n.is_check ? (n.done ? '[x]' : '[ ]') : '-';
+        if (!byDay.has(n.day)) byDay.set(n.day, []);
+        byDay.get(n.day)!.push(`${mark} ${String(n.content).slice(0, 160)}`);
+      }
+      const noteLines = [...byDay.entries()].map(([day, ls]) =>
+        `${day}${titleOf.has(day) ? ` [${titleOf.get(day)}]` : ''}:\n  ${ls.join('\n  ')}`);
+      blocks.push(`DAY NOTES & CHECKLIST (things the planner wrote down; [ ] = still to do):\n${noteLines.join('\n')}`);
+    }
     const bookings = await env.DB.prepare(
       `SELECT description, category, expense_date, end_date, location FROM expenses WHERE trip_id = ? AND category IN ('flight','accommodation') ORDER BY expense_date`,
     ).bind(tripId).all();
@@ -1679,6 +1711,46 @@ const MCP_TOOLS = [
     description: 'Delete an activity by id (admin token only).',
     inputSchema: { type: 'object', properties: { activity_id: { type: 'number' } }, required: ['activity_id'] },
   },
+  {
+    name: 'get_notes',
+    description: "Read the day notes and checklist items written under the plan — the planner's free-text intentions and to-dos. Optionally filter to one day (YYYY-MM-DD). Checklist items carry a done flag; plain notes do not.",
+    inputSchema: { type: 'object', properties: { trip_id: { type: 'number' }, day: { type: 'string' } }, required: ['trip_id'] },
+  },
+  {
+    name: 'add_note',
+    description: 'Add a note or checklist item under a day of the plan (admin token only). Set is_check true for a tickable to-do, false for a plain note.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        trip_id: { type: 'number' }, day: { type: 'string', description: 'YYYY-MM-DD' },
+        content: { type: 'string' }, is_check: { type: 'boolean' },
+      },
+      required: ['trip_id', 'day', 'content'],
+    },
+  },
+  {
+    name: 'update_note',
+    description: 'Update a note by id (admin token only): change its text, or tick/untick a checklist item. Only provided fields change.',
+    inputSchema: {
+      type: 'object',
+      properties: { note_id: { type: 'number' }, content: { type: 'string' }, done: { type: 'boolean' }, is_check: { type: 'boolean' } },
+      required: ['note_id'],
+    },
+  },
+  {
+    name: 'delete_note',
+    description: 'Delete a day note by id (admin token only).',
+    inputSchema: { type: 'object', properties: { note_id: { type: 'number' } }, required: ['note_id'] },
+  },
+  {
+    name: 'set_day_title',
+    description: "Name what a day of the trip is about (admin token only) — e.g. 'Arrival & Shinjuku night walk'. Shown on the day tab. Pass an empty title to clear it.",
+    inputSchema: {
+      type: 'object',
+      properties: { trip_id: { type: 'number' }, day: { type: 'string', description: 'YYYY-MM-DD' }, title: { type: 'string' } },
+      required: ['trip_id', 'day', 'title'],
+    },
+  },
 ];
 
 /** Server-side geocode (Photon → Nominatim) for MCP add_activity. */
@@ -1734,7 +1806,20 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
         `SELECT category, description, expense_date, end_date, location FROM expenses WHERE trip_id = ? AND category IN ('flight','accommodation') ORDER BY expense_date`,
       ).bind(args.trip_id).all();
       const budgets = await env.DB.prepare('SELECT day, currency, total, myr_estimate FROM day_budgets WHERE trip_id = ? ORDER BY day').bind(args.trip_id).all();
-      return { activities: acts.results, bookings: bookings.results, day_budgets: budgets.results };
+      const titleQ = env.DB.prepare(
+        `SELECT day, title FROM day_settings WHERE trip_id = ? AND title IS NOT NULL AND title <> ''${dayFilter}`);
+      const titles = await (dayFilter ? titleQ.bind(args.trip_id, args.day) : titleQ.bind(args.trip_id)).all();
+      const noteQ = env.DB.prepare(
+        `SELECT id, day, content, is_check, done FROM day_notes WHERE trip_id = ?${dayFilter} ORDER BY day, sort, id`);
+      const notes = await (dayFilter ? noteQ.bind(args.trip_id, args.day) : noteQ.bind(args.trip_id)).all();
+      return {
+        activities: acts.results, bookings: bookings.results, day_budgets: budgets.results,
+        day_titles: titles.results,
+        notes: (notes.results as any[]).map(n => ({
+          id: n.id, day: n.day, content: n.content,
+          is_checklist: !!n.is_check, done: n.is_check ? !!n.done : null,
+        })),
+      };
     }
     case 'get_balances': {
       await needTrip(args.trip_id);
@@ -1806,6 +1891,67 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
         val('end_time', act.end_time), val('notes', act.notes), args.done !== undefined ? (args.done ? 1 : 0) : act.done, act.id).run();
       await audit(env, user.id, 'mcp_activity_update', 'activity', act.id);
       return { ok: true };
+    }
+    case 'get_notes': {
+      await needTrip(args.trip_id);
+      if ((await mcpHidden(env, user, args.trip_id)).has('plan')) throw new McpError(-32000, 'The plan is hidden for this account');
+      const dayFilter = typeof args.day === 'string' ? ' AND day = ?' : '';
+      const q = env.DB.prepare(
+        `SELECT id, day, content, is_check, done FROM day_notes WHERE trip_id = ?${dayFilter} ORDER BY day, sort, id`);
+      const rows = await (dayFilter ? q.bind(args.trip_id, args.day) : q.bind(args.trip_id)).all();
+      return (rows.results as any[]).map(n => ({
+        id: n.id, day: n.day, content: n.content,
+        is_checklist: !!n.is_check, done: n.is_check ? !!n.done : null,
+      }));
+    }
+    case 'add_note': {
+      needAdmin();
+      await needTrip(args.trip_id);
+      const content = String(args.content ?? '').trim();
+      if (!content || !/^\d{4}-\d{2}-\d{2}$/.test(String(args.day ?? ''))) throw new McpError(-32602, 'content and day (YYYY-MM-DD) required');
+      const mx = await env.DB.prepare('SELECT COALESCE(MAX(sort),0) AS m FROM day_notes WHERE trip_id = ? AND day = ?')
+        .bind(args.trip_id, args.day).first<any>();
+      const r = await env.DB.prepare('INSERT INTO day_notes (trip_id, day, content, is_check, sort) VALUES (?,?,?,?,?)')
+        .bind(args.trip_id, args.day, content.slice(0, 500), args.is_check ? 1 : 0, (mx?.m ?? 0) + 1).run();
+      await audit(env, user.id, 'mcp_note_create', 'day_note', Number(r.meta.last_row_id));
+      return { id: Number(r.meta.last_row_id) };
+    }
+    case 'update_note': {
+      needAdmin();
+      const nid = Number(args.note_id);
+      const note = await env.DB.prepare('SELECT * FROM day_notes WHERE id = ?').bind(nid).first<any>();
+      if (!note) throw new McpError(-32000, 'Note not found');
+      await needTrip(note.trip_id);
+      const isCheck = args.is_check !== undefined ? (args.is_check ? 1 : 0) : note.is_check;
+      await env.DB.prepare('UPDATE day_notes SET content=?, is_check=?, done=? WHERE id=?').bind(
+        args.content !== undefined ? String(args.content).trim().slice(0, 500) : note.content,
+        isCheck,
+        args.done !== undefined ? (args.done ? 1 : 0) : note.done,
+        nid).run();
+      await audit(env, user.id, 'mcp_note_update', 'day_note', nid);
+      return { ok: true };
+    }
+    case 'delete_note': {
+      needAdmin();
+      const nid = Number(args.note_id);
+      const note = await env.DB.prepare('SELECT trip_id FROM day_notes WHERE id = ?').bind(nid).first<any>();
+      if (!note) throw new McpError(-32000, 'Note not found');
+      await needTrip(note.trip_id);
+      await env.DB.prepare('DELETE FROM day_notes WHERE id = ?').bind(nid).run();
+      await audit(env, user.id, 'mcp_note_delete', 'day_note', nid);
+      return { ok: true };
+    }
+    case 'set_day_title': {
+      needAdmin();
+      await needTrip(args.trip_id);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(args.day ?? ''))) throw new McpError(-32602, 'day (YYYY-MM-DD) required');
+      const title = String(args.title ?? '').trim().slice(0, 80) || null;
+      await env.DB.prepare(
+        `INSERT INTO day_settings (trip_id, day, title) VALUES (?,?,?)
+         ON CONFLICT (trip_id, day) DO UPDATE SET title=excluded.title`,
+      ).bind(args.trip_id, args.day, title).run();
+      await audit(env, user.id, 'mcp_day_title', 'trip', Number(args.trip_id));
+      return { ok: true, title };
     }
     case 'delete_activity': {
       needAdmin();

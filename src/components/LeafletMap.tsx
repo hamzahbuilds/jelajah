@@ -6,7 +6,7 @@ export interface Pin { lat: number; lng: number; label?: string; icon?: string }
 
 export interface Arc { from: Pin; to: Pin; label?: string }
 
-export default function LeafletMap({ pins, picked, onPick, height = 260, line = false, arcs = [], accent }: {
+export default function LeafletMap({ pins, picked, onPick, height = 260, line = false, arcs = [], accent, focus = null }: {
   pins: Pin[];
   picked?: Pin | null;
   onPick?: (lat: number, lng: number) => void;
@@ -14,10 +14,13 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
   line?: boolean;
   arcs?: Arc[];               // dashed great-line connections (e.g. flights)
   accent?: string;            // trip accent colour for pins/lines
+  focus?: number | null;      // index into pins to pan to and open — keeps the
+                              // itinerary list and the map pointing at one place
 }) {
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
+  const markersRef = useRef<L.Marker[]>([]);
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
 
@@ -55,6 +58,7 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
     const map = mapRef.current, layer = layerRef.current;
     if (!map || !layer) return;
     layer.clearLayers();
+    markersRef.current = [];
     const color = accent || 'var(--data)';
     const all: Pin[] = [...pins, ...(picked ? [picked] : []), ...arcs.flatMap(a => [a.from, a.to])];
     pins.forEach((p, i) => {
@@ -62,13 +66,14 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
       // the rotated teardrop's tip sits ~17px below its centre, so the icon
       // box is 26x32 with the anchor exactly on the tip — pins stay planted
       // on the true coordinate at every zoom level
-      L.marker([p.lat, p.lng], {
+      const m = L.marker([p.lat, p.lng], {
         icon: L.divIcon({
           className: '',
           html: `<div class="pin-wrap"><div class="pin-dot" style="background:${color}"><span>${inner}</span></div></div>`,
           iconSize: [26, 32], iconAnchor: [13, 30], popupAnchor: [0, -28],
         }),
       }).addTo(layer).bindPopup(p.label ?? '');
+      markersRef.current[i] = m;
     });
     for (const a of arcs) {
       L.polyline([[a.from.lat, a.from.lng], [a.to.lat, a.to.lng]], { color, weight: 2, dashArray: '2 8', opacity: 0.85 }).addTo(layer);
@@ -92,6 +97,16 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
     if (all.length === 1) map.setView([all[0].lat, all[0].lng], 14);
     else if (all.length > 1) map.fitBounds(L.latLngBounds(all.map(p => [p.lat, p.lng] as [number, number])), { padding: [30, 30] });
   }, [JSON.stringify(pins), JSON.stringify(picked ?? null), line, JSON.stringify(arcs), accent]);
+
+  // Pan to the pin the user tapped in the itinerary list and open its popup.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || focus == null) return;
+    const m = markersRef.current[focus];
+    if (!m) return;
+    map.setView(m.getLatLng(), Math.max(map.getZoom(), 15), { animate: true });
+    m.openPopup();
+  }, [focus, JSON.stringify(pins)]);
 
   return <div ref={divRef} style={{ height, borderRadius: 8, border: '1px solid var(--line)' }} />;
 }

@@ -1,0 +1,25 @@
+# Dependencies and build output — Cloudflare runs `npm run build` itself,
+# so nothing generated belongs in the repo.
+node_modules/
+dist/
+
+# Local wrangler dev state (miniflare D1/KV live here; wiped by the dev ritual)
+.wrangler/
+
+# Test artefacts
+e2e-shots/
+
+# graphify knowledge graph (rebuild with /graphify; the cache is machine-local)
+graphify-out/
+
+# Incremental TypeScript build info
+*.tsbuildinfo
+
+# Delivery zips
+*.zip
+
+# macOS
+.DS_Store
+
+# NOTE: wrangler.toml is deliberately NOT ignored — it is this repo's live
+# Cloudflare config. Keep it tracked; never paste secrets into it (see below).

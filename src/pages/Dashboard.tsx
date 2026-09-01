@@ -5,6 +5,7 @@ import { useT, Dict } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import LeafletMap, { Pin, Arc } from '../components/LeafletMap';
+import { ymd } from '../../shared/days';
 import { airportCoords } from '../../shared/airports';
 import { haversine } from '../../shared/fares';
 
@@ -194,7 +195,7 @@ export default function Dashboard() {
             <div className="row-between" key={i} style={{ padding: '4px 0' }}>
               <span>{u2.icon} <strong>{u2.title}</strong></span>
               <span className="muted" style={{ whiteSpace: 'nowrap' }}>
-                {fmtDate(u2.when.toISOString().slice(0, 10), lang)}{u2.time ? ` · ${u2.time}` : ''} · {t.inDays(daysUntil(u2.when))}
+                {fmtDate(ymd(u2.when), lang)}{u2.time ? ` · ${u2.time}` : ''} · {t.inDays(daysUntil(u2.when))}
               </span>
             </div>
           ))}

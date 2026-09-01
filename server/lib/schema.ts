@@ -171,6 +171,7 @@ export const SCHEMA: string[] = [
     day TEXT NOT NULL,            -- YYYY-MM-DD or '*' for the trip default
     start_name TEXT, start_lat REAL, start_lng REAL,
     end_name TEXT, end_lat REAL, end_lng REAL,
+    title TEXT,                   -- what this day is about, shown on the D1..Dx chip
     PRIMARY KEY (trip_id, day)
   )`,
   `CREATE TABLE IF NOT EXISTS leg_overrides (
@@ -268,6 +269,7 @@ export const UPGRADES: string[] = [
   `ALTER TABLE activities ADD COLUMN category TEXT`,
   `ALTER TABLE activities ADD COLUMN stations_json TEXT`,
   `ALTER TABLE activities ADD COLUMN station_idx INTEGER`,
+  `ALTER TABLE day_settings ADD COLUMN title TEXT`,
   ...SCHEMA.filter(s =>
     /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes)\b/.test(s)
     || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes/.test(s)),

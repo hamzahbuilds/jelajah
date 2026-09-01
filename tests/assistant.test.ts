@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSuggestions, freeSlots, buildGeminiNativeBody, parseGeminiNativeResponse } from '../shared/assistant';
+import { parseSuggestions, freeSlots, buildGeminiNativeBody, parseGeminiNativeResponse, suggestSystemPrompt } from '../shared/assistant';
 
 describe('parseSuggestions', () => {
   const good = JSON.stringify([
@@ -91,5 +91,18 @@ describe('freeSlots', () => {
 
   it('returns the whole day when nothing is scheduled', () => {
     expect(freeSlots([])).toEqual([{ start: '09:00', end: '21:00', minutes: 720 }]);
+  });
+});
+
+describe('suggestSystemPrompt — day notes awareness', () => {
+  it('tells the model about day themes and the checklist', () => {
+    const p = suggestSystemPrompt();
+    expect(p).toContain('DAY THEMES');
+    expect(p).toContain('DAY NOTES & CHECKLIST');
+    expect(p).toContain('[ ]');
+  });
+
+  it('still demands strict JSON output', () => {
+    expect(suggestSystemPrompt()).toContain('JSON array');
   });
 });

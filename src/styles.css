@@ -445,3 +445,46 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
 .note-row.done .note-text { text-decoration: line-through; opacity: .55; }
 .note-row .icon { opacity: .5; }
 .note-row:hover .icon { opacity: 1; }
+
+/* ---- v0.14: consolidated data menu, day titles, pin↔list numbering ---- */
+
+.datamenu-wrap { position: relative; display: inline-block; }
+/* full-screen scrim so an outside tap closes the menu on touch devices too */
+.datamenu-scrim { position: fixed; inset: 0; z-index: 40; }
+.datamenu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 41;
+  width: min(320px, calc(100vw - 32px));
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .12); overflow: hidden;
+}
+.datamenu-row {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  border-bottom: 1px solid var(--line); padding: 10px 12px; cursor: pointer; font: inherit;
+}
+.datamenu-row:last-child { border-bottom: none; }
+.datamenu-row:hover, .datamenu-row:focus-visible { background: #f0fdfa; }
+.datamenu-row .dm-t { display: block; font-weight: 600; font-size: .88rem; }
+.datamenu-row .dm-d { display: block; font-size: .74rem; color: var(--ink-2); line-height: 1.35; margin-top: 2px; }
+
+.daychip .dt {
+  display: block; font-size: .7rem; color: var(--ink-2); font-weight: 600;
+  max-width: 13ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px;
+}
+.daychip.on .dt { color: var(--brand-strong); }
+
+.daytitle { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.daytitle-text { font-size: .9rem; font-weight: 600; color: var(--ink-2); }
+.daytitle input { font: inherit; font-size: .9rem; padding: 3px 8px; min-width: 0; width: min(260px, 50vw); }
+
+/* the number here is the SAME number the map pin shows for this stop */
+.pinno {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--data); color: #fff; font: inherit; font-size: .74rem; font-weight: 700;
+  font-variant-numeric: tabular-nums; padding: 0;
+}
+.pinno:hover, .pinno:focus-visible { background: var(--brand-strong); }
+.pinno.none {
+  background: transparent; color: var(--ink-3); border: 1px dashed var(--line); cursor: default;
+}
+.plan-item .pi-cat { font-weight: 400; }

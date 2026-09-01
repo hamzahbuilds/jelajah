@@ -7,6 +7,8 @@ import { TripCtx } from './TripShell';
 import LeafletMap, { Pin } from '../components/LeafletMap';
 import { estimates, haversine, metroFareJpy, MODE_ICON, Mode } from '../../shared/fares';
 import { toCsv, parseCsv, PLAN_COLUMNS, PLAN_EXAMPLE_ROW } from '../../shared/csv';
+import { daysBetween, todayYmd } from '../../shared/days';
+import { pinNumbers, actRef } from '../../shared/pins';
 import { reflowDay } from '../../shared/reflow';
 import { transformGrid, WizardMapping, ACTIVITY_CATEGORIES, ACTIVITY_CAT_ICON, ActivityCategory } from '../../shared/wizard';
 import { geocode, nearestStations, walkMinutes, Station } from '../geo';
@@ -77,17 +79,6 @@ interface PlanItem {
   participant_ids?: number[]; // v0.12: who is on this auto event (flight/stay)
 }
 
-function daysBetween(start: string, end: string): string[] {
-  const out: string[] = [];
-  const d = new Date(start + 'T00:00:00');
-  const e = new Date(end + 'T00:00:00');
-  while (d <= e && out.length < 90) {
-    out.push(d.toISOString().slice(0, 10));
-    d.setDate(d.getDate() + 1);
-  }
-  return out;
-}
-
 const emptyActivity = (day: string) => ({
   id: 0, title: '', day, start_time: '', end_time: '', notes: '',
   location_name: '', lat: null as number | null, lng: null as number | null,
@@ -109,6 +100,9 @@ export default function Plan() {
   const [jpyRate, setJpyRate] = useState<number | null>(null);
   const [preview, setPreview] = useState<{ rows: any[]; badRows: Array<{ row: number; error: string }> } | null>(null);
   const [importBusy, setImportBusy] = useState(false);
+  const [dataMenu, setDataMenu] = useState(false);
+  const [focusPin, setFocusPin] = useState<number | null>(null);
+  const [titleEdit, setTitleEdit] = useState<string | null>(null);
   const [undoSnap, setUndoSnap] = useState<Array<{ id: number; start_time: string | null; end_time: string | null; sort: number }> | null>(null);
   const [dragId, setDragId] = useState<number | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -121,7 +115,7 @@ export default function Plan() {
   const [noteCheck, setNoteCheck] = useState(false);
 
   useEffect(() => {
-    api.get(`/fx?date=${new Date().toISOString().slice(0, 10)}&from=JPY&to=MYR`)
+    api.get(`/fx?date=${todayYmd()}&from=JPY&to=MYR`)
       .then(r => setJpyRate(r.rate)).catch(() => setJpyRate(null));
   }, []);
 
@@ -133,7 +127,7 @@ export default function Plan() {
     return [...extra].sort();
   }, [trip, data]);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayYmd();
   const [selDay, setSelDay] = useState('');
   useEffect(() => {
     if (!selDay && days.length) setSelDay(days.includes(today) ? today : days[0]);
@@ -209,6 +203,16 @@ export default function Plan() {
   const stays: any[] = data.stays ?? [];
   const dsList: any[] = data.daySettings ?? [];
   const ds = dsList.find((x: any) => x.day === selDay) ?? dsList.find((x: any) => x.day === '*');
+  // a day's title is per-day only — the '*' row is a start/end default, not a name
+  const dayTitleOf = (d: string): string | null => dsList.find((x: any) => x.day === d)?.title || null;
+  const saveDayTitle = async (value: string) => {
+    setTitleEdit(null);
+    if ((value.trim() || null) === dayTitleOf(selDay)) return;
+    try {
+      await api.put(`/trips/${tripId}/daysettings`, { day: selDay, title: value.trim().slice(0, 80) });
+      load();
+    } catch { toast(t.tSaveFailed, 'error'); }
+  };
   const stayMorning = stays.find(s => s.checkin < selDay && selDay <= (s.checkout ?? '9999'));
   const stayNight = stays.find(s => s.checkin <= selDay && selDay < (s.checkout ?? '9999'));
   const startPt: ChainPt | null = ds?.start_lat != null
@@ -266,7 +270,10 @@ export default function Plan() {
     window.alert('✓');
   };
 
-  const pins: Pin[] = chain.map(p => ({ lat: p.lat, lng: p.lng, label: p.name }));
+  // one numbering for both the map and the list — pin 1 is where the day starts
+  // from (the accommodation), then each located activity in plan order
+  const pinNos = pinNumbers(chain);
+  const pins: Pin[] = chain.map((p, i) => ({ lat: p.lat, lng: p.lng, label: `${i + 1}. ${p.name}` }));
 
   // ---- CSV template export / import ----
   const exportCsv = () => {
@@ -453,16 +460,35 @@ export default function Plan() {
         </div>
         <div className="row">
           {user.role === 'admin' && (
-            <>
-              <button className="btn btn-ghost btn-sm" onClick={exportCsv}>⬇️ {t.exportCsv}</button>
-              <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer' }}>
-                ⬆️ {t.importCsv}
-                <input type="file" accept=".csv,text/csv" hidden
-                  onChange={e => { onImportFile(e.target.files?.[0] ?? null); e.target.value = ''; }} />
-              </label>
-              <button className="btn btn-ghost btn-sm" onClick={() => setWizardOpen(true)}>🪄 {t.mapColumns}</button>
-              <button className="btn btn-ghost btn-sm" onClick={blankTemplate}>📄 {t.blankTemplate}</button>
-            </>
+            <div className="datamenu-wrap">
+              <button className="btn btn-ghost btn-sm" aria-haspopup="true" aria-expanded={dataMenu}
+                onClick={() => setDataMenu(v => !v)}>📊 {t.dataMenu} ▾</button>
+              {dataMenu && (
+                <>
+                  <div className="datamenu-scrim" onClick={() => setDataMenu(false)} />
+                  <div className="datamenu" role="menu">
+                    <button className="datamenu-row" role="menuitem" onClick={() => { setDataMenu(false); exportCsv(); }}>
+                      <span className="dm-t">⬇️ {t.exportCsv}</span>
+                      <span className="dm-d">{t.exportCsvHelp}</span>
+                    </button>
+                    <label className="datamenu-row" role="menuitem">
+                      <span className="dm-t">⬆️ {t.importCsv}</span>
+                      <span className="dm-d">{t.importCsvHelp}</span>
+                      <input type="file" accept=".csv,text/csv" hidden
+                        onChange={e => { setDataMenu(false); onImportFile(e.target.files?.[0] ?? null); e.target.value = ''; }} />
+                    </label>
+                    <button className="datamenu-row" role="menuitem" onClick={() => { setDataMenu(false); setWizardOpen(true); }}>
+                      <span className="dm-t">🪄 {t.mapColumns}</span>
+                      <span className="dm-d">{t.mapColumnsHelp}</span>
+                    </button>
+                    <button className="datamenu-row" role="menuitem" onClick={() => { setDataMenu(false); blankTemplate(); }}>
+                      <span className="dm-t">📄 {t.blankTemplate}</span>
+                      <span className="dm-d">{t.blankTemplateHelp}</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           )}
           {canEdit && (
             <>
@@ -518,16 +544,39 @@ export default function Plan() {
         <>
           <div className="daychips">
             {days.map(d => (
-              <button key={d} className={`daychip ${d === selDay ? 'on' : ''}`} onClick={() => setSelDay(d)}>
+              <button key={d} className={`daychip ${d === selDay ? 'on' : ''}`} onClick={() => setSelDay(d)}
+                title={dayTitleOf(d) ?? undefined}>
                 <span className="dn">D{dayNo(d)}</span>
                 <span className="dd">{new Date(d + 'T00:00:00').toLocaleDateString(lang === 'ms' ? 'ms-MY' : 'en-MY', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+                {dayTitleOf(d) && <span className="dt">{dayTitleOf(d)}</span>}
               </button>
             ))}
           </div>
           <div className="grid grid-2" style={{ alignItems: 'start' }}>
             <div className="card">
               <div className="row-between">
-                <h3>{fmtDate(selDay, lang)} {selDay === today && <span className="badge brand">{t.today}</span>}</h3>
+                <h3 style={{ minWidth: 0 }}>
+                  {fmtDate(selDay, lang)} {selDay === today && <span className="badge brand">{t.today}</span>}
+                  {titleEdit === null ? (
+                    <span className="daytitle">
+                      {dayTitleOf(selDay) && <span className="daytitle-text">{dayTitleOf(selDay)}</span>}
+                      {canEdit && (
+                        <button className="icon" title={dayTitleOf(selDay) ? t.editDayTitle : t.addDayTitle}
+                          onClick={() => setTitleEdit(dayTitleOf(selDay) ?? '')}>
+                          {dayTitleOf(selDay) ? '✏️' : `🏷️ ${t.addDayTitle}`}
+                        </button>
+                      )}
+                    </span>
+                  ) : (
+                    <form className="daytitle" onSubmit={e => { e.preventDefault(); saveDayTitle(titleEdit); }}>
+                      <input autoFocus value={titleEdit} maxLength={80} placeholder={t.dayTitlePlaceholder}
+                        onChange={e => setTitleEdit(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Escape') setTitleEdit(null); }} />
+                      <button className="btn btn-sm" type="submit">{t.save}</button>
+                      <button className="btn btn-ghost btn-sm" type="button" onClick={() => setTitleEdit(null)}>{t.cancel}</button>
+                    </form>
+                  )}
+                </h3>
                 <span className="row" style={{ gap: 6 }}>
                   {(budget || user.role === 'admin') && (
                     <button className="badge" style={{ border: 'none', cursor: user.role === 'admin' ? 'pointer' : 'default' }}
@@ -570,9 +619,23 @@ export default function Plan() {
                       onChange={() => toggleSel(i.activity.id)} />
                   )}
                   <div className="pi-time">{i.time ?? '—'}{i.end_time ? `–${i.end_time}` : ''}</div>
-                  <div className="pi-ic">{i.auto ? KIND_ICON[i.kind ?? ''] ?? '•' : ACTIVITY_CAT_ICON[(i.activity?.category as ActivityCategory) ?? 'other'] ?? '📍'}</div>
+                  <div className="pi-ic">
+                    {(() => {
+                      const no = i.activity ? pinNos.get(actRef(i.activity.id)) : undefined;
+                      if (no) return (
+                        <button className="pinno" title={t.showOnMap(no)}
+                          onClick={() => setFocusPin(no - 1)}>{no}</button>
+                      );
+                      // no coordinates → no pin on the map; say so instead of faking one
+                      if (i.activity) return <span className="pinno none" title={t.noPinYet}>—</span>;
+                      return <span>{KIND_ICON[i.kind ?? ''] ?? '•'}</span>;
+                    })()}
+                  </div>
                   <div className="pi-body">
-                    <div className="pi-title">{i.title}</div>
+                    <div className="pi-title">
+                      {i.activity && <span className="pi-cat">{ACTIVITY_CAT_ICON[(i.activity?.category as ActivityCategory) ?? 'other'] ?? '📍'} </span>}
+                      {i.title}
+                    </div>
                     {i.subtitle && <div className="tiny">{i.subtitle}</div>}
                     {i.auto && (i as any).participant_ids?.length > 0 && (i as any).participant_ids.length < members.length && (
                       <div className="tiny">👥 {participantsLabel((i as any).participant_ids)}</div>
@@ -699,7 +762,7 @@ export default function Plan() {
               ))}
             </div>
             <div className="card">
-              <LeafletMap pins={pins} line height={340} />
+              <LeafletMap pins={pins} line height={340} focus={focusPin} />
               <p className="tiny" style={{ marginTop: 6 }}>{pins.length} 📍</p>
             </div>
           </div>
@@ -1227,7 +1290,7 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
       }));
       const res = await api.post(`/trips/${tripId}/activities/bulk`, { rows, budgets });
       if (saveProf) {
-        await api.post(`/trips/${tripId}/importprofiles`, { name: `wizard-${new Date().toISOString().slice(0, 10)}`, mapping: map2 }).catch(() => {});
+        await api.post(`/trips/${tripId}/importprofiles`, { name: `wizard-${todayYmd()}`, mapping: map2 }).catch(() => {});
       }
       window.alert(t.importDone(res.created, res.updated));
       onDone();

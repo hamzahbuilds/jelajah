@@ -2,13 +2,15 @@
 // Covers: login → dashboard → upload+parse Trip.com receipt → review → confirm expense
 // → ledger → record payment → balances.
 import { chromium } from 'playwright';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 const BASE = 'http://127.0.0.1:8788';
 const OUT = 'e2e-shots';
 mkdirSync(OUT, { recursive: true });
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+// use the sandbox's preinstalled Chromium when present, else playwright's own download
+const PW_CHROMIUM = '/opt/pw-browsers/chromium';
+const browser = await chromium.launch(existsSync(PW_CHROMIUM) ? { executablePath: PW_CHROMIUM } : {});
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 page.setDefaultTimeout(25000);
 // keep the test hermetic: block external requests (OSM tiles, nominatim) which
@@ -303,7 +305,9 @@ console.log('doc delete ok (expense survived unlinked)');
 await page.click('nav.tabs a:has-text("Plan")');
 await page.waitForSelector('.daychips');
 const dlPromise = page.waitForEvent('download');
-await page.click('button:has-text("Export CSV")');
+await page.click('button:has-text("Data")');           // v0.14: import/export consolidated
+await page.waitForSelector('.datamenu');
+await page.click('.datamenu-row:has-text("Export CSV")');
 const dl = await dlPromise;
 const csvPath = await dl.path();
 let csv = readFileSync(csvPath, 'utf8').replace(/^﻿/, '');
@@ -314,7 +318,9 @@ console.log('CSV export ok');
 csv = csv.replace('15:00', '16:30'); // move Sensoji
 csv += '\r\n,2026-12-01,09:00,,Ueno Park,,,Ueno Park,35.7141,139.7745,,ALL,'; // v0.12: category column after title
 writeFileSync('/tmp/plan-import.csv', csv);
-await page.setInputFiles('label:has-text("Import CSV") input', '/tmp/plan-import.csv');
+await page.click('button:has-text("Data")');
+await page.waitForSelector('.datamenu');
+await page.setInputFiles('.datamenu-row:has-text("Import CSV") input', '/tmp/plan-import.csv');
 await page.waitForSelector('text=Import preview');
 const previewText = await page.textContent('.modal');
 if (!previewText.includes('Ueno Park')) await fail('preview missing new row');
@@ -555,6 +561,68 @@ const notesLeft = await page.evaluate(() => fetch('/api/trips/1/plan').then(r =>
   .then(p => p.dayNotes.filter(n => n.day === '2026-12-03').length));
 if (notesLeft !== 1) await fail(`note delete did not persist, ${notesLeft} left`);
 console.log('day notes + checklist ok');
+
+// 33b. v0.14: name the day, and check the D-chip carries it after a reload
+await page.click('button[title="Name this day"]');
+await page.fill('.daytitle input', 'Nara day trip');
+await page.click('.daytitle button:has-text("Save")');
+await page.waitForSelector('.daytitle-text:has-text("Nara day trip")');
+await page.reload();
+await page.waitForSelector('.daychips');
+// a reload lands back on D1, so look for the title on the chip that owns it
+await page.waitForSelector('.daychip:has-text("Nara day trip")');
+if (!(await page.textContent('.daychip:has-text("Nara day trip")')).includes('D5')) await fail('day title landed on the wrong day chip');
+const dsSrv = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
+  .then(p => p.daySettings.find(d => d.day === '2026-12-03')));
+if (dsSrv?.title !== 'Nara day trip') await fail(`day title not persisted: ${JSON.stringify(dsSrv)}`);
+// a title-only save must not wipe the day's start/end point, and vice versa
+await page.evaluate(() => fetch('/api/trips/1/daysettings', {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ day: '2026-12-03', start_name: 'Kyoto Station', start_lat: 34.9858, start_lng: 135.7588 }),
+}));
+const dsBoth = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
+  .then(p => p.daySettings.find(d => d.day === '2026-12-03')));
+if (dsBoth?.title !== 'Nara day trip') await fail('start/end save clobbered the day title');
+if (dsBoth?.start_name !== 'Kyoto Station') await fail('start point not saved alongside the title');
+await shot('22e-daytitle');
+console.log('day title ok (chip, reload, no clobber with start/end)');
+
+// 33c. pin numbers on the list match the map, and pin 1 is where the day starts
+// with no start point set, the first located activity is pin 1
+await page.click('.daychip:has-text("D2")');
+await page.waitForSelector('.plan-item .pinno');
+let listNos = await page.$$eval('.plan-item .pinno:not(.none)', els => els.map(e => e.textContent.trim()));
+let mapNos = await page.$$eval('.pin-dot span', els => els.map(e => e.textContent.trim()));
+if (!listNos.length) await fail('no numbered pins in the itinerary list');
+for (const n of listNos) {
+  if (!mapNos.includes(n)) await fail(`list pin ${n} has no matching map pin (map has ${mapNos.join(',')})`);
+}
+if (mapNos[0] !== '1') await fail(`first map pin should be 1, got ${mapNos[0]}`);
+if (listNos[0] !== '1') await fail(`without a start point the first activity should be pin 1, got ${listNos[0]}`);
+// now give the day an accommodation start point: it must take pin 1 and push
+// every activity down by one
+await page.evaluate(() => fetch('/api/trips/1/daysettings', {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ day: '2026-11-30', start_name: 'Hotel Shinjuku', start_lat: 35.6938, start_lng: 139.7036 }),
+}));
+await page.reload();
+await page.waitForSelector('.daychips');
+await page.click('.daychip:has-text("D2")');
+await page.waitForSelector('.plan-item .pinno');
+listNos = await page.$$eval('.plan-item .pinno:not(.none)', els => els.map(e => e.textContent.trim()));
+mapNos = await page.$$eval('.pin-dot span', els => els.map(e => e.textContent.trim()));
+for (const n of listNos) {
+  if (!mapNos.includes(n)) await fail(`list pin ${n} has no matching map pin (map has ${mapNos.join(',')})`);
+}
+if (listNos.includes('1')) await fail('an activity took pin 1 — that belongs to the accommodation');
+if (listNos[0] !== '2') await fail(`first activity should be pin 2 behind the stay, got ${listNos[0]}`);
+await page.click('.plan-item .pinno:not(.none)');
+await page.waitForTimeout(500);
+await shot('22f-pinsync');
+console.log(`pin sync ok (list ${listNos.join(',')} ⊂ map ${mapNos.join(',')}, pin 1 = stay)`);
+// hand the page back to the day the bulk-delete step below expects
+await page.click('.daychip:has-text("D5")');
+await page.waitForSelector('.plan-item:has-text("Bulk One")');
 // bulk delete: select mode → select all (this day only) → one confirm
 await page.click('button:has-text("☑️ Select")');
 await page.waitForSelector('.bulkbar');
@@ -596,8 +664,9 @@ await page.waitForSelector('.hero');
 const heroBg = await page.$eval('.hero', el => getComputedStyle(el).backgroundColor);
 console.log('trip shell accent applied, hero bg:', heroBg);
 await page.click('nav.tabs a:has-text("Plan")');
-await page.waitForSelector('button:has-text("Map columns")');
-await page.click('button:has-text("Map columns")');
+await page.click('button:has-text("Data")');
+await page.waitForSelector('.datamenu');
+await page.click('.datamenu-row:has-text("Map columns")');
 await page.waitForSelector('.modal input[type=file]', { state: 'attached' });
 await page.setInputFiles('.modal input[type=file]', 'tests/fixtures/client-campervan.csv');
 await page.waitForSelector('.modal select');
@@ -869,14 +938,43 @@ const mcp = (method, params, tok = mcpToken) => fetch(`${BASE}/api/mcp`, {
 const init = await mcp('initialize', { protocolVersion: '2025-03-26' });
 if (init.result?.serverInfo?.name !== 'jelajah') await fail('MCP initialize failed');
 const tools = await mcp('tools/list');
-if ((tools.result?.tools ?? []).length !== 8) await fail(`expected 8 MCP tools, got ${tools.result?.tools?.length}`);
+if ((tools.result?.tools ?? []).length !== 13) await fail(`expected 13 MCP tools, got ${tools.result?.tools?.length}`);
+for (const need of ['get_notes', 'add_note', 'update_note', 'delete_note', 'set_day_title']) {
+  if (!(tools.result?.tools ?? []).some(t => t.name === need)) await fail(`MCP tool ${need} missing`);
+}
 const addRes = await mcp('tools/call', { name: 'add_activity', arguments: { trip_id: 1, day: '2026-12-02', title: 'MCP Onsen visit', start_time: '10:00', duration_min: 120, category: 'sightseeing' } });
 if (addRes.error) await fail(`MCP add_activity errored: ${JSON.stringify(addRes.error)}`);
 const itin = await mcp('tools/call', { name: 'get_itinerary', arguments: { trip_id: 1, day: '2026-12-02' } });
 if (!itin.result?.content?.[0]?.text.includes('MCP Onsen visit')) await fail('MCP itinerary readback missing new activity');
 const balRes = await mcp('tools/call', { name: 'get_balances', arguments: { trip_id: 1 } });
 if (!balRes.result?.content?.[0]?.text.includes('trip_total_myr')) await fail('MCP get_balances failed');
-console.log('MCP ok (initialize, 8 tools, add_activity → itinerary readback, balances)');
+console.log('MCP ok (initialize, 13 tools, add_activity → itinerary readback, balances)');
+
+// 39b. v0.14: MCP can read and write day notes, and name a day
+const noteAdd = await mcp('tools/call', { name: 'add_note', arguments: { trip_id: 1, day: '2026-12-02', content: 'Book the onsen slot', is_check: true } });
+if (noteAdd.error) await fail(`MCP add_note errored: ${JSON.stringify(noteAdd.error)}`);
+const noteId = JSON.parse(noteAdd.result.content[0].text).id;
+const readNotes = async () => {
+  const r = await mcp('tools/call', { name: 'get_notes', arguments: { trip_id: 1, day: '2026-12-02' } });
+  if (r.error) await fail(`MCP get_notes errored: ${JSON.stringify(r.error)}`);
+  return JSON.parse(r.result.content[0].text);
+};
+const noteRead = (await readNotes()).find(n => n.id === noteId);
+if (!noteRead) await fail('MCP get_notes missing the new note');
+if (noteRead.content !== 'Book the onsen slot') await fail('MCP get_notes returned the wrong note text');
+if (noteRead.is_checklist !== true) await fail('MCP get_notes lost the checklist flag');
+if (noteRead.done !== false) await fail('a fresh checklist item should not be done');
+await mcp('tools/call', { name: 'update_note', arguments: { note_id: noteId, done: true } });
+if ((await readNotes()).find(n => n.id === noteId)?.done !== true) await fail('MCP update_note did not tick the item');
+const titleSet = await mcp('tools/call', { name: 'set_day_title', arguments: { trip_id: 1, day: '2026-12-02', title: 'Onsen & Osaka' } });
+if (titleSet.error) await fail(`MCP set_day_title errored: ${JSON.stringify(titleSet.error)}`);
+const itin2 = await mcp('tools/call', { name: 'get_itinerary', arguments: { trip_id: 1, day: '2026-12-02' } });
+if (!itin2.result.content[0].text.includes('Onsen & Osaka')) await fail('MCP get_itinerary missing the day title');
+if (!itin2.result.content[0].text.includes('Book the onsen slot')) await fail('MCP get_itinerary missing day notes');
+const delNote = await mcp('tools/call', { name: 'delete_note', arguments: { note_id: noteId } });
+if (delNote.error) await fail(`MCP delete_note errored: ${JSON.stringify(delNote.error)}`);
+if ((await readNotes()).some(n => n.id === noteId)) await fail('MCP delete_note did not remove the note');
+console.log('MCP notes + day title ok (add, read, tick, itinerary readback, delete)');
 
 // member token: member permissions, no mutations
 await p5.goto(`${BASE}/trips/1/myspend`);
@@ -887,9 +985,15 @@ await p5.waitForSelector('.token-fresh');
 const memberToken = (await p5.textContent('.token-fresh')).trim();
 const mAdd = await mcp('tools/call', { name: 'add_activity', arguments: { trip_id: 1, day: '2026-12-02', title: 'nope' } }, memberToken);
 if (!mAdd.error || !/admin token/.test(mAdd.error.message)) await fail('member token should be blocked from mutations');
+const mNote = await mcp('tools/call', { name: 'add_note', arguments: { trip_id: 1, day: '2026-12-02', content: 'nope' } }, memberToken);
+if (!mNote.error || !/admin token/.test(mNote.error.message)) await fail('member token should be blocked from writing notes');
+const mTitle = await mcp('tools/call', { name: 'set_day_title', arguments: { trip_id: 1, day: '2026-12-02', title: 'nope' } }, memberToken);
+if (!mTitle.error || !/admin token/.test(mTitle.error.message)) await fail('member token should be blocked from naming days');
+const mNotesRead = await mcp('tools/call', { name: 'get_notes', arguments: { trip_id: 1 } }, memberToken);
+if (mNotesRead.error) await fail('member token should be allowed to read day notes');
 const mTrips = await mcp('tools/call', { name: 'list_trips', arguments: {} }, memberToken);
 if (!mTrips.result?.content?.[0]?.text.includes('Jelajah Jepun')) await fail('member token should list its trips');
-console.log('MCP member token ok (reads allowed, mutations blocked)');
+console.log('MCP member token ok (reads incl. notes allowed, mutations blocked)');
 
 // token-in-URL endpoint (claude.ai custom connectors can't send headers)
 const pathInit = await fetch(`${BASE}/api/mcp/t/${mcpToken}`, {
@@ -948,4 +1052,4 @@ await shot('27-mobile-plan');
 console.log('mobile 360px ok (no horizontal scroll)');
 
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.13)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.14)');

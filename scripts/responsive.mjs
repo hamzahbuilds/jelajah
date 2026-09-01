@@ -1,10 +1,11 @@
 // Screenshot every page at phone/tablet/desktop widths for the responsive audit.
 import { chromium } from 'playwright';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync } from 'node:fs';
 
 const BASE = 'http://127.0.0.1:8788';
 mkdirSync('e2e-shots/resp', { recursive: true });
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const PW_CHROMIUM = '/opt/pw-browsers/chromium';
+const browser = await chromium.launch(existsSync(PW_CHROMIUM) ? { executablePath: PW_CHROMIUM } : {});
 const page = await browser.newPage();
 page.setDefaultTimeout(20000);
 await page.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, r => r.abort());

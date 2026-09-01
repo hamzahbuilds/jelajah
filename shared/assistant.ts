@@ -131,6 +131,7 @@ export function suggestSystemPrompt(): string {
     'Reply ONLY with a JSON array (no prose, no markdown fences). Each element:',
     '{"day":"YYYY-MM-DD","start_time":"HH:MM","duration_min":90,"title":"...","why":"one short sentence","place":"searchable place name, e.g. \'Sensoji Temple, Tokyo\'","category":"sightseeing|food|transport|lodging|shopping|other"}',
     'Rules: 3-6 suggestions; only days inside the trip; do not overlap existing activities (their times are provided); prefer the listed free slots; realistic durations and travel; family-friendly unless asked otherwise; halal/pork-free food options when suggesting meals for this user base unless told otherwise.',
+    'The context may carry DAY THEMES (what a day is meant to be about) and DAY NOTES & CHECKLIST (what the planner wrote down; "[ ]" marks an unfinished item). Respect a day\'s theme, act on unfinished checklist items where a suggestion can satisfy one, and never suggest something a note rules out or an already-ticked item repeats.',
   ].join('\n');
 }
 

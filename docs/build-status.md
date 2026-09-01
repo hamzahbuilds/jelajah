@@ -339,6 +339,55 @@ activities.
   other days untouched. Version 0.13.0; zip has no wrangler.toml. Deploy is
   the usual: upload changed files, no manual SQL (day_notes auto-creates).
 
+## v0.14.0 — "Say what the day is" (1 Sep 2026)
+
+**Timezone bug found and fixed first (this was live).** `daysBetween` in
+`Plan.tsx` built the day list with `new Date(day + 'T00:00:00')` and then
+`.toISOString()`, which re-projects local midnight into UTC. Anywhere east of
+Greenwich — Malaysia is UTC+8 — every plan day rendered one day early and the
+trip grew a phantom extra day: the Japan trip showed **D1 = Sat 28 Nov** for a
+trip starting 29 Nov, with 10 chips for 9 days. The same class of bug shifted
+Dashboard's "Up next" for early-morning events. Day arithmetic now lives in
+`shared/days.ts` (`ymd`, `todayYmd`, `daysBetween`) with 11 unit tests that
+pin the local calendar. Never use `toISOString()` on a Date that represents a
+calendar day.
+
+Then the four requested changes:
+
+- **One Data button.** Export CSV / Import CSV / Map columns… / Blank template
+  collapsed into a single `📊 Data ▾` menu on the Plan toolbar. Each row
+  carries a plain-language line saying what it does (EN + BM), so the CSV
+  round trip explains itself. A popover, not a `title=` tooltip — native
+  tooltips never appear on the phones the family actually use.
+- **Day titles.** `day_settings.title` (in SCHEMA *and* UPGRADES) names what a
+  day is about; shown under the D1..Dx chip and beside the day heading, edited
+  inline by anyone who can edit the plan. `PUT /trips/:id/daysettings` now
+  writes only the columns present in the body, so naming a day cannot wipe its
+  start/end point and vice versa.
+- **Pins synced to the plan.** The map numbered its pins by array position and
+  the list showed nothing, so "which stop is pin 3?" was unanswerable. One
+  numbering now feeds both (`shared/pins.ts`): **pin 1 is always the
+  accommodation** the day starts from, then each located activity in plan
+  order. List rows show the matching numbered badge, tapping one pans the map
+  and opens that pin, and an activity with no coordinates shows a dashed "—"
+  instead of pretending to have a pin.
+- **Notes reach the AI and MCP.** Day notes, checklist state and day titles now
+  go into the model context for both the chat drawer and AI suggestions, and
+  the suggestion prompt is told to respect a day's theme and act on unticked
+  items. MCP gained five tools (8 → 13): `get_notes`, `add_note`,
+  `update_note`, `delete_note`, `set_day_title`; `get_itinerary` returns
+  `notes` and `day_titles`. Writes stay admin-token-only; member tokens read
+  notes but cannot write them.
+
+Tests: 79 unit (was 61: +11 days, +5 pins, +2 assistant prompt) and the full
+e2e suite green, with new steps for the day title (persist, reload, no-clobber),
+pin↔list numbering (before and after a start point exists) and the MCP notes
+round trip. `scripts/e2e.mjs` and `scripts/responsive.mjs` now fall back to
+Playwright's own Chromium when `/opt/pw-browsers/chromium` is absent, so the
+suite runs on a normal Mac as well as in the cloud sandbox.
+
+Version 0.14.0. No manual SQL — `day_settings.title` auto-adds on first load.
+
 ## Handover prepared (31 Aug 2026)
 Sage is moving development to another Claude account. The repo is now the
 single source of truth: `HANDOVER.md` (root) + `docs/` (build-status, the
