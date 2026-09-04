@@ -6,8 +6,8 @@ import { execSync } from 'node:child_process';
 const rows = [];
 const today = new Date();
 for (let i = 29; i >= 0; i--) {
-  const d = new Date(today); d.setDate(d.getDate() - i);
-  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const d = new Date(today); d.setUTCDate(d.getUTCDate() - i);
+  const date = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   const jpy = 38 + 2 * Math.sin(i / 4) + (i % 3) * 0.2;      // wobbles 36–40.4
   const usd = 0.244 + 0.002 * Math.sin(i / 5);
   rows.push(`('${date}','MYR','JPY',${jpy.toFixed(3)})`, `('${date}','MYR','USD',${usd.toFixed(5)})`);

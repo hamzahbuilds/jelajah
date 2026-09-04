@@ -7,6 +7,7 @@ import {
 } from './lib/auth';
 import { parseSuggestions, freeSlots, suggestSystemPrompt, chatSystemPrompt, buildGeminiNativeBody, parseGeminiNativeResponse } from '../shared/assistant';
 import { SCHEMA, UPGRADES, JAPAN_TRIP } from './lib/schema';
+import { migratedRole, TripRole, atLeast } from './lib/roles';
 import { FX_WINDOWS, FxWindow, analyzeRates } from '../shared/fxband';
 
 type Vars = { user: SessionUser };
@@ -39,6 +40,41 @@ async function audit(env: Env, userId: number | null, action: string, entity?: s
   } catch { /* audit is best-effort */ }
 }
 
+async function getSettingJSON<T>(env: Env, key: string): Promise<T | null> {
+  const row = await env.DB.prepare('SELECT value FROM app_settings WHERE key = ?').bind(key).first<any>();
+  if (!row) return null;
+  try { return JSON.parse(row.value) as T; } catch { return null; }
+}
+async function setSettingJSON(env: Env, key: string, value: unknown) {
+  await env.DB.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .bind(key, JSON.stringify(value)).run();
+}
+
+/** One-time data migrations — run exactly once per deploy, recorded in app_settings.
+ *  UPGRADES cannot hold these: its statements re-run on every cold isolate. */
+async function runDataMigrations(env: Env): Promise<void> {
+  const applied: string[] = (await getSettingJSON<string[]>(env, 'data_migrations')) ?? [];
+  if (!applied.includes('m001-trip-roles')) {
+    const rows = await env.DB.prepare(
+      `SELECT tm.trip_id, tm.participant_id, t.member_can_edit_plan,
+              u.id AS user_id, u.role AS user_role
+       FROM trip_members tm
+       JOIN trips t ON t.id = tm.trip_id
+       LEFT JOIN users u ON u.participant_id = tm.participant_id`,
+    ).all();
+    const stmts = (rows.results as any[]).map(r => env.DB.prepare(
+      'UPDATE trip_members SET role = ? WHERE trip_id = ? AND participant_id = ?',
+    ).bind(migratedRole({
+      isAdminUser: r.user_role === 'admin',
+      hasAccount: r.user_id != null,
+      memberCanEditPlan: !!r.member_can_edit_plan,
+    }), r.trip_id, r.participant_id));
+    for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
+    applied.push('m001-trip-roles');
+    await setSettingJSON(env, 'data_migrations', applied);
+  }
+}
+
 /* ---- lazy schema upgrades: idempotent, once per isolate ---- */
 let upgraded = false;
 app.use('*', async (c, next) => {
@@ -46,6 +82,11 @@ app.use('*', async (c, next) => {
     upgraded = true;
     for (const s of UPGRADES) {
       try { await c.env.DB.prepare(s).run(); } catch { /* already applied */ }
+    }
+    try {
+      await runDataMigrations(c.env);
+    } catch (e) {
+      await audit(c.env, null, 'data_migration_failed', undefined, undefined);
     }
   }
   return next();
@@ -133,9 +174,30 @@ const requireAdmin = async (c: any, next: any) => {
   return next();
 };
 
-/** Features the admin hid from members on this trip ('documents','ledger','payments','plan'). Admins see everything. */
+/** Effective role of this user on this trip. Platform admin ⇒ leader everywhere. */
+async function tripRole(env: Env, user: SessionUser, tripId: number): Promise<TripRole | null> {
+  if (user.role === 'admin') return 'leader';
+  if (!user.participant_id) return null;
+  const row = await env.DB.prepare(
+    'SELECT role FROM trip_members WHERE trip_id = ? AND participant_id = ?',
+  ).bind(tripId, user.participant_id).first<any>();
+  return (row?.role as TripRole) ?? null;
+}
+
+async function needRole(c: any, tripId: number, min: TripRole): Promise<boolean> {
+  return atLeast(await tripRole(c.env, c.get('user'), tripId), min);
+}
+
+const requireRole = (min: TripRole) => async (c: any, next: any) => {
+  if (!(await needRole(c, Number(c.req.param('id')), min))) return bad(c, 'forbidden', 403);
+  return next();
+};
+const requireLeader = requireRole('leader');
+const requireEditor = requireRole('editor');
+
+/** Features the admin hid from members on this trip ('documents','ledger','payments','plan'). Leaders see everything. */
 async function hiddenFor(c: any, tripId: number): Promise<Set<string>> {
-  if (c.get('user').role === 'admin') return new Set();
+  if (atLeast(await tripRole(c.env, c.get('user'), tripId), 'leader')) return new Set();
   const t: any = await c.env.DB.prepare('SELECT hidden_features FROM trips WHERE id = ?').bind(tripId).first();
   try { return new Set(JSON.parse(t?.hidden_features ?? '[]')); } catch { return new Set(); }
 }
@@ -157,12 +219,13 @@ app.get('/health', c => c.json({ ok: true, at: new Date().toISOString() }));
 app.get('/me', async c => {
   const user = c.get('user');
   const trips = user.role === 'admin'
-    ? await c.env.DB.prepare('SELECT * FROM trips ORDER BY start_date DESC').all()
+    ? await c.env.DB.prepare(`SELECT *, 'leader' AS my_role FROM trips ORDER BY start_date DESC`).all()
     : await c.env.DB.prepare(
-        `SELECT t.* FROM trips t JOIN trip_members m ON m.trip_id = t.id
-         WHERE m.participant_id = ? ORDER BY t.start_date DESC`,
+        `SELECT t.*, tm.role AS my_role FROM trips t JOIN trip_members tm ON tm.trip_id = t.id
+         WHERE tm.participant_id = ? ORDER BY t.start_date DESC`,
       ).bind(user.participant_id).all();
-  return c.json({ user, trips: trips.results });
+  const userPayload = user.role === 'admin' ? { ...user, platform_admin: true } : user;
+  return c.json({ user: userPayload, trips: trips.results });
 });
 
 app.patch('/me', async c => {
@@ -267,13 +330,15 @@ app.get('/trips/:id', async c => {
   if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
   const trip = await c.env.DB.prepare('SELECT * FROM trips WHERE id = ?').bind(id).first();
   if (!trip) return bad(c, 'not_found', 404);
+  const user = c.get('user');
+  const my_role = user.role === 'admin' ? 'leader' : await tripRole(c.env, user, id);
   const members = await c.env.DB.prepare(
     `SELECT p.* FROM participants p JOIN trip_members m ON m.participant_id = p.id WHERE m.trip_id = ? ORDER BY p.name`,
   ).bind(id).all();
-  return c.json({ trip, members: members.results });
+  return c.json({ trip: { ...trip, my_role }, members: members.results });
 });
 
-app.patch('/trips/:id', requireAdmin, async c => {
+app.patch('/trips/:id', requireLeader, async c => {
   const id = Number(c.req.param('id'));
   const b = await c.req.json<any>();
   await c.env.DB.prepare(
@@ -284,18 +349,67 @@ app.patch('/trips/:id', requireAdmin, async c => {
   ).bind(b.name ?? null, b.destination ?? null, b.start_date ?? null, b.end_date ?? null, b.emoji ?? null,
     b.color ?? null, Array.isArray(b.hidden_features) ? JSON.stringify(b.hidden_features) : null,
     b.member_can_edit_plan === undefined ? null : (b.member_can_edit_plan ? 1 : 0), id).run();
+  // Back-compat column keeps being written above; authorization no longer reads it —
+  // instead, flipping it now bulk-sets every non-leader linked member's role.
+  if (b.member_can_edit_plan !== undefined) {
+    await c.env.DB.prepare(
+      `UPDATE trip_members SET role = ? WHERE trip_id = ? AND role != 'leader'
+       AND participant_id IN (SELECT participant_id FROM users WHERE participant_id IS NOT NULL)`,
+    ).bind(b.member_can_edit_plan ? 'editor' : 'viewer', id).run();
+  }
   return c.json({ ok: true });
 });
 
-app.put('/trips/:id/members', requireAdmin, async c => {
+app.put('/trips/:id/members', requireLeader, async c => {
   const id = Number(c.req.param('id'));
   const { participant_ids } = await c.req.json<{ participant_ids: number[] }>();
-  const stmts = [c.env.DB.prepare('DELETE FROM trip_members WHERE trip_id = ?').bind(id)];
-  for (const pid of participant_ids ?? []) {
-    stmts.push(c.env.DB.prepare('INSERT INTO trip_members (trip_id, participant_id) VALUES (?,?)').bind(id, pid));
+  const incoming = participant_ids ?? [];
+  if (incoming.length) {
+    const placeholders = incoming.map(() => '?').join(',');
+    const remainingLeaders = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM trip_members WHERE trip_id = ? AND role = 'leader' AND participant_id IN (${placeholders})`,
+    ).bind(id, ...incoming).first<any>();
+    const totalLeaders = await c.env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM trip_members WHERE trip_id = ? AND role = 'leader'").bind(id).first<any>();
+    if ((totalLeaders?.n ?? 0) > 0 && (remainingLeaders?.n ?? 0) === 0) return bad(c, 'last_leader');
+  } else {
+    const totalLeaders = await c.env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM trip_members WHERE trip_id = ? AND role = 'leader'").bind(id).first<any>();
+    if ((totalLeaders?.n ?? 0) > 0) return bad(c, 'last_leader');
+  }
+  const stmts = [];
+  if (incoming.length) {
+    const placeholders = incoming.map(() => '?').join(',');
+    stmts.push(c.env.DB.prepare(
+      `DELETE FROM trip_members WHERE trip_id = ? AND participant_id NOT IN (${placeholders})`,
+    ).bind(id, ...incoming));
+  } else {
+    stmts.push(c.env.DB.prepare('DELETE FROM trip_members WHERE trip_id = ?').bind(id));
+  }
+  for (const pid of incoming) {
+    stmts.push(c.env.DB.prepare('INSERT OR IGNORE INTO trip_members (trip_id, participant_id) VALUES (?,?)').bind(id, pid));
   }
   await c.env.DB.batch(stmts);
   return c.json({ ok: true });
+});
+
+app.patch('/trips/:id/members/:pid/role', requireLeader, async c => {
+  const tripId = Number(c.req.param('id')), pid = Number(c.req.param('pid'));
+  const b = await c.req.json<any>();
+  const role = String(b.role) as TripRole;
+  if (!['leader', 'editor', 'viewer'].includes(role)) return bad(c, 'bad_role');
+  const cur = await c.env.DB.prepare('SELECT role FROM trip_members WHERE trip_id = ? AND participant_id = ?')
+    .bind(tripId, pid).first<any>();
+  if (!cur) return bad(c, 'not_member', 404);
+  if (cur.role === 'leader' && role !== 'leader') {
+    const leaders = await c.env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM trip_members WHERE trip_id = ? AND role = 'leader'").bind(tripId).first<any>();
+    if ((leaders?.n ?? 0) <= 1) return bad(c, 'last_leader');
+  }
+  await c.env.DB.prepare('UPDATE trip_members SET role = ? WHERE trip_id = ? AND participant_id = ?')
+    .bind(role, tripId, pid).run();
+  await audit(c.env, (c.get('user') as SessionUser).id, 'role_change', 'trip', tripId);
+  return c.json({ ok: true, role });
 });
 
 /* ---------------- documents ---------------- */
@@ -312,7 +426,7 @@ app.get('/trips/:id/documents', async c => {
   return c.json(rows.results);
 });
 
-app.post('/trips/:id/documents', requireAdmin, async c => {
+app.post('/trips/:id/documents', requireLeader, async c => {
   const tripId = Number(c.req.param('id'));
   const form = await c.req.formData();
   const file = form.get('file') as unknown as File | null;
@@ -366,10 +480,11 @@ app.get('/documents/:id', async c => {
   return c.json(doc);
 });
 
-app.delete('/documents/:id', requireAdmin, async c => {
+app.delete('/documents/:id', async c => {
   const id = Number(c.req.param('id'));
   const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first<any>();
   if (!doc) return bad(c, 'not_found', 404);
+  if (!(await needRole(c, doc.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
   // A linked expense survives — it is just unlinked from the deleted file.
   const linked = await c.env.DB.prepare('SELECT id FROM expenses WHERE document_id = ?').bind(id).first<any>();
   if (linked) {
@@ -429,10 +544,11 @@ async function insertExpense(env: Env, tripId: number, documentId: number | null
   return eid;
 }
 
-app.post('/documents/:id/confirm', requireAdmin, async c => {
+app.post('/documents/:id/confirm', async c => {
   const id = Number(c.req.param('id'));
   const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first<any>();
   if (!doc) return bad(c, 'not_found', 404);
+  if (!(await needRole(c, doc.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
   const body = await c.req.json<{ expense?: ExpensePayload; vendor?: string; docType?: string; bookingNo?: string }>();
   let expenseId: number | null = null;
   if (body.expense) {
@@ -466,7 +582,7 @@ app.get('/trips/:id/expenses', async c => {
   return c.json({ expenses: expenses.results, shares: shares.results, due_dates: dues.results });
 });
 
-app.post('/trips/:id/expenses', requireAdmin, async c => {
+app.post('/trips/:id/expenses', requireLeader, async c => {
   const id = Number(c.req.param('id'));
   const p = await c.req.json<ExpensePayload>();
   const err = validExpense(p);
@@ -476,10 +592,11 @@ app.post('/trips/:id/expenses', requireAdmin, async c => {
   return c.json({ id: eid });
 });
 
-app.put('/expenses/:id', requireAdmin, async c => {
+app.put('/expenses/:id', async c => {
   const id = Number(c.req.param('id'));
   const old = await c.env.DB.prepare('SELECT * FROM expenses WHERE id = ?').bind(id).first<any>();
   if (!old) return bad(c, 'not_found', 404);
+  if (!(await needRole(c, old.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
   const p = await c.req.json<ExpensePayload>();
   const err = validExpense(p);
   if (err) return bad(c, err);
@@ -506,8 +623,11 @@ app.put('/expenses/:id', requireAdmin, async c => {
   return c.json({ ok: true });
 });
 
-app.delete('/expenses/:id', requireAdmin, async c => {
+app.delete('/expenses/:id', async c => {
   const id = Number(c.req.param('id'));
+  const exp = await c.env.DB.prepare('SELECT trip_id FROM expenses WHERE id = ?').bind(id).first<any>();
+  if (!exp) return bad(c, 'not_found', 404);
+  if (!(await needRole(c, exp.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM expense_shares WHERE expense_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM due_dates WHERE expense_id = ?').bind(id),
@@ -529,7 +649,7 @@ app.get('/trips/:id/payments', async c => {
   return c.json(rows.results);
 });
 
-app.post('/trips/:id/payments', requireAdmin, async c => {
+app.post('/trips/:id/payments', requireLeader, async c => {
   const id = Number(c.req.param('id'));
   const { from_participant_id, to_participant_id, amount_myr, pay_date, note, expense_id } = await c.req.json<any>();
   if (!from_participant_id || !to_participant_id || !(amount_myr > 0) || !pay_date) return bad(c, 'missing_fields');
@@ -541,8 +661,12 @@ app.post('/trips/:id/payments', requireAdmin, async c => {
   return c.json({ id: r.meta.last_row_id });
 });
 
-app.delete('/payments/:id', requireAdmin, async c => {
-  await c.env.DB.prepare('DELETE FROM payments WHERE id = ?').bind(Number(c.req.param('id'))).run();
+app.delete('/payments/:id', async c => {
+  const id = Number(c.req.param('id'));
+  const pay = await c.env.DB.prepare('SELECT trip_id FROM payments WHERE id = ?').bind(id).first<any>();
+  if (!pay) return bad(c, 'not_found', 404);
+  if (!(await needRole(c, pay.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
+  await c.env.DB.prepare('DELETE FROM payments WHERE id = ?').bind(id).run();
   return c.json({ ok: true });
 });
 
@@ -636,16 +760,21 @@ app.get('/trips/:id/balances', async c => {
   if ((await hiddenFor(c, id)).has('payments')) return bad(c, 'feature_hidden', 403);
   const data = await computeBalances(c.env, id);
   const user = c.get('user');
-  const balances = user.role === 'admin' ? data.balances : data.balances.filter((b: any) => b.participant.id === user.participant_id);
+  const balances = atLeast(await tripRole(c.env, user, id), 'leader')
+    ? data.balances : data.balances.filter((b: any) => b.participant.id === user.participant_id);
   return c.json({ ...data, balances });
 });
 
-app.patch('/expenses/:id/status', requireAdmin, async c => {
+app.patch('/expenses/:id/status', async c => {
+  const id = Number(c.req.param('id'));
+  const exp = await c.env.DB.prepare('SELECT trip_id FROM expenses WHERE id = ?').bind(id).first<any>();
+  if (!exp) return bad(c, 'not_found', 404);
+  if (!(await needRole(c, exp.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
   const { payment_status } = await c.req.json<any>();
   if (payment_status !== 'paid' && payment_status !== 'pay_at_hotel') return bad(c, 'bad_status');
   await c.env.DB.prepare('UPDATE expenses SET payment_status = ?, payment_date = COALESCE(payment_date, date(\'now\')) WHERE id = ?')
-    .bind(payment_status, Number(c.req.param('id'))).run();
-  await audit(c.env, c.get('user').id, 'expense_status', 'expense', Number(c.req.param('id')));
+    .bind(payment_status, id).run();
+  await audit(c.env, c.get('user').id, 'expense_status', 'expense', id);
   return c.json({ ok: true });
 });
 
@@ -777,7 +906,7 @@ app.get('/trips/:id/plan', async c => {
 
 const DAY_SETTING_COLS = ['start_name', 'start_lat', 'start_lng', 'end_name', 'end_lat', 'end_lng', 'title'] as const;
 
-app.put('/trips/:id/daysettings', requireAdmin, async c => {
+app.put('/trips/:id/daysettings', requireEditor, async c => {
   const id = Number(c.req.param('id'));
   const b = await c.req.json<any>();
   if (!b.day) return bad(c, 'day_required');
@@ -796,13 +925,13 @@ app.put('/trips/:id/daysettings', requireAdmin, async c => {
   return c.json({ ok: true });
 });
 
-app.delete('/trips/:id/daysettings/:day', requireAdmin, async c => {
+app.delete('/trips/:id/daysettings/:day', requireEditor, async c => {
   await c.env.DB.prepare('DELETE FROM day_settings WHERE trip_id = ? AND day = ?')
     .bind(Number(c.req.param('id')), c.req.param('day')).run();
   return c.json({ ok: true });
 });
 
-app.put('/trips/:id/legs', requireAdmin, async c => {
+app.put('/trips/:id/legs', requireEditor, async c => {
   const id = Number(c.req.param('id'));
   const b = await c.req.json<any>();
   if (!b.day || !b.leg_key) return bad(c, 'missing_fields');
@@ -818,10 +947,14 @@ app.put('/trips/:id/legs', requireAdmin, async c => {
   return c.json({ ok: true });
 });
 
-app.patch('/expenses/:id/coords', requireAdmin, async c => {
+app.patch('/expenses/:id/coords', async c => {
+  const id = Number(c.req.param('id'));
+  const exp = await c.env.DB.prepare('SELECT trip_id FROM expenses WHERE id = ?').bind(id).first<any>();
+  if (!exp) return bad(c, 'not_found', 404);
+  if (!(await needRole(c, exp.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
   const { lat, lng } = await c.req.json<any>();
   await c.env.DB.prepare('UPDATE expenses SET lat = ?, lng = ? WHERE id = ?')
-    .bind(lat ?? null, lng ?? null, Number(c.req.param('id'))).run();
+    .bind(lat ?? null, lng ?? null, id).run();
   return c.json({ ok: true });
 });
 
@@ -983,13 +1116,10 @@ async function saveActivityParticipants(env: Env, activityId: number, ids: numbe
   await env.DB.batch(stmts);
 }
 
-/** v0.12: admins always; members too when the trip's "members can edit plan" toggle is on. */
+/** Leaders always; editors too, unless the plan feature is hidden on this trip. */
 async function canEditPlan(c: any, tripId: number): Promise<boolean> {
-  if (c.get('user').role === 'admin') return true;
-  if (!(await assertTripAccess(c, tripId))) return false;
   if ((await hiddenFor(c, tripId)).has('plan')) return false;
-  const t: any = await c.env.DB.prepare('SELECT member_can_edit_plan FROM trips WHERE id = ?').bind(tripId).first();
-  return !!t?.member_can_edit_plan;
+  return needRole(c, tripId, 'editor');
 }
 async function canEditActivity(c: any, activityId: number): Promise<any | null> {
   const row: any = await c.env.DB.prepare('SELECT * FROM activities WHERE id = ?').bind(activityId).first();
@@ -1121,7 +1251,7 @@ app.patch('/activities/:id/stations', async c => {
   return c.json({ ok: true });
 });
 
-app.put('/trips/:id/daybudgets', requireAdmin, async c => {
+app.put('/trips/:id/daybudgets', requireLeader, async c => {
   const id = Number(c.req.param('id'));
   const b = await c.req.json<any>();
   if (!b.day) return bad(c, 'day_required');
@@ -1136,19 +1266,19 @@ app.put('/trips/:id/daybudgets', requireAdmin, async c => {
   return c.json({ ok: true });
 });
 
-app.delete('/trips/:id/daybudgets/:day', requireAdmin, async c => {
+app.delete('/trips/:id/daybudgets/:day', requireLeader, async c => {
   await c.env.DB.prepare('DELETE FROM day_budgets WHERE trip_id = ? AND day = ?')
     .bind(Number(c.req.param('id')), c.req.param('day')).run();
   return c.json({ ok: true });
 });
 
-app.get('/trips/:id/importprofiles', requireAdmin, async c => {
+app.get('/trips/:id/importprofiles', requireEditor, async c => {
   const rows = await c.env.DB.prepare('SELECT * FROM import_profiles WHERE trip_id = ? ORDER BY id DESC')
     .bind(Number(c.req.param('id'))).all();
   return c.json(rows.results);
 });
 
-app.post('/trips/:id/importprofiles', requireAdmin, async c => {
+app.post('/trips/:id/importprofiles', requireEditor, async c => {
   const { name, mapping } = await c.req.json<any>();
   if (!name?.trim() || !mapping) return bad(c, 'missing_fields');
   const r = await c.env.DB.prepare('INSERT INTO import_profiles (trip_id, name, mapping_json) VALUES (?,?,?)')
@@ -1158,7 +1288,7 @@ app.post('/trips/:id/importprofiles', requireAdmin, async c => {
 
 /** Bulk upsert from the CSV template. Rows with an id update that activity
     (must belong to this trip); rows without create new ones. Never deletes. */
-app.post('/trips/:id/activities/bulk', requireAdmin, async c => {
+app.post('/trips/:id/activities/bulk', requireEditor, async c => {
   const id = Number(c.req.param('id'));
   const { rows, budgets } = await c.req.json<{ rows: any[]; budgets?: any[] }>();
   if (!Array.isArray(rows) || rows.length === 0 || rows.length > 300) return bad(c, 'rows_required');
@@ -1210,7 +1340,7 @@ app.post('/trips/:id/activities/bulk', requireAdmin, async c => {
   return c.json({ created, updated, errors });
 });
 
-app.post('/trips/:id/groups', requireAdmin, async c => {
+app.post('/trips/:id/groups', requireLeader, async c => {
   const id = Number(c.req.param('id'));
   const { name, member_ids } = await c.req.json<any>();
   if (!name?.trim() || !member_ids?.length) return bad(c, 'missing_fields');
@@ -1221,8 +1351,11 @@ app.post('/trips/:id/groups', requireAdmin, async c => {
   return c.json({ id: gid });
 });
 
-app.delete('/groups/:id', requireAdmin, async c => {
+app.delete('/groups/:id', async c => {
   const id = Number(c.req.param('id'));
+  const grp = await c.env.DB.prepare('SELECT trip_id FROM groups WHERE id = ?').bind(id).first<any>();
+  if (!grp) return bad(c, 'not_found', 404);
+  if (!(await needRole(c, grp.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM group_members WHERE group_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM groups WHERE id = ?').bind(id),
@@ -1244,10 +1377,16 @@ app.get('/trips/:id/duedates', async c => {
   return c.json(rows.results);
 });
 
-app.patch('/duedates/:id', requireAdmin, async c => {
+app.patch('/duedates/:id', async c => {
+  const id = Number(c.req.param('id'));
+  const due = await c.env.DB.prepare(
+    'SELECT e.trip_id FROM due_dates d JOIN expenses e ON e.id = d.expense_id WHERE d.id = ?',
+  ).bind(id).first<any>();
+  if (!due) return bad(c, 'not_found', 404);
+  if (!(await needRole(c, due.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
   const { settled } = await c.req.json<any>();
   await c.env.DB.prepare('UPDATE due_dates SET settled = ? WHERE id = ?')
-    .bind(settled ? 1 : 0, Number(c.req.param('id'))).run();
+    .bind(settled ? 1 : 0, id).run();
   return c.json({ ok: true });
 });
 
@@ -1409,7 +1548,7 @@ app.get('/trips/:id/fxseries', async c => {
   return c.json({ base: trip.base_currency, quote, window, points, band, signal, current: points[points.length - 1] });
 });
 
-app.patch('/trips/:id/currencies', requireAdmin, async c => {
+app.patch('/trips/:id/currencies', requireLeader, async c => {
   const id = Number(c.req.param('id'));
   const trip = await c.env.DB.prepare('SELECT base_currency, watch_currencies FROM trips WHERE id = ?').bind(id).first<any>();
   if (!trip) return bad(c, 'not_found', 404);
@@ -1438,16 +1577,6 @@ app.patch('/trips/:id/currencies', requireAdmin, async c => {
 /* ================================================================== */
 /* v0.12 — AI provider settings, assistant proxy, API tokens, MCP     */
 /* ================================================================== */
-
-async function getSettingJSON<T>(env: Env, key: string): Promise<T | null> {
-  const row = await env.DB.prepare('SELECT value FROM app_settings WHERE key = ?').bind(key).first<any>();
-  if (!row) return null;
-  try { return JSON.parse(row.value) as T; } catch { return null; }
-}
-async function setSettingJSON(env: Env, key: string, value: unknown) {
-  await env.DB.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-    .bind(key, JSON.stringify(value)).run();
-}
 
 interface AiConfig { base_url: string; api_key: string; model: string }
 const aiConfig = (env: Env) => getSettingJSON<AiConfig>(env, 'ai_provider');
@@ -1630,13 +1759,14 @@ async function tripContext(c: any, tripId: number, includeMoney: boolean): Promi
 
   if (includeMoney && !hidden.has('payments') && !hidden.has('ledger')) {
     const data = await computeBalances(env, tripId);
-    const visible = user.role === 'admin' ? data.balances : data.balances.filter((b: any) => b.participant.id === user.participant_id);
+    const isLeader = atLeast(await tripRole(env, user, tripId), 'leader');
+    const visible = isLeader ? data.balances : data.balances.filter((b: any) => b.participant.id === user.participant_id);
     const nameOf = new Map((parts.results as any[]).map(p => [p.id, p.name]));
     const lines = (visible as any[]).map(b =>
       `${b.participant.name}: owes RM${b.outstanding} outstanding (paid RM${b.paid})` +
       b.byPayee.map((bp: any) => ` → RM${bp.remaining} to ${nameOf.get(bp.to_participant_id) ?? '?'}`).join(''));
     blocks.push(`MONEY (MYR): trip total RM${data.tripTotal}${data.committedTotal ? `, committed (pay at hotel, not yet owed) RM${data.committedTotal}` : ''}\n${lines.join('\n')}`);
-    if (user.role === 'admin') {
+    if (isLeader) {
       blocks.push(`EXPENSES:\n${(data.expenseItems as any[]).slice(0, 60).map((e: any) =>
         `${e.expense_date ?? ''} ${e.description} RM${e.amount_myr}${e.payment_status === 'pay_at_hotel' ? ' [pay at hotel]' : ''}`).join('\n')}`);
     }
@@ -1645,7 +1775,7 @@ async function tripContext(c: any, tripId: number, includeMoney: boolean): Promi
        JOIN expenses e ON e.id = d.expense_id WHERE e.trip_id = ? ORDER BY d.due_date`,
     ).bind(tripId).all();
     const myDues = (dues.results as any[]).filter(d =>
-      user.role === 'admin' || d.participant_id == null || d.participant_id === user.participant_id);
+      isLeader || d.participant_id == null || d.participant_id === user.participant_id);
     if (myDues.length) {
       blocks.push(`PAYMENT DUE DATES:\n${myDues.map(d =>
         `${d.due_date} ${d.description}${d.amount_myr ? ` RM${d.amount_myr}` : ''}${d.participant_id ? ` (for ${nameOf.get(d.participant_id) ?? '?'})` : ' (whole payment)'}`).join('\n')}`);
@@ -1775,7 +1905,7 @@ async function mcpTripAccess(env: Env, user: SessionUser, tripId: number): Promi
 }
 
 async function mcpHidden(env: Env, user: SessionUser, tripId: number): Promise<Set<string>> {
-  if (user.role === 'admin') return new Set();
+  if (atLeast(await tripRole(env, user, tripId), 'leader')) return new Set();
   const t: any = await env.DB.prepare('SELECT hidden_features FROM trips WHERE id = ?').bind(tripId).first();
   try { return new Set(JSON.parse(t?.hidden_features ?? '[]')); } catch { return new Set(); }
 }
@@ -1804,7 +1934,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'add_activity',
-    description: 'Add an itinerary activity (admin token only). If "place" is given it is geocoded so the activity gets a map pin.',
+    description: 'Add an itinerary activity (needs an editor role on the trip). If "place" is given it is geocoded so the activity gets a map pin.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1818,7 +1948,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'update_activity',
-    description: 'Update fields of an activity by id (admin token only). Only provided fields change.',
+    description: 'Update fields of an activity by id (needs an editor role on the trip). Only provided fields change.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1831,7 +1961,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'delete_activity',
-    description: 'Delete an activity by id (admin token only).',
+    description: 'Delete an activity by id (needs an editor role on the trip).',
     inputSchema: { type: 'object', properties: { activity_id: { type: 'number' } }, required: ['activity_id'] },
   },
   {
@@ -1841,7 +1971,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'add_note',
-    description: 'Add a note or checklist item under a day of the plan (admin token only). Set is_check true for a tickable to-do, false for a plain note.',
+    description: 'Add a note or checklist item under a day of the plan (needs an editor role on the trip). Set is_check true for a tickable to-do, false for a plain note.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1853,7 +1983,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'update_note',
-    description: 'Update a note by id (admin token only): change its text, or tick/untick a checklist item. Only provided fields change.',
+    description: 'Update a note by id (needs an editor role on the trip): change its text, or tick/untick a checklist item. Only provided fields change.',
     inputSchema: {
       type: 'object',
       properties: { note_id: { type: 'number' }, content: { type: 'string' }, done: { type: 'boolean' }, is_check: { type: 'boolean' } },
@@ -1862,12 +1992,12 @@ const MCP_TOOLS = [
   },
   {
     name: 'delete_note',
-    description: 'Delete a day note by id (admin token only).',
+    description: 'Delete a day note by id (needs an editor role on the trip).',
     inputSchema: { type: 'object', properties: { note_id: { type: 'number' } }, required: ['note_id'] },
   },
   {
     name: 'set_day_title',
-    description: "Name what a day of the trip is about (admin token only) — e.g. 'Arrival & Shinjuku night walk'. Shown on the day tab. Pass an empty title to clear it.",
+    description: "Name what a day of the trip is about (needs an editor role on the trip) — e.g. 'Arrival & Shinjuku night walk'. Shown on the day tab. Pass an empty title to clear it.",
     inputSchema: {
       type: 'object',
       properties: { trip_id: { type: 'number' }, day: { type: 'string', description: 'YYYY-MM-DD' }, title: { type: 'string' } },
@@ -1907,7 +2037,10 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
     if (!Number.isFinite(tripId)) throw new McpError(-32602, 'trip_id required');
     if (!(await mcpTripAccess(env, user, tripId))) throw new McpError(-32000, 'No access to that trip');
   };
-  const needAdmin = () => { if (user.role !== 'admin') throw new McpError(-32000, 'This tool needs an admin token'); };
+  const needTripRole = async (tripId: number, min: TripRole) => {
+    await needTrip(tripId);
+    if (!atLeast(await tripRole(env, user, tripId), min)) throw new McpError(-32000, `This tool needs a ${min} role on the trip`);
+  };
 
   switch (name) {
     case 'list_trips': {
@@ -1948,7 +2081,8 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       await needTrip(args.trip_id);
       if ((await mcpHidden(env, user, args.trip_id)).has('payments')) throw new McpError(-32000, 'Payments are hidden for this account');
       const data = await computeBalances(env, args.trip_id);
-      const balances = user.role === 'admin' ? data.balances : data.balances.filter((b: any) => b.participant.id === user.participant_id);
+      const isLeader = atLeast(await tripRole(env, user, args.trip_id), 'leader');
+      const balances = isLeader ? data.balances : data.balances.filter((b: any) => b.participant.id === user.participant_id);
       return {
         trip_total_myr: data.tripTotal, committed_myr: data.committedTotal,
         balances: (balances as any[]).map((b: any) => ({
@@ -1959,7 +2093,7 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
     case 'get_expenses': {
       await needTrip(args.trip_id);
       if ((await mcpHidden(env, user, args.trip_id)).has('ledger')) throw new McpError(-32000, 'The ledger is hidden for this account');
-      if (user.role === 'admin') {
+      if (atLeast(await tripRole(env, user, args.trip_id), 'leader')) {
         const rows = await env.DB.prepare(
           'SELECT id, category, description, vendor, expense_date, amount_myr, currency, amount_original, payment_status FROM expenses WHERE trip_id = ? ORDER BY expense_date, id',
         ).bind(args.trip_id).all();
@@ -1980,8 +2114,7 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       return { day: args.day, free_slots: freeSlots(acts.results as any[]) };
     }
     case 'add_activity': {
-      needAdmin();
-      await needTrip(args.trip_id);
+      await needTripRole(args.trip_id, 'editor');
       const title = String(args.title ?? '').trim();
       if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(String(args.day ?? ''))) throw new McpError(-32602, 'title and day (YYYY-MM-DD) required');
       let geo: { name: string; lat: number; lng: number } | null = null;
@@ -2004,9 +2137,9 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       return { id: Number(r.meta.last_row_id), located: !!geo, location_name: geo?.name ?? null };
     }
     case 'update_activity': {
-      needAdmin();
       const act = await env.DB.prepare('SELECT * FROM activities WHERE id = ?').bind(Number(args.activity_id)).first<any>();
       if (!act) throw new McpError(-32000, 'Activity not found');
+      await needTripRole(act.trip_id, 'editor');
       const val = (k: string, cur: any) => (args[k] !== undefined ? args[k] : cur);
       await env.DB.prepare(
         'UPDATE activities SET title=?, day=?, start_time=?, end_time=?, notes=?, done=? WHERE id=?',
@@ -2028,8 +2161,7 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       }));
     }
     case 'add_note': {
-      needAdmin();
-      await needTrip(args.trip_id);
+      await needTripRole(args.trip_id, 'editor');
       const content = String(args.content ?? '').trim();
       if (!content || !/^\d{4}-\d{2}-\d{2}$/.test(String(args.day ?? ''))) throw new McpError(-32602, 'content and day (YYYY-MM-DD) required');
       const mx = await env.DB.prepare('SELECT COALESCE(MAX(sort),0) AS m FROM day_notes WHERE trip_id = ? AND day = ?')
@@ -2040,11 +2172,10 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       return { id: Number(r.meta.last_row_id) };
     }
     case 'update_note': {
-      needAdmin();
       const nid = Number(args.note_id);
       const note = await env.DB.prepare('SELECT * FROM day_notes WHERE id = ?').bind(nid).first<any>();
       if (!note) throw new McpError(-32000, 'Note not found');
-      await needTrip(note.trip_id);
+      await needTripRole(note.trip_id, 'editor');
       const isCheck = args.is_check !== undefined ? (args.is_check ? 1 : 0) : note.is_check;
       await env.DB.prepare('UPDATE day_notes SET content=?, is_check=?, done=? WHERE id=?').bind(
         args.content !== undefined ? String(args.content).trim().slice(0, 500) : note.content,
@@ -2055,18 +2186,16 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       return { ok: true };
     }
     case 'delete_note': {
-      needAdmin();
       const nid = Number(args.note_id);
       const note = await env.DB.prepare('SELECT trip_id FROM day_notes WHERE id = ?').bind(nid).first<any>();
       if (!note) throw new McpError(-32000, 'Note not found');
-      await needTrip(note.trip_id);
+      await needTripRole(note.trip_id, 'editor');
       await env.DB.prepare('DELETE FROM day_notes WHERE id = ?').bind(nid).run();
       await audit(env, user.id, 'mcp_note_delete', 'day_note', nid);
       return { ok: true };
     }
     case 'set_day_title': {
-      needAdmin();
-      await needTrip(args.trip_id);
+      await needTripRole(args.trip_id, 'editor');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(args.day ?? ''))) throw new McpError(-32602, 'day (YYYY-MM-DD) required');
       const title = String(args.title ?? '').trim().slice(0, 80) || null;
       await env.DB.prepare(
@@ -2077,8 +2206,10 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       return { ok: true, title };
     }
     case 'delete_activity': {
-      needAdmin();
       const id = Number(args.activity_id);
+      const act = await env.DB.prepare('SELECT trip_id FROM activities WHERE id = ?').bind(id).first<any>();
+      if (!act) throw new McpError(-32000, 'Activity not found');
+      await needTripRole(act.trip_id, 'editor');
       await env.DB.batch([
         env.DB.prepare('DELETE FROM activity_participants WHERE activity_id = ?').bind(id),
         env.DB.prepare('DELETE FROM activities WHERE id = ?').bind(id),

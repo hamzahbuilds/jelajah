@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useT } from '../i18n';
-import { useSession, Trip } from '../App';
+import { useSession, Trip, TripRole } from '../App';
 import ChatDrawer from '../components/ChatDrawer';
 
 export interface Participant { id: number; name: string; is_infant: number }
 export interface TripCtx {
   trip: Trip; members: Participant[]; tripId: number;
   reload: () => Promise<void>;
+  myRole: TripRole; canLead: boolean; canEdit: boolean;
 }
 
 export default function TripShell() {
@@ -22,9 +23,12 @@ export default function TripShell() {
 
   if (!data) return <p className="muted" style={{ padding: 30 }}>{t.loading}</p>;
 
-  const ctx: TripCtx = { ...data, tripId, reload };
+  const myRole: TripRole = (data.trip as any).my_role ?? 'viewer';
+  const canLead = myRole === 'leader';
+  const canEdit = myRole !== 'viewer';
+  const ctx: TripCtx = { ...data, tripId, reload, myRole, canLead, canEdit };
   let hidden = new Set<string>();
-  if (user.role !== 'admin') {
+  if (!canLead) {
     try { hidden = new Set(JSON.parse((data.trip as any).hidden_features ?? '[]')); } catch { /* ignore */ }
   }
   const tab = (to: string, label: string, end = false) => (
@@ -48,7 +52,7 @@ export default function TripShell() {
         {!hidden.has('ledger') && tab(`/trips/${tripId}/ledger`, t.ledger)}
         {!hidden.has('payments') && tab(`/trips/${tripId}/payments`, t.payments)}
         {tab(`/trips/${tripId}/myspend`, t.myspend)}
-        {user.role === 'admin' && tab(`/trips/${tripId}/people`, t.people)}
+        {canLead && tab(`/trips/${tripId}/people`, t.people)}
       </nav>
       <Outlet context={ctx} />
       {!hidden.has('assistant') && <ChatDrawer tripId={tripId} />}

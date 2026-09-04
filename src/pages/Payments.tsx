@@ -2,15 +2,13 @@ import { useEffect, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { api, fmtMYR, fmtDate } from '../api';
 import { useT } from '../i18n';
-import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import { useToast } from '../components/Toast';
 
 export default function Payments() {
   const { t, lang } = useT();
-  const { user } = useSession();
   const { toast } = useToast();
-  const { tripId, members } = useOutletContext<TripCtx>();
+  const { tripId, members, canLead } = useOutletContext<TripCtx>();
   const [bal, setBal] = useState<any>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [open, setOpen] = useState<any | null>(null); // statement drill-down {b, bp, highlight?}
@@ -108,7 +106,7 @@ export default function Payments() {
       </div>
 
       <div>
-        {user.role === 'admin' && (
+        {canLead && (
           <form className="card" onSubmit={record}>
             <h3>{t.recordPayment}</h3>
             <p className="tiny">{t.lumpsumHint}</p>
@@ -149,7 +147,7 @@ export default function Payments() {
               </div>
               <div className="row">
                 <strong>{fmtMYR(p.amount_myr)}</strong>
-                {user.role === 'admin' && <button className="icon" onClick={() => removePayment(p)}>🗑️</button>}
+                {canLead && <button className="icon" onClick={() => removePayment(p)}>🗑️</button>}
               </div>
             </div>
           ))}
@@ -163,7 +161,7 @@ export default function Payments() {
               <h2>{t.statement}: {open.b.participant.name} → {pname(open.bp.to_participant_id)}</h2>
               <button className="icon" onClick={() => setOpen(null)}>✕</button>
             </div>
-            {user.role === 'admin' && open.bp.remaining > 0.004 && (
+            {canLead && open.bp.remaining > 0.004 && (
               <button className="btn btn-sm" style={{ marginBottom: 8 }}
                 onClick={() => window.confirm(`${t.settleAll}: ${fmtMYR(open.bp.remaining)}?`) && settle(open.b, open.bp)}>
                 ✅ {t.settleAll} · {fmtMYR(open.bp.remaining)}
@@ -172,7 +170,7 @@ export default function Payments() {
             <div className="tablewrap">
               <table>
                 <thead>
-                  <tr><th>{t.description}</th><th className="hide-sm">{t.date}</th><th className="num">{t.amount}</th><th className="num">{t.remaining}</th>{user.role === 'admin' && <th />}</tr>
+                  <tr><th>{t.description}</th><th className="hide-sm">{t.date}</th><th className="num">{t.amount}</th><th className="num">{t.remaining}</th>{canLead && <th />}</tr>
                 </thead>
                 <tbody>
                   {open.bp.items.map((it: any, i: number) => (
@@ -183,7 +181,7 @@ export default function Payments() {
                       <td className="num">{it.remaining > 0.004
                         ? <strong>{fmtMYR(it.remaining)}</strong>
                         : <span className="badge ok">{t.paid}</span>}</td>
-                      {user.role === 'admin' && (
+                      {canLead && (
                         <td>{it.remaining > 0.004 && (
                           <button className="btn btn-ghost btn-sm"
                             onClick={() => window.confirm(`${t.settleItem} "${it.description}": ${fmtMYR(it.remaining)}?`) && settle(open.b, open.bp, it)}>

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, fmtMYR, fmtMoney, fmtDate } from '../api';
 import { useT } from '../i18n';
-import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import ExpenseForm, { CATEGORIES, emptyDraft, ExpenseDraft } from '../components/ExpenseForm';
 import { useToast } from '../components/Toast';
@@ -14,9 +13,8 @@ const CAT_ICON: Record<string, string> = {
 
 export default function Ledger() {
   const { t, lang } = useT();
-  const { user } = useSession();
   const { toast } = useToast();
-  const { tripId, members } = useOutletContext<TripCtx>();
+  const { tripId, members, canLead } = useOutletContext<TripCtx>();
   const [data, setData] = useState<any>(null);
   const [filter, setFilter] = useState('all');
   const [editing, setEditing] = useState<any | 'new' | null>(null);
@@ -80,7 +78,7 @@ export default function Ledger() {
           </select>
           <span className="muted">{list.length} {t.expenses} · <strong>{fmtMYR(total)}</strong></span>
         </div>
-        {user.role === 'admin' && <button className="btn" onClick={() => setEditing('new')}>＋ {t.addExpense}</button>}
+        {canLead && <button className="btn" onClick={() => setEditing('new')}>＋ {t.addExpense}</button>}
       </div>
 
       <div className="card tablewrap">
@@ -93,7 +91,7 @@ export default function Ledger() {
                 <th className="hide-sm">{t.date}</th><th className="hide-sm">{t.payer}</th>
                 <th className="hide-sm">{t.participants}</th>
                 <th className="num">{t.amountMyr}</th>
-                {user.role === 'admin' && <th />}
+                {canLead && <th />}
               </tr>
             </thead>
             <tbody>
@@ -105,7 +103,7 @@ export default function Ledger() {
                     {e.payment_status === 'pay_at_hotel' && (
                       <>
                         {' '}<span className="badge warn" title={t.committedNote}>🏨💤 {t.payAtHotel}</span>
-                        {user.role === 'admin' && (
+                        {canLead && (
                           <button className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }}
                             onClick={async () => { await api.patch(`/expenses/${e.id}/status`, { payment_status: 'paid' }); toast(t.tMarkedPaid); await load(); }}>
                             {t.markPaid}
@@ -122,7 +120,7 @@ export default function Ledger() {
                   <td className="hide-sm">{e.payer_participant_id ? pname(e.payer_participant_id) : '—'}</td>
                   <td className="hide-sm">{(sharesByExpense.get(e.id) ?? []).length}</td>
                   <td className="num"><strong>{fmtMYR(e.amount_myr)}</strong></td>
-                  {user.role === 'admin' && (
+                  {canLead && (
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <button className="icon" onClick={() => setEditing(e)} aria-label={t.edit}>✏️</button>
                       <button className="icon" onClick={() => remove(e)} aria-label={t.delete}>🗑️</button>

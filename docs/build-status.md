@@ -1,6 +1,108 @@
 # Jelajah — Build Status
 
-Updated: 4 Sep 2026 (v0.15)
+Updated: 5 Sep 2026 (v0.16)
+
+## v0.16.0 — "Per-trip roles" (5 Sep 2026)
+Phase A1 of multitenancy (spec `docs/06-spec-v0.16-multitenant.md`): every trip
+now has a `leader`/`editor`/`viewer` role per member instead of the old binary
+"admin vs. everyone else" model, laying the ground for later phases (invites,
+join links, referrals, per-participant role UI, trip creation by any account)
+without changing what today's single-admin-family setup looks or feels like.
+
+What shipped:
+- **Roles schema + migration.** `trip_members.role` (`leader`/`editor`/`viewer`,
+  default `viewer`) added via the lazy `UPGRADES` path, plus a one-time data
+  migration (`runDataMigrations`, recorded in `app_settings` so it runs exactly
+  once per deploy, not on every cold isolate) that backfills every existing
+  membership: the platform admin's own account → `leader`, an account holder
+  whose trip already had "members can edit the plan" on → `editor`, everyone
+  else → `viewer` (`migratedRole()` in `server/lib/roles.ts`, unit-tested in
+  `tests/roles.test.ts`).
+- **Authority swap.** All 34 trip-scoped routes now gate on `TripRole` via
+  `requireLeader`/`requireEditor`/`atLeast()` instead of the old
+  `user.role === 'admin'` check — leaders keep full control (money, membership,
+  visibility, trip settings), editors can edit the plan (activities, legs, day
+  notes/titles, import profiles) but not money or membership, viewers are
+  read-only. A trip can never be left with zero leaders: `PATCH
+  /trips/:id/members/:pid/role` refuses to demote the last `leader` (`400
+  last_leader`).
+- **`member_can_edit_plan` rework.** The existing admin toggle
+  ("Members can edit the plan" on the People page) is kept as the only UI for
+  this phase, but `PATCH /trips/:id` now bulk-maps it onto real roles —
+  flipping it on/off sets every non-leader linked member's role to
+  `editor`/`viewer` in one statement — rather than being read directly at
+  authorization time. Behaviour is unchanged from a family member's point of
+  view; e2e proves the equivalence end to end (403 before, activity add works
+  immediately after the toggle, no code path left reading the old flag for
+  auth).
+- **`/me` + client.** `GET /api/me` returns `my_role` per trip (`'leader'` for
+  the platform admin everywhere, the `trip_members.role` row otherwise);
+  `TripShell` derives `myRole`/`canLead`/`canEdit` from it and every gated
+  button (Add activity, Add expense, People tab, Documents upload, etc.) reads
+  those instead of the old session-role check.
+- **MCP + AI swap.** All MCP write tools (`add_activity`, `update_activity`,
+  `delete_activity`, `add_note`, `update_note`, `delete_note`,
+  `set_day_title`) now require `editor` on the trip via `needTripRole()`
+  instead of "must be the admin's own token"; reads (`get_itinerary`,
+  `get_balances`, `get_expenses`, `list_trips`, `get_notes`) are unchanged —
+  any member can read. The block message changed from mentioning "admin
+  token" to `This tool needs a ${role} role on the trip`; a viewer-role token
+  is still fully blocked from every write tool, only the wording changed.
+- **`delete_activity` scoping fix** (found during Task 4's role rollout): the
+  MCP `delete_activity` handler now looks up the activity's own `trip_id`
+  before checking the caller's role on *that* trip, instead of trusting a
+  caller-supplied trip id — closes a cross-trip role-check bypass.
+- **`GET /trips/:id` `my_role` gap** (found and fixed during this phase's e2e
+  verification pass): the endpoint `TripShell` actually calls to load a trip
+  (`GET /api/trips/:id`) had never been updated to include `my_role` — only
+  `GET /api/me` had the join. Every trip page silently fell back to
+  `my_role ?? 'viewer'`, so `canLead`/`canEdit` were `false` for *everyone*,
+  including the platform admin — Add activity, Add expense, Documents upload,
+  and the People tab all disappeared. Fixed by computing `my_role` for
+  `GET /trips/:id` the same way `/me` and the MCP layer already did.
+- **`scripts/seed-fx.mjs` timezone seam** (found while re-verifying the fx
+  widget's window logic in this pass): the dev/e2e fx seed built its 30 days
+  of history from `Date`'s *local* calendar parts, so after local midnight in
+  a +08 timezone it stamped a row with tomorrow's date in UTC terms —
+  `fx_rates` is Frankfurter's UTC-dated domain, so a `1W` band window computed
+  in UTC could see 9 points instead of 7. Seed now builds dates from
+  `setUTCDate`/`getUTCFullYear`/`getUTCMonth`/`getUTCDate` so seeded rows and
+  the UTC-windowed band logic agree regardless of the machine's local
+  timezone. Output (`seed-fx: 60 fx_rates rows ending today`) is unchanged.
+
+Deliberately **not** in this phase (spec Addendum 1 / A2–A3): invite links,
+join-by-link, referrals, any per-participant role-editing UI (the role change
+is reachable today only via `PATCH /trips/:id/members/:pid/role`, no button in
+the People page yet), trip creation by non-admin accounts, and a transfer-
+leadership UI (the endpoint exists via the same role PATCH; a dedicated UI
+comes later).
+
+Verified: 93 unit tests (was 87; +6 `roles.test.ts`) and the full e2e suite
+green end to end, with new coverage for the role ladder (viewer → editor →
+viewer: API 403/200, button visibility, and MCP mutation blocking with the
+new role-mentioning error, at every step), the `last_leader` guard, and the
+`/me` migration proof (admin `my_role === 'leader'`, member `my_role`
+following the toggle state). Version 0.16.0. No manual SQL — the role column
+and its one-time backfill both run automatically on first request after
+deploy, same lazy-upgrade pattern as every prior migration.
+
+**Owner's post-deploy check:** log in as admin, confirm both trips ("Jelajah
+Jepun 2026" and "Kyushu Campervan") still show on the trips list and open
+normally with full editing; have a family member (e.g. Hairuni) log in and
+confirm they see exactly what they saw before this release — same tabs, same
+Add-activity access if it was already on, same read-only ledger/payments if
+those were hidden. Nothing should look different to a member unless the admin
+deliberately changes a role via the API.
+
+**Post-review fix (same release):** `PUT /trips/:id/members` was found to
+delete every `trip_members` row and re-insert without `role`, silently
+resetting everyone — leaders included — to `viewer` on every membership save;
+it now diffs the incoming participant-id set against the existing rows
+(`DELETE … NOT IN`, `INSERT OR IGNORE`) so existing members keep their role
+and only newly-added members default to `viewer`, with the same `last_leader`
+guard as the role-PATCH endpoint when a save would remove every leader. My-
+spend promote remains member-accessible by design (own money, payer = self) —
+the one deliberate exception to money-writes-are-leader-only.
 
 ## v0.15.0 — "Know your rate" (4 Sep 2026)
 Forex widget on the trip dashboard: pick a base + up to 6 watch currencies per

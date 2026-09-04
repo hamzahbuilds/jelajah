@@ -16,13 +16,17 @@ import People from './pages/People';
 import Settings from './pages/Settings';
 import { ToastProvider } from './components/Toast';
 
+export type TripRole = 'leader' | 'editor' | 'viewer';
+
 export interface User {
   id: number; email: string; name: string; role: 'admin' | 'member';
   lang: Lang; participant_id: number | null; must_change_password: number;
+  platform_admin?: boolean;
 }
 export interface Trip {
   id: number; name: string; destination: string | null;
   start_date: string | null; end_date: string | null; emoji: string;
+  my_role?: TripRole;
 }
 
 interface Session {

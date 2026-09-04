@@ -88,10 +88,8 @@ const emptyActivity = (day: string) => ({
 export default function Plan() {
   const { t, lang } = useT();
   const { user } = useSession();
-  const { trip, tripId, members } = useOutletContext<TripCtx>();
+  const { trip, tripId, members, canLead, canEdit } = useOutletContext<TripCtx>();
   const { toast } = useToast();
-  // v0.12: members may edit activities when the trip's toggle allows it
-  const canEdit = user.role === 'admin' || !!(trip as any).member_can_edit_plan;
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [data, setData] = useState<any>(null);
   const [view, setView] = useState<'day' | 'week' | 'month'>('day');
@@ -234,7 +232,7 @@ export default function Plan() {
     ...(endPt && !(locatedActs.length === 0 && startPt && endPt.lat === startPt.lat && endPt.lng === startPt.lng) ? [endPt] : []),
   ];
   const legs = buildLegs(chain, data.legOverrides ?? [], selDay);
-  const unpinnedStay = user.role === 'admin' ? stays.find(s => s.lat == null) : null;
+  const unpinnedStay = canLead ? stays.find(s => s.lat == null) : null;
 
   const setLegOverride = async (leg: Leg, mode: Mode | null, fareJpy?: number) => {
     await api.put(`/trips/${tripId}/legs`, { day: selDay, leg_key: leg.key, mode, fare_jpy: fareJpy ?? null });
@@ -459,7 +457,7 @@ export default function Plan() {
           ))}
         </div>
         <div className="row">
-          {user.role === 'admin' && (
+          {canLead && (
             <div className="datamenu-wrap">
               <button className="btn btn-ghost btn-sm" aria-haspopup="true" aria-expanded={dataMenu}
                 onClick={() => setDataMenu(v => !v)}>📊 {t.dataMenu} ▾</button>
@@ -578,10 +576,10 @@ export default function Plan() {
                   )}
                 </h3>
                 <span className="row" style={{ gap: 6 }}>
-                  {(budget || user.role === 'admin') && (
-                    <button className="badge" style={{ border: 'none', cursor: user.role === 'admin' ? 'pointer' : 'default' }}
+                  {(budget || canLead) && (
+                    <button className="badge" style={{ border: 'none', cursor: canLead ? 'pointer' : 'default' }}
                       title={budget ? `🚆${budget.transport ?? 0} 🏨${budget.accommodation ?? 0} 🍜${budget.food ?? 0} 🎟️${budget.attractions ?? 0} 📦${budget.misc ?? 0}` : t.editBudget}
-                      onClick={() => user.role === 'admin' && setBudgetModal(true)}>
+                      onClick={() => canLead && setBudgetModal(true)}>
                       💰 {budget ? `¥${(budget.total ?? 0).toLocaleString()}${budget.myr_estimate ? ` (~${fmtMYR(budget.myr_estimate)})` : ''}` : t.dayBudget}
                     </button>
                   )}
@@ -707,7 +705,7 @@ export default function Plan() {
             <div className="card">
               <div className="row-between">
                 <h3>🧭 {t.directions}</h3>
-                {user.role === 'admin' && (
+                {canLead && (
                   <button className="btn btn-ghost btn-sm" onClick={() => setSeModal('start')}>{t.editStartEnd}</button>
                 )}
               </div>
@@ -746,14 +744,14 @@ export default function Plan() {
                     </div>
                   )}
                   <div className="row" style={{ gap: 4, marginTop: 3 }}>
-                    {user.role === 'admin' && (['walk', 'train', 'taxi'] as Mode[]).map(m => (
+                    {canLead && (['walk', 'train', 'taxi'] as Mode[]).map(m => (
                       <button key={m} className={`chip ${leg.chosen === m ? 'on' : ''}`} style={{ padding: '2px 8px' }}
                         onClick={() => setLegOverride(leg, m)}>{MODE_ICON[m]}</button>
                     ))}
-                    {user.role === 'admin' && leg.overridden && (
+                    {canLead && leg.overridden && (
                       <button className="icon" title="reset" onClick={() => setLegOverride(leg, null)}>↺</button>
                     )}
-                    {user.role === 'admin' && (
+                    {canLead && (
                       <button className="btn btn-ghost btn-sm" onClick={() => logFare(leg, 'shared')}>💰 {t.toShared}</button>
                     )}
                     <button className="btn btn-ghost btn-sm" onClick={() => logFare(leg, 'private')}>👤 {t.toPrivate}</button>

@@ -24,7 +24,7 @@ function countdown(t: Dict, start?: string | null, end?: string | null): { big: 
 export default function Dashboard() {
   const { t, lang } = useT();
   const { user } = useSession();
-  const { trip, tripId, reload } = useOutletContext<TripCtx>();
+  const { trip, tripId, reload, canLead } = useOutletContext<TripCtx>();
   const [bal, setBal] = useState<any>(null);
   const [dues, setDues] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
@@ -53,12 +53,12 @@ export default function Dashboard() {
     const all: Array<{ when: Date; time: string | null; title: string; icon: string }> = [];
     for (const e of plan.autoEvents ?? []) {
       // v0.12: members only see the flights/stays THEY are booked on
-      if (user.role !== 'admin' && user.participant_id && e.participant_ids?.length > 0
+      if (!canLead && user.participant_id && e.participant_ids?.length > 0
         && !e.participant_ids.includes(user.participant_id)) continue;
       all.push({ when: new Date(`${e.day}T${e.time ?? '00:00'}:00`), time: e.time, title: e.title, icon: e.kind === 'flight' ? '✈️' : e.kind === 'checkin' ? '🔑' : '🧳' });
     }
     for (const a of plan.activities ?? []) {
-      if (user.role !== 'admin' && user.participant_id && a.participant_ids.length > 0
+      if (!canLead && user.participant_id && a.participant_ids.length > 0
         && !a.participant_ids.includes(user.participant_id)) continue;
       all.push({ when: new Date(`${a.day}T${a.start_time ?? '00:00'}:00`), time: a.start_time, title: a.title, icon: '📍' });
     }
@@ -113,7 +113,7 @@ export default function Dashboard() {
   const mine = bal?.balances?.find((b: any) => b.participant.id === user.participant_id);
   // members see whole-payment dues + their own personal ones; admin sees all
   const openDues = dues.filter(d => !d.settled)
-    .filter(d => user.role === 'admin' || d.participant_id == null || d.participant_id === user.participant_id);
+    .filter(d => canLead || d.participant_id == null || d.participant_id === user.participant_id);
 
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,7 +149,7 @@ export default function Dashboard() {
           </div>
         </div>
         )}
-        {moneyHidden ? null : user.role === 'admin' ? (
+        {moneyHidden ? null : canLead ? (
           <div className="stat">
             <div className="label">{t.outstanding}</div>
             <div className="value">{bal ? fmtMYR(outstanding.reduce((a: number, b: any) => a + b.outstanding, 0)) : '…'}</div>
@@ -189,12 +189,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      <FxWidget tripId={tripId} trip={trip} isAdmin={user.role === 'admin'} onChanged={reload} />
+      <FxWidget tripId={tripId} trip={trip} isAdmin={canLead} onChanged={reload} />
 
       {upcoming.length > 0 ? (
         <div className="card" style={{ borderLeft: '4px solid var(--data)' }}>
           <h3>⏭️ {t.upNext}</h3>
-          {upcoming.slice(0, user.role === 'admin' ? 3 : 1).map((u2, i) => (
+          {upcoming.slice(0, canLead ? 3 : 1).map((u2, i) => (
             <div className="row-between" key={i} style={{ padding: '4px 0' }}>
               <span>{u2.icon} <strong>{u2.title}</strong></span>
               <span className="muted" style={{ whiteSpace: 'nowrap' }}>
@@ -253,7 +253,7 @@ export default function Dashboard() {
         </div>
         )}
 
-        {moneyHidden ? null : user.role === 'admin' ? (
+        {moneyHidden ? null : canLead ? (
           <div className="card">
             <h3>{t.topOutstanding}</h3>
             {outstanding.length === 0 && <p className="muted">{t.allSettled}</p>}
@@ -306,7 +306,7 @@ export default function Dashboard() {
               </Link>
               <div className="row">
                 {d.amount_myr ? <strong>{fmtMYR(d.amount_myr)}</strong> : null}
-                {user.role === 'admin' && (
+                {canLead && (
                   <button className="btn btn-ghost btn-sm" onClick={async () => {
                     await api.patch(`/duedates/${d.id}`, { settled: true });
                     setDues(await api.get(`/trips/${tripId}/duedates`));

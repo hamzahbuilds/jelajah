@@ -42,6 +42,7 @@ export const SCHEMA: string[] = [
   `CREATE TABLE IF NOT EXISTS trip_members (
     trip_id INTEGER NOT NULL REFERENCES trips(id),
     participant_id INTEGER NOT NULL REFERENCES participants(id),
+    role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('leader','editor','viewer')),
     PRIMARY KEY (trip_id, participant_id)
   )`,
   `CREATE TABLE IF NOT EXISTS documents (
@@ -272,6 +273,7 @@ export const UPGRADES: string[] = [
   `ALTER TABLE activities ADD COLUMN station_idx INTEGER`,
   `ALTER TABLE day_settings ADD COLUMN title TEXT`,
   `ALTER TABLE trips ADD COLUMN watch_currencies TEXT NOT NULL DEFAULT '[]'`,
+  `ALTER TABLE trip_members ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'`,
   ...SCHEMA.filter(s =>
     /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes)\b/.test(s)
     || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes/.test(s)),

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useOutletContext, Link } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { useT } from '../i18n';
-import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import { extractPdfText, renderPdfPages } from '../pdf';
 import { parseDocument } from '../../shared/parsers';
@@ -15,8 +14,7 @@ const ICONS: Record<string, string> = {
 
 export default function Documents() {
   const { t, lang } = useT();
-  const { user } = useSession();
-  const { tripId } = useOutletContext<TripCtx>();
+  const { tripId, canLead } = useOutletContext<TripCtx>();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [docs, setDocs] = useState<any[]>([]);
@@ -107,7 +105,7 @@ export default function Documents() {
 
   return (
     <div>
-      {user.role === 'admin' && (
+      {canLead && (
         <>
           <div
             className={`dropzone ${drag ? 'drag' : ''} ${busy || ocrQueue ? 'disabled' : ''}`}
@@ -145,7 +143,7 @@ export default function Documents() {
       )}
 
       <div className="card" style={{ marginTop: 16 }}>
-        {user.role === 'admin' && docs.length > 0 && (
+        {canLead && docs.length > 0 && (
           <div className="row-between" style={{ paddingBottom: 8, borderBottom: '1px solid var(--line)' }}>
             <label className="row tiny" style={{ gap: 6 }}>
               <input type="checkbox"
@@ -163,7 +161,7 @@ export default function Documents() {
         {docs.length === 0 && <p className="muted">{t.noDocs}</p>}
         {docs.map(d => (
           <div className="doc-row" key={d.id}>
-            {user.role === 'admin' && (
+            {canLead && (
               <input type="checkbox" checked={selected.has(d.id)} onChange={() => toggleSel(d.id)}
                 style={{ width: 17, height: 17, flex: '0 0 auto', accentColor: 'var(--brand)' }} />
             )}
@@ -181,11 +179,11 @@ export default function Documents() {
             <a className="btn btn-ghost btn-sm" href={`/api/documents/${d.id}/file`} target="_blank" rel="noreferrer">
               {t.viewFile}
             </a>
-            {user.role === 'admin' && d.status === 'draft' && (
+            {canLead && d.status === 'draft' && (
               <Link className="btn btn-sm" style={{ textDecoration: 'none' }}
                 to={`/trips/${tripId}/documents/${d.id}/review`}>{t.reviewNow}</Link>
             )}
-            {user.role === 'admin' && (
+            {canLead && (
               <button className="icon" aria-label={t.delete} onClick={async () => {
                 if (!window.confirm(d.expense_id ? t.deleteDocLinked : t.deleteDocConfirm)) return;
                 await api.del(`/documents/${d.id}`);

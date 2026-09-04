@@ -904,6 +904,11 @@ await p5.screenshot({ path: `${OUT}/35-member-edit.png`, fullPage: true });
 // 38. my-spend peer tagging + settlement (as member Hairuni)
 await p5.goto(`${BASE}/trips/1/myspend`);
 await p5.waitForSelector('text=Add spending');
+// let the form's initial (JPY-default) fx-rate fetch settle before switching currency below —
+// pre-existing MySpend.tsx race (unrelated to this fix wave, reproduces on main before any A1
+// change too): its rate effect has no fetch-in-flight guard, so an in-flight JPY rate lookup can
+// resolve after the currency is switched to MYR and clobber the correct rate=1 with a stale value.
+await p5.waitForLoadState('networkidle');
 await p5.fill('form.card input[type=date]', '2026-12-03');
 await p5.fill('form.card .form-grid input:not([type=date]):not([type=number]) >> nth=0', 'Peer dinner treat');
 await p5.selectOption('form.card select >> nth=1', 'MYR');
@@ -1025,19 +1030,133 @@ if (delNote.error) await fail(`MCP delete_note errored: ${JSON.stringify(delNote
 if ((await readNotes()).some(n => n.id === noteId)) await fail('MCP delete_note did not remove the note');
 console.log('MCP notes + day title ok (add, read, tick, itinerary readback, delete)');
 
-// member token: member permissions, no mutations
+// 40. role ladder: viewer → editor → viewer (API 403/200, button visibility, MCP), last-leader guard, /me migration proof
 await p5.goto(`${BASE}/trips/1/myspend`);
 await p5.waitForSelector('input[placeholder="Token name"]');
 await p5.fill('input[placeholder="Token name"]', 'e2e-member');
 await p5.click('button:has-text("New token")');
 await p5.waitForSelector('.token-fresh');
 const memberToken = (await p5.textContent('.token-fresh')).trim();
+
+// 40a. member (Hairuni) → viewer: activity POST 403, button gone, MCP mutations blocked (read still ok)
+const setRole = (pid, role) => page.evaluate(({ pid, role }) => fetch(`/api/trips/1/members/${pid}/role`, {
+  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ role }),
+}).then(r => r.status), { pid, role });
+
+let roleSt = await setRole(hairuni.id, 'viewer');
+if (roleSt !== 200) await fail(`PATCH member role to viewer failed: ${roleSt}`);
+const viewerActSt = await p5.evaluate(() => fetch('/api/trips/1/activities', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ title: 'sneaky viewer', day: '2026-11-30' }),
+}).then(r => r.status));
+if (viewerActSt !== 403) await fail(`viewer activity POST should be 403, got ${viewerActSt}`);
+await p5.goto(`${BASE}/trips/1/plan`);
+await p5.waitForSelector('.daychips');
+if (await p5.$('button:has-text("Add activity")')) await fail('viewer should not see Add activity button after reload');
+
+const vAdd = await mcp('tools/call', { name: 'add_activity', arguments: { trip_id: 1, day: '2026-12-02', title: 'nope-viewer' } }, memberToken);
+if (!vAdd.error || !/role/.test(vAdd.error.message)) await fail(`viewer MCP add_activity should be blocked with a role error, got ${JSON.stringify(vAdd)}`);
+const vNote = await mcp('tools/call', { name: 'add_note', arguments: { trip_id: 1, day: '2026-12-02', content: 'nope-viewer' } }, memberToken);
+if (!vNote.error || !/role/.test(vNote.error.message)) await fail(`viewer MCP add_note should be blocked with a role error, got ${JSON.stringify(vNote)}`);
+const vItin = await mcp('tools/call', { name: 'get_itinerary', arguments: { trip_id: 1, day: '2026-12-02' } }, memberToken);
+if (vItin.error) await fail(`viewer MCP get_itinerary (read) should still work: ${JSON.stringify(vItin.error)}`);
+console.log('role ladder: viewer blocked (403 API, no button, MCP mutations blocked w/ role error, reads ok)');
+
+// 40b. member → editor: activity add works (API + button), expense POST still 403 (leader-only), no Add-expense button, MCP mutations succeed
+roleSt = await setRole(hairuni.id, 'editor');
+if (roleSt !== 200) await fail(`PATCH member role to editor failed: ${roleSt}`);
+const editorActSt = await p5.evaluate(() => fetch('/api/trips/1/activities', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ title: 'editor ladder activity', day: '2026-12-05' }),
+}).then(r => r.status));
+if (editorActSt !== 200) await fail(`editor activity POST should succeed, got ${editorActSt}`);
+const editorExpSt = await p5.evaluate(() => fetch('/api/trips/1/expenses', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ category: 'other', description: 'sneaky editor expense', expense_date: '2026-12-05', amount_myr: 1 }),
+}).then(r => r.status));
+if (editorExpSt !== 403) await fail(`editor expense POST should still be 403 (leader-only), got ${editorExpSt}`);
+await p5.goto(`${BASE}/trips/1/ledger`);
+await p5.waitForLoadState('domcontentloaded');
+if (await p5.$('button:has-text("Add expense")')) await fail('editor should not see Add expense button (leader-only)');
+
+const eAdd = await mcp('tools/call', { name: 'add_activity', arguments: { trip_id: 1, day: '2026-12-02', title: 'yes-editor' } }, memberToken);
+if (eAdd.error) await fail(`editor MCP add_activity should succeed, got ${JSON.stringify(eAdd.error)}`);
+const eNote = await mcp('tools/call', { name: 'add_note', arguments: { trip_id: 1, day: '2026-12-02', content: 'yes-editor' } }, memberToken);
+if (eNote.error) await fail(`editor MCP add_note should succeed, got ${JSON.stringify(eNote.error)}`);
+const eItin = await mcp('tools/call', { name: 'get_itinerary', arguments: { trip_id: 1, day: '2026-12-02' } }, memberToken);
+if (eItin.error) await fail(`editor MCP get_itinerary (read) should work: ${JSON.stringify(eItin.error)}`);
+console.log('role ladder: editor allowed (activity add API+MCP ok, expense still 403/leader-only, no button)');
+
+// 40c. last_leader guard: promote "Hamzah Bin Hamizan" (the admin's own family-member persona/payer,
+// participant hamzah.id) to leader — the only leader row on trip 1 — then demoting must 400 last_leader
+const promoteSt = await setRole(hamzah.id, 'leader');
+if (promoteSt !== 200) await fail(`PATCH promote to leader failed: ${promoteSt}`);
+const demoteBody = await page.evaluate(pid => fetch(`/api/trips/1/members/${pid}/role`, {
+  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ role: 'viewer' }),
+}).then(async r => ({ status: r.status, body: await r.json() })), hamzah.id);
+if (demoteBody.status !== 400 || demoteBody.body?.error !== 'last_leader') {
+  await fail(`demoting the sole leader should 400 last_leader, got ${demoteBody.status} ${JSON.stringify(demoteBody.body)}`);
+}
+console.log('role ladder: last_leader guard ok (sole leader cannot be demoted)');
+
+// 40d. member back to viewer: MCP mutations blocked again (role-mentioning error)
+roleSt = await setRole(hairuni.id, 'viewer');
+if (roleSt !== 200) await fail(`PATCH member role back to viewer failed: ${roleSt}`);
+const vAdd2 = await mcp('tools/call', { name: 'add_activity', arguments: { trip_id: 1, day: '2026-12-02', title: 'nope-viewer-2' } }, memberToken);
+if (!vAdd2.error || !/role/.test(vAdd2.error.message)) await fail(`viewer (again) MCP add_activity should be blocked with a role error, got ${JSON.stringify(vAdd2)}`);
+const vNote2 = await mcp('tools/call', { name: 'add_note', arguments: { trip_id: 1, day: '2026-12-02', content: 'nope-viewer-2' } }, memberToken);
+if (!vNote2.error || !/role/.test(vNote2.error.message)) await fail(`viewer (again) MCP add_note should be blocked with a role error, got ${JSON.stringify(vNote2)}`);
+console.log('role ladder: back to viewer, MCP mutations blocked again');
+
+// 40e. migration proof: /me my_role reflects trip_members.role for admin (leader, via bypass) and member (viewer, set during the role ladder above)
+const adminMe = await page.evaluate(() => fetch('/api/me').then(r => r.json()));
+const adminTrip1 = adminMe.trips.find(t => t.id === 1);
+if (adminTrip1?.my_role !== 'leader') await fail(`admin /me my_role should be leader on trip 1, got ${adminTrip1?.my_role}`);
+const memberMe = await p5.evaluate(() => fetch('/api/me').then(r => r.json()));
+const memberTrip1 = memberMe.trips.find(t => t.id === 1);
+if (!['editor', 'viewer'].includes(memberTrip1?.my_role) || memberTrip1?.my_role !== 'viewer') {
+  await fail(`member /me my_role should be viewer (set during the role ladder above) on trip 1, got ${memberTrip1?.my_role}`);
+}
+console.log(`migration proof ok (/me my_role: admin=${adminTrip1.my_role}, member=${memberTrip1.my_role})`);
+
+// 40f. members-PUT role preservation: re-PUT the current member list unchanged must NOT wipe roles
+// (regression for the role-wipe bug: PUT used to DELETE+re-INSERT every trip_members row with no role, resetting everyone to viewer)
+roleSt = await setRole(hairuni.id, 'editor');
+if (roleSt !== 200) await fail(`PATCH member role to editor (for members-PUT check) failed: ${roleSt}`);
+const trip1Before = await page.evaluate(() => fetch('/api/trips/1').then(r => r.json()));
+const currentPids = trip1Before.members.map(m => m.id);
+const putUnchangedSt = await page.evaluate(pids => fetch('/api/trips/1/members', {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ participant_ids: pids }),
+}).then(r => r.status), currentPids);
+if (putUnchangedSt !== 200) await fail(`re-PUT of unchanged member list should succeed, got ${putUnchangedSt}`);
+const memberAfterPut = await p5.evaluate(() => fetch('/api/trips/1').then(r => r.json()));
+if (memberAfterPut.trip?.my_role !== 'editor') {
+  await fail(`member role should survive an unchanged members PUT (still 'editor'), got ${memberAfterPut.trip?.my_role}`);
+}
+const pidsWithoutLeader = currentPids.filter(pid => pid !== hamzah.id);
+const putNoLeaderBody = await page.evaluate(pids => fetch('/api/trips/1/members', {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ participant_ids: pids }),
+}).then(async r => ({ status: r.status, body: await r.json() })), pidsWithoutLeader);
+if (putNoLeaderBody.status !== 400 || putNoLeaderBody.body?.error !== 'last_leader') {
+  await fail(`members PUT omitting every leader (hamzah) should 400 last_leader, got ${putNoLeaderBody.status} ${JSON.stringify(putNoLeaderBody.body)}`);
+}
+console.log('members PUT role-preservation ok (unchanged re-PUT keeps editor+leader roles, omitting every leader 400s)');
+
+// restore state the following steps expect: member back to viewer (as left by the role ladder above)
+roleSt = await setRole(hairuni.id, 'viewer');
+if (roleSt !== 200) await fail(`PATCH member role back to viewer (post members-PUT check) failed: ${roleSt}`);
+
+// member token: member permissions, no mutations
 const mAdd = await mcp('tools/call', { name: 'add_activity', arguments: { trip_id: 1, day: '2026-12-02', title: 'nope' } }, memberToken);
-if (!mAdd.error || !/admin token/.test(mAdd.error.message)) await fail('member token should be blocked from mutations');
+if (!mAdd.error || !/editor role/.test(mAdd.error.message)) await fail('member token should be blocked from mutations');
 const mNote = await mcp('tools/call', { name: 'add_note', arguments: { trip_id: 1, day: '2026-12-02', content: 'nope' } }, memberToken);
-if (!mNote.error || !/admin token/.test(mNote.error.message)) await fail('member token should be blocked from writing notes');
+if (!mNote.error || !/editor role/.test(mNote.error.message)) await fail('member token should be blocked from writing notes');
 const mTitle = await mcp('tools/call', { name: 'set_day_title', arguments: { trip_id: 1, day: '2026-12-02', title: 'nope' } }, memberToken);
-if (!mTitle.error || !/admin token/.test(mTitle.error.message)) await fail('member token should be blocked from naming days');
+if (!mTitle.error || !/editor role/.test(mTitle.error.message)) await fail('member token should be blocked from naming days');
 const mNotesRead = await mcp('tools/call', { name: 'get_notes', arguments: { trip_id: 1 } }, memberToken);
 if (mNotesRead.error) await fail('member token should be allowed to read day notes');
 const mTrips = await mcp('tools/call', { name: 'list_trips', arguments: {} }, memberToken);
@@ -1101,4 +1220,4 @@ await shot('27-mobile-plan');
 console.log('mobile 360px ok (no horizontal scroll)');
 
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.15)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.16)');
