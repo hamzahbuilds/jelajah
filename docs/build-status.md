@@ -1,6 +1,48 @@
 # Jelajah — Build Status
 
-Updated: 31 Aug 2026 (v0.13)
+Updated: 4 Sep 2026 (v0.15)
+
+## v0.15.0 — "Know your rate" (4 Sep 2026)
+Forex widget on the trip dashboard: pick a base + up to 6 watch currencies per
+trip, each rendered as a card with the current rate, a sparkline over a
+6-month band (`shared/fxband.ts`, 8 unit tests), a buy/ok/wait signal pinned
+to direction (rate above the band is always "buy", below is always "wait" —
+never inverted), and a window switch (1W–1Y). Admin-only "⚙️ Set up
+currencies" / "Edit currencies" editor (`PATCH /trips/:id/currencies`,
+`GET /currencies` for the reference list); members see the widget read-only
+with no settings gear. New trip creation carries the same base/watch pickers
+so a trip can start with currencies pre-selected. Rates are fetched at most
+once per day per base/quote pair and cached in D1 (`fx_rates`); a failed
+upstream fetch serves the stale cache instead of breaking the widget.
+`db:local` now runs `seed-fx` after migrations so local/e2e runs start with
+~2 months of history and don't depend on network access.
+
+Two deviations from the spec:
+1. No UPGRADES data seed for `watch_currencies` on existing trips — it ships
+   as an empty `[]` and the dashboard shows the "Set up currencies" card
+   instead, so the admin opts a trip in explicitly rather than a migration
+   silently turning the widget on everywhere. This is exercised directly by
+   the e2e (trip 1 starts empty, the suite drives the setup flow).
+2. Expense pre-fill was already covered by the existing FX-rate-by-payment-date
+   flow (ExpenseForm fetches `/fx` per payment date, frankfurter.dev, cached
+   in D1) added back in Phase 1 — no new code needed there. Note this is a
+   separate `fx_rates` lookup from the widget's series fetch: the widget
+   stores `(base=MYR, quote=JPY)` rows while the expense pre-fill reads
+   `(base=JPY, quote=MYR)`, a different primary key, so the widget does not
+   warm or otherwise affect that cache.
+
+Verified: 87 unit tests (was 79; +8 `fxband`) and the full e2e suite green,
+with new steps for the widget (setup flow, 2 rows, band+signal direction,
+window switch, bad-currency and watch-the-base validation), member view (no
+gear), and trip-creation currency persistence. Version 0.15.0. No manual SQL —
+`trips.watch_currencies`/`base_currency` and `fx_rates` auto-add on first
+load. Live rollout note: after deploy, open each trip's dashboard once as
+admin and click "⚙️ Set up currencies" (Japan: JPY + USD · Kyushu: JPY).
+
+As-built deviations: currencies catalogue is cached in `app_settings` (D1)
+rather than KV; the fxseries band is returned as `{low, high}` in display
+terms; the band/signal helpers are named `costBand`/`analyzeRates`; the
+window preference is stored in a single localStorage key.
 
 ## Done — Phase 1 (money engine), v0.3
 Built on the approved Plan C stack (Cloudflare Pages + Workers + D1 + **KV**),

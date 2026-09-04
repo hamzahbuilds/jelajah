@@ -7,6 +7,7 @@ import {
 } from './lib/auth';
 import { parseSuggestions, freeSlots, suggestSystemPrompt, chatSystemPrompt, buildGeminiNativeBody, parseGeminiNativeResponse } from '../shared/assistant';
 import { SCHEMA, UPGRADES, JAPAN_TRIP } from './lib/schema';
+import { FX_WINDOWS, FxWindow, analyzeRates } from '../shared/fxband';
 
 type Vars = { user: SessionUser };
 const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
@@ -245,11 +246,19 @@ app.patch('/users/:id', requireAdmin, async c => {
 /* ---------------- trips ---------------- */
 
 app.post('/trips', requireAdmin, async c => {
-  const { name, destination, start_date, end_date, emoji, color } = await c.req.json<any>();
+  const { name, destination, start_date, end_date, emoji, color, base_currency, watch_currencies } = await c.req.json<any>();
   if (!name?.trim()) return bad(c, 'name_required');
+  const codes = new Set((await currencyList(c.env)).map(x => x.code));
+  const base = base_currency && codes.has(String(base_currency).toUpperCase())
+    ? String(base_currency).toUpperCase() : 'MYR';
+  const watch = Array.isArray(watch_currencies)
+    ? [...new Set(watch_currencies.map((x: any) => String(x).toUpperCase()))]
+        .filter(w => codes.has(w) && w !== base).slice(0, 6)
+    : [];
   const r = await c.env.DB.prepare(
-    'INSERT INTO trips (name, destination, start_date, end_date, emoji, color) VALUES (?,?,?,?,?,?)',
-  ).bind(name.trim(), destination ?? null, start_date ?? null, end_date ?? null, emoji ?? '🧳', color ?? '').run();
+    'INSERT INTO trips (name, destination, start_date, end_date, emoji, color, base_currency, watch_currencies) VALUES (?,?,?,?,?,?,?,?)',
+  ).bind(name.trim(), destination ?? null, start_date ?? null, end_date ?? null,
+    emoji ?? '🧳', color ?? '', base, JSON.stringify(watch)).run();
   return c.json({ id: r.meta.last_row_id });
 });
 
@@ -1310,6 +1319,120 @@ app.get('/fx', async c => {
   } catch {
     return bad(c, 'fx_unavailable', 502);
   }
+});
+
+/* ================================================================== */
+/* v0.15 — trip forex widget (spec: docs/05-spec-v0.15-forex.md)      */
+/* ================================================================== */
+
+/** Frankfurter currency catalogue, cached in app_settings for 7 days. */
+async function currencyList(env: Env): Promise<Array<{ code: string; name: string }>> {
+  const cached = await getSettingJSON<{ at: string; list: Array<{ code: string; name: string }> }>(env, 'currency_list');
+  if (cached && Date.now() - new Date(cached.at).getTime() < 7 * 86400000) return cached.list;
+  try {
+    const res = await fetch('https://api.frankfurter.dev/v2/currencies');
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json<any[]>();
+    const list = data.map(x => ({ code: String(x.iso_code), name: String(x.name) }));
+    if (!list.length) throw new Error('empty');
+    await setSettingJSON(env, 'currency_list', { at: new Date().toISOString(), list });
+    return list;
+  } catch {
+    // offline / upstream change: serve the stale cache, else a minimal set so
+    // the pickers still work
+    return cached?.list ?? [
+      { code: 'MYR', name: 'Malaysian Ringgit' }, { code: 'JPY', name: 'Japanese Yen' },
+      { code: 'USD', name: 'US Dollar' }, { code: 'EUR', name: 'Euro' },
+    ];
+  }
+}
+
+app.get('/currencies', async c => c.json(await currencyList(c.env)));
+
+/** One Frankfurter range call per base per day fills a year of daily rates
+ *  for every watched currency into fx_rates; all reads then hit D1 only. */
+const fxFetchInFlight = new Map<string, Promise<void>>();
+async function ensureFxSeries(env: Env, base: string, quotes: string[]): Promise<void> {
+  if (!quotes.length) return;
+  const today = new Date().toISOString().slice(0, 10); // server-side UTC day is fine here
+  const key = `fx_series_fetched:${base}`;
+  const state = await getSettingJSON<{ date: string; quotes: string[] }>(env, key);
+  if (state?.date === today && quotes.every(q => state.quotes.includes(q))) return;
+  const existing = fxFetchInFlight.get(base);
+  if (existing) return existing;
+  const work = (async () => {
+    const all = [...new Set([...(state?.quotes ?? []), ...quotes])];
+    const start = new Date(); start.setUTCDate(start.getUTCDate() - 370);
+    const res = await fetch(
+      `https://api.frankfurter.dev/v1/${start.toISOString().slice(0, 10)}..${today}?base=${base}&symbols=${all.join(',')}`);
+    if (!res.ok) throw new Error('fx_unavailable');
+    const data = await res.json<any>();
+    const stmts: D1PreparedStatement[] = [];
+    for (const [date, rates] of Object.entries<any>(data?.rates ?? {})) {
+      for (const [q, r] of Object.entries<any>(rates)) {
+        if (typeof r === 'number') {
+          stmts.push(env.DB.prepare(
+            'INSERT OR REPLACE INTO fx_rates (rate_date, base, quote, rate) VALUES (?,?,?,?)').bind(date, base, q, r));
+        }
+      }
+    }
+    for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50)); // D1 batch politeness
+    if (stmts.length) await setSettingJSON(env, key, { date: today, quotes: all });
+  })();
+  fxFetchInFlight.set(base, work);
+  try {
+    await work;
+  } finally {
+    fxFetchInFlight.delete(base);
+  }
+}
+
+app.get('/trips/:id/fxseries', async c => {
+  const id = Number(c.req.param('id'));
+  if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
+  const trip = await c.env.DB.prepare('SELECT base_currency, watch_currencies FROM trips WHERE id = ?').bind(id).first<any>();
+  if (!trip) return bad(c, 'not_found', 404);
+  let watch: string[] = [];
+  try { watch = JSON.parse(trip.watch_currencies ?? '[]'); } catch { /* treat as empty */ }
+  const quote = String(c.req.query('quote') ?? '').toUpperCase();
+  const window = String(c.req.query('window') ?? '1m') as FxWindow;
+  if (!watch.includes(quote)) return bad(c, 'not_watched');
+  if (!(window in FX_WINDOWS)) return bad(c, 'bad_window');
+  try { await ensureFxSeries(c.env, trip.base_currency, watch); } catch { /* stale cache below still serves */ }
+  const start = new Date(); start.setUTCDate(start.getUTCDate() - FX_WINDOWS[window]);
+  const rows = await c.env.DB.prepare(
+    'SELECT rate_date, rate FROM fx_rates WHERE base = ? AND quote = ? AND rate_date >= ? ORDER BY rate_date',
+  ).bind(trip.base_currency, quote, start.toISOString().slice(0, 10)).all();
+  const points = (rows.results as any[]).map(r => ({ date: r.rate_date, rate: r.rate }));
+  if (!points.length) return bad(c, 'fx_unavailable', 502);
+  const { band, signal } = analyzeRates(points.map(p => p.rate));
+  return c.json({ base: trip.base_currency, quote, window, points, band, signal, current: points[points.length - 1] });
+});
+
+app.patch('/trips/:id/currencies', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  const trip = await c.env.DB.prepare('SELECT base_currency, watch_currencies FROM trips WHERE id = ?').bind(id).first<any>();
+  if (!trip) return bad(c, 'not_found', 404);
+  const b = await c.req.json<any>();
+  const codes = new Set((await currencyList(c.env)).map(x => x.code));
+  let base: string = trip.base_currency;
+  if (b.base_currency !== undefined) {
+    base = String(b.base_currency).toUpperCase();
+    if (!codes.has(base)) return bad(c, 'bad_currency');
+  }
+  let watch: string[];
+  try { watch = JSON.parse(trip.watch_currencies ?? '[]'); } catch { watch = []; }
+  const watchCurrencies = b.watch_currencies;
+  if (watchCurrencies !== undefined) {
+    if (!Array.isArray(watchCurrencies)) return bad(c, 'bad_watch');
+    watch = [...new Set(watchCurrencies.map((x: any) => String(x).toUpperCase()))];
+    if (watch.some(w => !codes.has(w))) return bad(c, 'bad_currency');
+  }
+  watch = watch.filter(w => w !== base);           // never watch the reference itself
+  if (watch.length > 6) return bad(c, 'too_many_currencies');
+  await c.env.DB.prepare('UPDATE trips SET base_currency = ?, watch_currencies = ? WHERE id = ?')
+    .bind(base, JSON.stringify(watch), id).run();
+  return c.json({ ok: true, base_currency: base, watch_currencies: watch });
 });
 
 /* ================================================================== */

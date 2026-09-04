@@ -5,6 +5,7 @@ import { useT, Dict } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import LeafletMap, { Pin, Arc } from '../components/LeafletMap';
+import FxWidget from '../components/FxWidget';
 import { ymd } from '../../shared/days';
 import { airportCoords } from '../../shared/airports';
 import { haversine } from '../../shared/fares';
@@ -23,7 +24,7 @@ function countdown(t: Dict, start?: string | null, end?: string | null): { big: 
 export default function Dashboard() {
   const { t, lang } = useT();
   const { user } = useSession();
-  const { trip, tripId } = useOutletContext<TripCtx>();
+  const { trip, tripId, reload } = useOutletContext<TripCtx>();
   const [bal, setBal] = useState<any>(null);
   const [dues, setDues] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
@@ -187,6 +188,8 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      <FxWidget tripId={tripId} trip={trip} isAdmin={user.role === 'admin'} onChanged={reload} />
 
       {upcoming.length > 0 ? (
         <div className="card" style={{ borderLeft: '4px solid var(--data)' }}>

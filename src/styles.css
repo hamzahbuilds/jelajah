@@ -102,7 +102,7 @@ p { margin: .3rem 0; }
 
 /* ---------- forms ---------- */
 label.field { display: block; margin-bottom: 10px; }
-label.field > span { display: block; font-size: .8rem; font-weight: 600; color: var(--ink-2); margin-bottom: 3px; }
+.field > span { display: block; font-size: .8rem; font-weight: 600; color: var(--ink-2); margin-bottom: 3px; }
 input, select, textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
   font: inherit; background: #fff; color: var(--ink);
@@ -488,3 +488,17 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
   background: transparent; color: var(--ink-3); border: 1px dashed var(--line); cursor: default;
 }
 .plan-item .pi-cat { font-weight: 400; }
+
+/* ---- v0.15 forex widget ---- */
+.fx-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.fx-row:last-child { border-bottom: none; }
+.fx-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.fx-spark { display: block; max-width: 100%; }
+.fx-band { fill: var(--data); opacity: .12; }
+.fx-line { stroke: var(--data); stroke-width: 1.5; }
+.fx-dot { fill: var(--brand-strong); }
+.fx-badge.fx-buy { background: #dcfce7; }
+.fx-badge.fx-wait { background: #ffedd5; }
+.fx-delta { font-size: .78rem; font-weight: 600; }
+.fx-delta.up { color: #15803d; }
+.fx-delta.down { color: #b91c1c; }

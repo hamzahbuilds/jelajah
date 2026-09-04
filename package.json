@@ -1,7 +1,7 @@
 {
   "name": "jelajah",
   "private": true,
-  "version": "0.14.0",
+  "version": "0.15.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
     "test": "vitest run",
     "fixtures": "node scripts/extract-text.mjs",
     "seed:gen": "node scripts/seed.mjs",
-    "db:local": "wrangler d1 execute jelajah-db --local --file=./migrations/0001_init.sql && wrangler d1 execute jelajah-db --local --file=./scripts/seed.sql",
+    "db:local": "wrangler d1 execute jelajah-db --local --file=./migrations/0001_init.sql && wrangler d1 execute jelajah-db --local --file=./scripts/seed.sql && node scripts/seed-fx.mjs",
     "db:remote": "wrangler d1 execute jelajah-db --remote --file=./migrations/0001_init.sql && wrangler d1 execute jelajah-db --remote --file=./scripts/seed.sql",
     "deploy": "npm run build && wrangler deploy",
     "dev:full": "npm run build && wrangler dev"

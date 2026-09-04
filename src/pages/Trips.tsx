@@ -5,13 +5,14 @@ import { useT } from '../i18n';
 import { useSession } from '../App';
 import { StylePicker } from '../components/TripStyle';
 import { useToast } from '../components/Toast';
+import { CurrencyFields } from '../components/FxWidget';
 
 export default function Trips() {
   const { t, lang } = useT();
   const { toast } = useToast();
   const { user, trips, refresh } = useSession();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', destination: '', start_date: '', end_date: '', emoji: '🧳', color: '' });
+  const [form, setForm] = useState({ name: '', destination: '', start_date: '', end_date: '', emoji: '🧳', color: '', base_currency: 'MYR', watch_currencies: [] as string[] });
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,6 +54,9 @@ export default function Trips() {
                 <input type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} /></label>
               <label className="field"><span>{t.endDate}</span>
                 <input type="date" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} /></label>
+              <CurrencyFields base={form.base_currency} watch={form.watch_currencies}
+                onBase={c => setForm({ ...form, base_currency: c, watch_currencies: form.watch_currencies.filter(w => w !== c) })}
+                onWatch={w => setForm({ ...form, watch_currencies: w })} />
             </div>
             <StylePicker emoji={form.emoji} color={form.color}
               onEmoji={e => setForm({ ...form, emoji: e })} onColor={c => setForm({ ...form, color: c })}

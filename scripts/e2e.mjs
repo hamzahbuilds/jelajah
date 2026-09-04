@@ -652,12 +652,18 @@ await page.fill('.modal input[type=date] >> nth=0', '2026-12-08');
 await page.fill('.modal input[type=date] >> nth=1', '2026-12-17');
 await page.click('.emoji-swatch:has-text("🚐")');
 await page.click('button[aria-label="#7c3aed"]');
+await page.waitForSelector('.modal datalist#fx-codes option', { state: 'attached' });
+await page.fill('.modal input[list="fx-codes"]', 'JPY');
+await page.press('.modal input[list="fx-codes"]', 'Enter');
 await page.click('.modal button.btn:not(.btn-ghost)');
 await page.waitForSelector('a.card:has-text("Kyushu Campervan")');
 const border = await page.$eval('a.card:has-text("Kyushu Campervan")', el => getComputedStyle(el).borderTopColor);
 if (border !== 'rgb(124, 58, 237)') await fail(`trip accent not applied to card: ${border}`);
 await shot('23-trip-style');
 console.log('trip emoji + accent ok');
+const kTrip = await page.evaluate(() => fetch('/api/me').then(r => r.json()).then(me => me.trips.find(x => x.name.includes('Kyushu'))));
+if (!JSON.parse(kTrip.watch_currencies ?? '[]').includes('JPY')) await fail('trip creation did not persist watch currency');
+console.log('trip creation currencies ok');
 
 await page.click('a.card:has-text("Kyushu Campervan")');
 await page.waitForSelector('.hero');
@@ -920,6 +926,49 @@ await p5.screenshot({ path: `${OUT}/36-peer-tagging.png`, fullPage: true });
 const adminSees = await page.evaluate(() => fetch('/api/trips/1/myspend').then(r => r.json()));
 if (JSON.stringify(adminSees).includes('Peer dinner treat')) await fail('admin can see member private item!');
 
+// 38b. v0.15 forex widget: admin sets currencies, widget renders band + signal
+await page.goto(`${BASE}/trips/1`);
+await page.waitForSelector('button:has-text("Set up currencies")');
+await page.click('button:has-text("Set up currencies")');
+await page.waitForSelector('.modal input[list="fx-codes"]');
+await page.waitForSelector('.modal datalist#fx-codes option', { state: 'attached' });
+await page.fill('.modal input[list="fx-codes"]', 'JPY');
+await page.press('.modal input[list="fx-codes"]', 'Enter');
+await page.fill('.modal input[list="fx-codes"]', 'USD');
+await page.press('.modal input[list="fx-codes"]', 'Enter');
+await page.click('.modal button:has-text("Save")');
+await page.waitForSelector('.fx-row .fx-spark');
+const fxRows = await page.$$('.fx-row');
+if (fxRows.length !== 2) await fail(`expected 2 fx rows, got ${fxRows.length}`);
+const fxText = await page.textContent('.card:has(.fx-row)');
+if (!/1 MYR = [\d.,]+ JPY/.test(fxText)) await fail('fx display rate missing');
+if (!(await page.$('.fx-badge'))) await fail('fx signal badge missing');
+// the API itself: band ordered, signal valid, direction sane
+const fxApi = await page.evaluate(() => fetch('/api/trips/1/fxseries?quote=JPY&window=1m').then(r => r.json()));
+if (!fxApi.band || !(fxApi.band.low < fxApi.band.high)) await fail(`fx band malformed: ${JSON.stringify(fxApi.band)}`);
+if (!['buy', 'ok', 'wait'].includes(fxApi.signal)) await fail(`fx signal invalid: ${fxApi.signal}`);
+if (fxApi.current.rate > fxApi.band.high && fxApi.signal !== 'buy') await fail('fx signal inverted: rate above band must be buy');
+if (fxApi.current.rate < fxApi.band.low && fxApi.signal !== 'wait') await fail('fx signal inverted: rate below band must be wait');
+// window switch reaches the API with the new window
+await page.click('.card:has(.fx-row) button:has-text("1W")');
+await page.waitForTimeout(500);
+const fx1w = await page.evaluate(() => fetch('/api/trips/1/fxseries?quote=JPY&window=1w').then(r => r.json()));
+if (fx1w.points.length > 8) await fail(`1w window returned ${fx1w.points.length} points`);
+// guardrails: bad currency rejected, watching the base rejected
+const badCur = await page.evaluate(() => fetch('/api/trips/1/currencies', {
+  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ watch_currencies: ['ZZZ'] }),
+}).then(r => r.status));
+if (badCur !== 400) await fail(`bad currency should 400, got ${badCur}`);
+await shot('24-fx-widget');
+console.log('fx widget ok (setup, 2 rows, band+signal direction, window, validation)');
+
+// member sees the widget but no settings gear
+await p5.goto(`${BASE}/trips/1`);
+await p5.waitForSelector('.fx-row .fx-spark');
+if (await p5.$('button[title="Edit currencies"]')) await fail('member should not see fx settings');
+console.log('fx member view ok (widget visible, no gear)');
+
 // 39. MCP end to end: token from the UI, JSON-RPC from outside, revoke kills it
 await page.goto(`${BASE}/settings`);
 await page.waitForSelector('text=Access tokens');
@@ -1052,4 +1101,4 @@ await shot('27-mobile-plan');
 console.log('mobile 360px ok (no horizontal scroll)');
 
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.14)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.15)');

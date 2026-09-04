@@ -24,5 +24,8 @@ graphify-out/
 # macOS
 .DS_Store
 
+# agent process scratch (SDD ledgers/review packages)
+.superpowers/
+
 # NOTE: wrangler.toml is deliberately NOT ignored — it is this repo's live
 # Cloudflare config. Keep it tracked; never paste secrets into it (see below).
