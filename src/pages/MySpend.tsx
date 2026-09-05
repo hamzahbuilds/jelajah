@@ -1,19 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, fmtMYR, fmtMoney, fmtDate } from '../api';
 import { useT } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import { useToast } from '../components/Toast';
+import MoneyTabs from '../components/MoneyTabs';
+import PageHead from '../components/PageHead';
+import Empty from '../components/Empty';
+import { Icon, type IconName } from '../components/Icon';
 
 const CATS = ['food', 'shopping', 'transport', 'entrance', 'other'] as const;
-const CAT_ICON: Record<string, string> = { food: '🍜', shopping: '🛍️', transport: '🚇', entrance: '🎟️', other: '📌' };
+// tile icon by category, falling back to a generic receipt (shopping/other
+// have no closer match in the shared icon sprite).
+const CAT_ICON: Record<string, IconName> = { food: 'food', transport: 'train', entrance: 'ticket' };
+// the old emoji dict stays for the (untouched) add-spend form's <option> labels.
+const CAT_EMOJI: Record<string, string> = { food: '🍜', shopping: '🛍️', transport: '🚇', entrance: '🎟️', other: '📌' };
 
 export default function MySpend() {
   const { t, lang } = useT();
   const { user } = useSession();
   const { toast } = useToast();
-  const { tripId, members } = useOutletContext<TripCtx>();
+  const { trip, tripId, members } = useOutletContext<TripCtx>();
   const [items, setItems] = useState<any[]>([]);
   const [shares, setShares] = useState<any[]>([]);   // shares on MY items (they owe me)
   const [tagged, setTagged] = useState<any[]>([]);   // shares others tagged ME in (I owe)
@@ -24,6 +32,7 @@ export default function MySpend() {
   });
   const [rate, setRate] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const descRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     const r = await api.get(`/trips/${tripId}/myspend`);
@@ -34,8 +43,14 @@ export default function MySpend() {
   useEffect(() => { load(); }, [tripId]);
   useEffect(() => {
     if (form.currency === 'MYR') { setRate(1); return; }
+    // stale-response guard: rapid currency/date changes must not let an older
+    // fx response overwrite a newer one (the "MySpend fx race" ticket)
+    let stale = false;
+    setRate(null);
     api.get(`/fx?date=${form.spend_date}&from=${form.currency}&to=MYR`)
-      .then(r => setRate(r.rate)).catch(() => setRate(null));
+      .then(r => { if (!stale) setRate(r.rate); })
+      .catch(() => { if (!stale) setRate(null); });
+    return () => { stale = true; };
   }, [form.currency, form.spend_date]);
 
   const total = items.reduce((a, i) => a + i.amount_myr, 0);
@@ -66,7 +81,8 @@ export default function MySpend() {
     }));
   };
   const splitPreview = () => {
-    const amt = Number(form.amount) * (rate ?? (form.currency === 'MYR' ? 1 : 0.03));
+    if (rate == null) return 0; // rate still loading — no fantasy estimates
+    const amt = Number(form.amount) * rate;
     const n = form.participant_ids.length + (form.include_self ? 1 : 0);
     return n > 0 && amt > 0 ? amt / n : 0;
   };
@@ -77,7 +93,15 @@ export default function MySpend() {
     if (!(amt > 0) || !form.description.trim()) return;
     setBusy(true);
     try {
-      const r = rate ?? (form.currency === 'MYR' ? 1 : 0.03);
+      // never submit a made-up rate: if the async fetch hasn't landed, get it
+      // now; a hard failure blocks the save rather than recording wrong money
+      let r = rate;
+      if (r == null) {
+        try {
+          r = (await api.get(`/fx?date=${form.spend_date}&from=${form.currency}&to=MYR`)).rate;
+        } catch { r = null; }
+      }
+      if (r == null) { toast(t.tSaveFailed, 'error'); setBusy(false); return; }
       await api.post(`/trips/${tripId}/myspend`, {
         spend_date: form.spend_date, category: form.category, description: form.description,
         amount_original: amt, currency: form.currency, fx_rate: r,
@@ -118,29 +142,31 @@ export default function MySpend() {
 
   return (
     <div>
-      <p className="callout info">🔒 {t.privateNote}</p>
+      <PageHead crumb={trip.name} title={t.money} sub={t.moneySub} />
+      <MoneyTabs />
+      <p className="callout info"><Icon name="shield" size={16} /> {t.privateNote}</p>
       <div className="stats">
-        <div className="stat">
-          <div className="label">{t.spentThisTrip}</div>
-          <div className="value">{fmtMYR(total)}</div>
-          <div className="sub">{items.length}</div>
+        <div className="card stat">
+          <span className="k"><span className="tile sm"><Icon name="wallet" /></span>{t.spentThisTrip}</span>
+          <span className="v">{fmtMYR(total)}</span>
+          <span className="t">{items.length} {t.expenses}</span>
         </div>
         {owedToMe > 0 && (
-          <div className="stat">
-            <div className="label">🤝 {t.owedToMe}</div>
-            <div className="value">{fmtMYR(owedToMe)}</div>
+          <div className="card stat">
+            <span className="k"><span className="tile sm"><Icon name="coins" /></span>{t.owedToMe}</span>
+            <span className="v">{fmtMYR(owedToMe)}</span>
           </div>
         )}
         {iOwe > 0 && (
-          <div className="stat">
-            <div className="label">💸 {t.iOwe}</div>
-            <div className="value">{fmtMYR(iOwe)}</div>
+          <div className="card stat">
+            <span className="k"><span className="tile sm"><Icon name="coins" /></span>{t.iOwe}</span>
+            <span className="v">{fmtMYR(iOwe)}</span>
           </div>
         )}
         {byCat.slice(0, 1).map(([c, v]) => (
-          <div className="stat" key={c}>
-            <div className="label">{CAT_ICON[c]} {(t as any)[c]}</div>
-            <div className="value">{fmtMYR(v)}</div>
+          <div className="card stat" key={c}>
+            <span className="k"><span className="tile sm"><Icon name={CAT_ICON[c] ?? 'receipt'} /></span>{(t as any)[c]}</span>
+            <span className="v">{fmtMYR(v)}</span>
           </div>
         ))}
       </div>
@@ -149,15 +175,15 @@ export default function MySpend() {
         <form className="card" onSubmit={add}>
           <h3>{t.addSpend}</h3>
           <div className="form-grid">
-            <label className="field"><span>{t.date}</span>
+            <label className="fld"><span>{t.date}</span>
               <input type="date" value={form.spend_date} onChange={e => setForm({ ...form, spend_date: e.target.value })} required /></label>
-            <label className="field"><span>{t.category}</span>
+            <label className="fld"><span>{t.category}</span>
               <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
-                {CATS.map(c => <option key={c} value={c}>{CAT_ICON[c]} {(t as any)[c]}</option>)}
+                {CATS.map(c => <option key={c} value={c}>{CAT_EMOJI[c]} {(t as any)[c]}</option>)}
               </select></label>
-            <label className="field full"><span>{t.description}</span>
-              <input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} required /></label>
-            <label className="field"><span>{t.amount}</span>
+            <label className="fld full"><span>{t.description}</span>
+              <input ref={descRef} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} required /></label>
+            <label className="fld"><span>{t.amount}</span>
               <div className="row" style={{ flexWrap: 'nowrap' }}>
                 <select style={{ width: 88 }} value={form.currency} onChange={e => setForm({ ...form, currency: e.target.value })}>
                   {['JPY', 'MYR', 'USD', 'SGD'].map(c => <option key={c}>{c}</option>)}
@@ -169,7 +195,7 @@ export default function MySpend() {
                 <span className="tiny">≈ {fmtMYR(Number(form.amount) * rate)}</span>
               )}
             </label>
-            <label className="field"><span>{t.behalfOf}</span>
+            <label className="fld"><span>{t.behalfOf}</span>
               <input value={form.behalf_note} onChange={e => setForm({ ...form, behalf_note: e.target.value })}
                 placeholder="e.g. Ain ¥2000, Mak ¥1500" /></label>
           </div>
@@ -177,7 +203,7 @@ export default function MySpend() {
           {taggable.length > 0 && (
             <div style={{ margin: '4px 0 12px' }}>
               <span style={{ display: 'block', fontSize: '.8rem', fontWeight: 600, color: 'var(--ink-2)', marginBottom: 3 }}>
-                🤝 {t.tagPeople}
+                {t.tagPeople}
               </span>
               <div className="chips">
                 {taggable.map(m => (
@@ -202,33 +228,39 @@ export default function MySpend() {
 
         <div>
           <div className="card">
-            {items.length === 0 && <p className="muted">{t.noSpend}</p>}
+            {items.length === 0 && (
+              <Empty icon="eye" title={t.myspendEmpty} sub={t.myspendEmptySub}
+                action={{ label: t.addSpend, onClick: () => descRef.current?.focus() }} />
+            )}
             {items.map(i => (
-              <div key={i.id} style={{ padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
-                <div className="row-between">
-                  <div style={{ minWidth: 0 }}>
-                    <div>{CAT_ICON[i.category] ?? '📌'} {i.description}</div>
-                    <div className="tiny">
-                      {fmtDate(i.spend_date, lang)}
-                      {i.currency !== 'MYR' ? ` · ${fmtMoney(i.amount_original, i.currency)}` : ''}
-                      {i.behalf_note ? ` · 🤝 ${i.behalf_note}` : ''}
-                    </div>
-                  </div>
-                  <div className="row" style={{ flexWrap: 'nowrap' }}>
-                    <strong style={{ whiteSpace: 'nowrap' }}>{fmtMYR(i.amount_myr)}</strong>
-                    {user.participant_id != null && (
-                      <button className="icon" title={t.promote} onClick={() => promote(i)}>📤</button>
-                    )}
-                    <button className="icon" onClick={() => remove(i)}>🗑️</button>
-                  </div>
+              <div key={i.id} className="lrow" style={{ flexWrap: 'wrap' }}>
+                <span className="tile sm"><Icon name={CAT_ICON[i.category] ?? 'receipt'} /></span>
+                <div className="l-main">
+                  <b>{i.description}</b>
+                  <small>
+                    {fmtDate(i.spend_date, lang)}
+                    {i.currency !== 'MYR' ? ` · ${fmtMoney(i.amount_original, i.currency)}` : ''}
+                    {i.behalf_note ? ` · ${i.behalf_note}` : ''}
+                  </small>
+                </div>
+                <div className="l-end">
+                  <strong style={{ whiteSpace: 'nowrap' }}>{fmtMYR(i.amount_myr)}</strong>
+                  {user.participant_id != null && (
+                    <button type="button" className="btn ghost sm" title={t.promote} aria-label={t.promote} onClick={() => promote(i)}>
+                      <Icon name="swap" size={16} />
+                    </button>
+                  )}
+                  <button type="button" className="btn ghost sm" aria-label={t.delete} onClick={() => remove(i)}>
+                    <Icon name="trash" size={16} />
+                  </button>
                 </div>
                 {(sharesByItem.get(i.id) ?? []).map(s => (
-                  <div key={s.id} className={`peer-row ${s.settled ? 'settled' : ''}`} style={{ marginLeft: 20 }}>
-                    <span>👤 {s.participant_name}</span>
+                  <div key={s.id} className={`peer-row ${s.settled ? 'settled' : ''}`} style={{ marginLeft: 20, flexBasis: '100%' }}>
+                    <span>{s.participant_name}</span>
                     <span className="row" style={{ flexWrap: 'nowrap' }}>
                       <span className="amt">{fmtMYR(s.amount_myr)}</span>
-                      <button className="btn btn-ghost btn-sm" onClick={() => settleShare(s, !s.settled)}>
-                        {s.settled ? t.unmarkReceived : `✓ ${t.markReceived}`}
+                      <button type="button" className="btn ghost sm" onClick={() => settleShare(s, !s.settled)}>
+                        {s.settled ? t.unmarkReceived : t.markReceived}
                       </button>
                     </span>
                   </div>
@@ -239,7 +271,7 @@ export default function MySpend() {
 
           {tagged.length > 0 && (
             <div className="card">
-              <h3>💸 {t.iOwe}</h3>
+              <div className="cardhead"><h3>{t.iOwe}</h3></div>
               {tagged.map(s => (
                 <div key={s.share_id} className={`peer-row ${s.settled ? 'settled' : ''}`}>
                   <span>

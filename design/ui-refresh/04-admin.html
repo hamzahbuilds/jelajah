@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelajah refresh · Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui.css">
+<style>
+  .bars { display:flex; align-items:flex-end; gap:3px; height:120px; }
+  .bars i { flex:1; background:var(--brand-500); border-radius:3px 3px 0 0; opacity:.9; }
+  .bars i:hover { background:var(--brand-700); }
+  .barrow { display:grid; grid-template-columns:140px 1fr 48px; gap:12px; align-items:center; padding:8px 0; font-size:13px; }
+  .barrow .bg { height:8px; border-radius:4px; background:var(--gray-100); overflow:hidden; }
+  [data-theme="dark"] .barrow .bg { background:var(--gray-800); }
+  .barrow .fg { height:100%; border-radius:4px; background:var(--brand-500); }
+  .feed .f { display:flex; gap:10px; padding:8px 0; font-size:13px; border-bottom:1px solid var(--border); }
+  .feed .f:last-child { border-bottom:none; }
+  .feed time { margin-left:auto; color:var(--ink-3); white-space:nowrap; }
+</style>
+</head><body data-nav="account" data-page="admin" data-title="Admin" data-icon="i-shield">
+<div class="protobar">🎨 prototype v2 · mock data · <a href="index.html">cover</a> <a href="00-trips.html">trips</a> <a href="01-dashboard.html">dashboard</a> <a href="02-plan.html">plan</a> <a href="03-wallet.html">money</a> <a href="06-documents.html">docs</a> <a href="07-people.html">people</a> <a href="08-settings.html">settings</a> <a href="04-admin.html"><b>admin</b></a> <a href="09-auth.html">auth</a> <a href="05-tokens.html">system</a></div>
+
+<div class="shell">
+
+  <main class="main">
+
+    <div class="pagehead">
+      <div class="row">
+        <div><div class="crumb">Platform</div><h1>Dashboard</h1>
+          <div class="sub">Signups, activity and referrals across every trip</div></div>
+        <div class="actions"><button class="btn secondary sm"><svg class="i sm"><use href="#i-plus"/></svg> Platform invite</button></div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="grid4">
+        <div class="card stat"><span class="k"><span class="tile sm"><svg class="i"><use href="#i-user"/></svg></span>Signups · 30d</span><span class="v">7</span><span class="t">all via invites</span></div>
+        <div class="card stat"><span class="k"><span class="tile sm"><svg class="i"><use href="#i-spark"/></svg></span>Active · 7d</span><span class="v">5</span><span class="t"><span class="trend-up">▲ 25%</span> vs previous 7 days</span></div>
+        <div class="card stat"><span class="k"><span class="tile sm"><svg class="i"><use href="#i-bag"/></svg></span>Trips</span><span class="v">4</span><span class="t">2 led by others</span></div>
+        <div class="card stat"><span class="k"><span class="tile sm"><svg class="i"><use href="#i-key"/></svg></span>MCP calls · 30d</span><span class="v">128</span><span class="t">2 tokens active</span></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card lf">
+          <div class="cardhead"><h3>Sign-ups, drawn in one stroke</h3><span class="badge gray">30 days</span></div>
+          <div class="lfsub">Cumulative accounts · every one arrived through an invite or referral</div>
+          <div style="display:flex;gap:20px;align-items:flex-end">
+            <div><div class="bigv" id="lf-count">0</div><div class="bigv"><small>accounts</small></div></div>
+            <svg id="lf-line" viewBox="0 0 300 90" style="flex:1;min-width:0" preserveAspectRatio="none"></svg>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--ink-3);margin-top:6px"><span>7 AUG</span><span>5 SEP</span></div>
+          <div class="lfsrc">Source · users table, created_at</div>
+        </div>
+
+        <div class="card lf">
+          <div class="cardhead"><h3>What the family actually uses</h3><span class="badge gray">30 days</span></div>
+          <div class="lfsub">Events from the usage log · plan views lead by a distance</div>
+          <div id="lf-feat"></div>
+          <div class="lfsrc">Source · usage_daily, 11 tracked events</div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card lf">
+          <div class="cardhead"><h3>Where sign-ups come from</h3><span class="badge gray">all time</span></div>
+          <div class="lfsub">Each dot is 1% of accounts</div>
+          <div class="waffle" id="lf-waffle"></div>
+          <div class="lfleg" id="lf-leg"></div>
+          <div class="lfsrc">Source · users.referred_by + invites.kind</div>
+        </div>
+
+        <div class="card lf">
+          <div class="cardhead"><h3>When the platform breathes</h3><span class="badge gray">30 days</span></div>
+          <div class="lfsub">Events by weekday and time of day · dot area = volume</div>
+          <svg class="punch" id="lf-punch" viewBox="0 0 320 150"></svg>
+          <div class="lfsrc">Source · usage_daily, bucketed UTC+8</div>
+        </div>
+      </div>
+
+      <div class="card lf">
+        <div class="cardhead"><h3>Free-tier headroom</h3><span class="badge success"><span class="d"></span>all clear</span></div>
+        <div class="lfsub">Worst day this month against Cloudflare's daily free limits — the RM0 constraint, visualised</div>
+        <div id="lf-quota"></div>
+        <div class="lfsrc">Source · Cloudflare dashboard · D1 / KV / Workers daily quotas</div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="cardhead"><h3><svg class="i"><use href="#i-gift"/></svg> Referral leaderboard</h3><span class="badge brand"><span class="d"></span>rewards soon</span></div>
+          <table class="table">
+            <tr><th>Referrer</th><th class="num">Joined</th><th>Since</th></tr>
+            <tr><td><div style="display:flex;gap:10px;align-items:center"><span class="avatar">AN</span><b>Aina Nadhirah</b></div></td><td class="num">3</td><td>12 Aug</td></tr>
+            <tr><td><div style="display:flex;gap:10px;align-items:center"><span class="avatar">HZ</span><b>Hamzah</b></div></td><td class="num">2</td><td>5 Aug</td></tr>
+            <tr><td><div style="display:flex;gap:10px;align-items:center"><span class="avatar">SN</span><b>Sarah (client)</b></div></td><td class="num">1</td><td>1 Sep</td></tr>
+          </table>
+        </div>
+
+        <div class="card feed">
+          <div class="cardhead"><h3>Recent activity</h3></div>
+          <div class="f"><span class="tile sm"><svg class="i"><use href="#i-key"/></svg></span><span><b>Aina</b> logged in</span><time>2m ago</time></div>
+          <div class="f"><span class="tile sm"><svg class="i"><use href="#i-link"/></svg></span><span><b>Hamzah</b> created a trip invite · viewer</span><time>1h ago</time></div>
+          <div class="f"><span class="tile sm"><svg class="i"><use href="#i-bag"/></svg></span><span><b>Sarah</b> created “Kyushu Campervan II”</span><time>3h ago</time></div>
+          <div class="f"><span class="tile sm"><svg class="i"><use href="#i-receipt"/></svg></span><span><b>Hamzah</b> added an expense · RM 148.50</span><time>Yesterday</time></div>
+          <div class="f"><span class="tile sm"><svg class="i"><use href="#i-users"/></svg></span><span><b>Danish</b> joined via referral link</span><time>Tue</time></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+
+<script src="icons.js"></script>
+<script>
+(function () {
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const teal = () => css('--brand-600') || '#0E9384';
+
+  // 1 · cumulative sign-ups line, draw-in + counter
+  const daily = [0,0,1,0,0,1,0,0,0,1,0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0];
+  let c = 0; const cum = daily.map(d => c += d);
+  const pts = cum.map((v, i) => [4 + i / (cum.length - 1) * 290, 82 - v / cum[cum.length-1] * 70]);
+  const svg = document.getElementById('lf-line');
+  svg.innerHTML = '<path class="draw" d="M' + pts.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' L ')
+    + '" fill="none" stroke="' + teal() + '" stroke-width="2.5" stroke-linecap="round"/>';
+  let n = 0; const el = document.getElementById('lf-count');
+  const tick = setInterval(() => { el.textContent = ++n; if (n >= 7) clearInterval(tick); }, 140);
+
+  // 2 · feature usage capsule bars — top item teal, rest gray ladder
+  const feats = [['Plan views',44],['Logins',31],['MCP calls',28],['Rate checks',18],['Expenses',10],['Notes saved',9],['AI chats',7]];
+  const lad = ['','var(--gray-500)','var(--gray-500)','var(--gray-400)','var(--gray-400)','var(--gray-300)','var(--gray-300)'];
+  document.getElementById('lf-feat').innerHTML = feats.map(([k,v],i) =>
+    '<div class="lfrow"><span class="nm">'+k+'</span><div class="tr"><div class="fl" style="width:'+(v/44*100)+'%;background:'+(i?lad[i]:teal())+';animation-delay:'+i*90+'ms"></div></div><span class="vv">'+v+'</span></div>').join('');
+
+  // 3 · dot waffle: sign-up sources (100 dots = 100%)
+  const srcs = [['Referral links',57,teal()],['Trip invites',29,'var(--gray-400)'],['Platform invites',14,'var(--gray-300)']];
+  let dots = '', li = 0;
+  srcs.forEach(([k,share,col]) => { for (let j=0;j<share;j++) dots += '<i style="background:'+col+';animation-delay:'+(li++*8)+'ms"></i>'; });
+  document.getElementById('lf-waffle').innerHTML = dots;
+  document.getElementById('lf-leg').innerHTML = srcs.map(([k,share,col]) =>
+    '<span><span class="d" style="background:'+col+'"></span>'+k+' <b>'+share+'%</b></span>').join('');
+
+  // 4 · punch card: weekday x daypart
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const parts = ['morning','midday','evening','night'];
+  const vol = [[2,5,8,1],[1,4,6,1],[2,3,7,2],[1,5,9,2],[3,6,12,4],[6,9,14,5],[5,8,11,3]];
+  let p = '';
+  days.forEach((d, x) => { p += '<text x="'+(66+x*36)+'" y="12" text-anchor="middle">'+d+'</text>'; });
+  parts.forEach((t, y) => {
+    p += '<text x="46" y="'+(38+y*32)+'" text-anchor="end" dominant-baseline="middle">'+t+'</text>';
+    days.forEach((d, x) => {
+      const v = vol[x][y], r = Math.sqrt(v) * 3.4, hot = v >= 10;
+      p += '<circle cx="'+(66+x*36)+'" cy="'+(34+y*32)+'" r="'+r.toFixed(1)+'" fill="'+(hot?teal():'var(--gray-400)')+'" opacity="'+(hot?1:.75)+'"/>';
+    });
+  });
+  document.getElementById('lf-punch').innerHTML = p;
+
+  // 5 · free-tier headroom
+  const quota = [['Worker requests','1.4k / 100k day',1.4],['D1 rows read','3.2k / 5M day',0.06],['D1 rows written','410 / 100k day',0.4],['KV reads','92 / 100k day',0.09],['KV writes','61 / 1k day',6.1]];
+  document.getElementById('lf-quota').innerHTML = quota.map(([k,label,pct],i) =>
+    '<div class="lfrow" style="grid-template-columns:130px 1fr 110px"><span class="nm">'+k+'</span><div class="tr"><div class="fl" style="width:'+Math.max(pct,1.5)+'%;background:'+teal()+';animation-delay:'+i*90+'ms"></div></div><span class="vv" style="font-weight:600;color:var(--ink-3)">'+label+'</span></div>').join('');
+})();
+</script>
+<script src="nav.js"></script>
+<script src="ux.js"></script>
+</body></html>

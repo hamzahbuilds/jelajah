@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelajah refresh · Login & Join</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui.css">
+<style>
+  body { margin:0; }
+  .split { display:grid; grid-template-columns:11fr 9fr; min-height:calc(100vh - 30px); }
+
+  /* ---- left: carousel ---- */
+  .caro { position:relative; overflow:hidden; background:var(--gray-900); }
+  .caro .ph { position:absolute; inset:0; background-size:cover; background-position:center;
+    opacity:0; transition:opacity 1.1s ease; transform:scale(1.06); }
+  .caro .ph.on { opacity:1; animation:kenburns 7s ease forwards; }
+  @keyframes kenburns { from { transform:scale(1.06); } to { transform:scale(1); } }
+  .caro .veil { position:absolute; inset:0;
+    background:linear-gradient(to top, rgba(8,20,18,.72) 0%, rgba(8,20,18,.12) 45%, rgba(8,20,18,.25) 100%); }
+  .caro .brand { position:absolute; top:28px; left:32px; display:flex; align-items:center; gap:10px; color:#fff; }
+  .caro .brand .logo { width:36px; height:36px; border-radius:10px; background:rgba(255,255,255,.14);
+    backdrop-filter:blur(6px); display:grid; place-items:center; box-shadow:inset 0 0 0 1px rgba(255,255,255,.25); }
+  .caro .brand strong { font-size:17px; font-weight:700; letter-spacing:-.2px; }
+  .cap { position:absolute; left:32px; right:32px; bottom:30px; color:#fff; }
+  .cap .place { font-size:26px; font-weight:800; letter-spacing:-.4px; line-height:1.15; }
+  .cap .where { font-size:12px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+    opacity:.85; margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+  .cap .hook { font-size:14.5px; opacity:.92; margin-top:6px; max-width:400px; }
+  .dots { display:flex; gap:6px; margin-top:18px; }
+  .dots i { width:22px; height:3px; border-radius:2px; background:rgba(255,255,255,.35); transition:background .3s; cursor:pointer; }
+  .dots i.on { background:#fff; }
+
+  /* ---- right: auth panel ---- */
+  .pane { display:flex; flex-direction:column; justify-content:center; padding:48px 24px 64px;
+    background:var(--bg); }
+  .authcard { width:100%; max-width:400px; margin:0 auto; }
+  .authcard h2 { margin:0 0 4px; font-size:24px; letter-spacing:-.4px; }
+  .authcard .sub { color:var(--ink-2); font-size:14px; margin-bottom:22px; }
+  .authtabs { display:inline-flex; background:var(--gray-100); border-radius:10px; padding:3px; margin-bottom:26px; }
+  [data-theme="dark"] .authtabs { background:var(--gray-800); }
+  .authtabs button { border:none; background:none; font:inherit; font-size:13.5px; font-weight:600;
+    color:var(--ink-3); padding:7px 16px; border-radius:8px; }
+  .authtabs button.on { background:var(--surface); color:var(--ink); box-shadow:var(--shadow-xs); }
+  .fld2 { display:block; font-size:13px; font-weight:600; color:var(--ink-2); margin-bottom:14px; }
+  .fld2 input { display:block; width:100%; box-sizing:border-box; margin-top:6px; padding:10px 12px;
+    border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--ink);
+    font:inherit; min-height:44px; }
+  .fld2 input:focus { outline:2px solid var(--brand-500); outline-offset:-1px; }
+  .joinbadge { display:flex; gap:12px; align-items:center; border:1px solid var(--brand-100);
+    background:var(--brand-50); border-radius:12px; padding:12px 14px; margin-bottom:18px; }
+  [data-theme="dark"] .joinbadge { background:rgba(15,118,110,.15); border-color:rgba(94,233,208,.25); }
+  .joinbadge .t b { display:block; font-size:13.5px; }
+  .joinbadge .t small { color:var(--ink-3); font-size:12px; }
+
+  /* ---- mobile: banner + form ---- */
+  @media (max-width:1023px) {
+    .split { display:block; }
+    .caro { position:relative; height:200px; }
+    .caro .brand { top:16px; left:16px; }
+    .cap { left:16px; right:16px; bottom:14px; }
+    .cap .place { font-size:19px; }
+    .cap .hook, .dots { display:none; }
+    .pane { padding:28px 16px 64px; }
+  }
+</style>
+</head><body>
+<div class="protobar">🎨 prototype v2 · mock data · <a href="index.html">cover</a> <a href="00-trips.html">trips</a> <a href="01-dashboard.html">dashboard</a> <a href="02-plan.html">plan</a> <a href="03-wallet.html">money</a> <a href="06-documents.html">docs</a> <a href="07-people.html">people</a> <a href="08-settings.html">settings</a> <a href="04-admin.html">admin</a> <a href="09-auth.html"><b>auth</b></a> <a href="05-tokens.html">system</a></div>
+
+<div class="split">
+  <div class="caro" id="caro">
+    <div class="veil"></div>
+    <div class="brand"><span class="logo"><svg class="i"><use href="#i-pin"/></svg></span><strong>Jelajah</strong></div>
+    <div class="cap">
+      <div class="where"><svg class="i sm"><use href="#i-pin"/></svg><span id="cwhere"></span></div>
+      <div class="place" id="cplace"></div>
+      <div class="hook" id="chook"></div>
+      <div class="dots" id="cdots"></div>
+    </div>
+  </div>
+
+  <div class="pane">
+    <div class="authcard">
+      <div class="authtabs" id="authtabs">
+        <button class="on" onclick="mode('login')">Log in</button>
+        <button onclick="mode('join')">Join a trip</button>
+      </div>
+
+      <div id="v-login">
+        <h2>Welcome back</h2>
+        <div class="sub">Plan together. Settle up easily.</div>
+        <label class="fld2">Email<input type="email" placeholder="you@example.com"></label>
+        <label class="fld2">Password<input type="password" placeholder="••••••••"></label>
+        <button class="btn" style="width:100%;justify-content:center">Log in</button>
+        <p class="hint" style="text-align:center;margin:16px 0 0">Have an invite link? Open it — it brings you here with the trip attached.</p>
+      </div>
+
+      <div id="v-join" hidden>
+        <h2>You're invited</h2>
+        <div class="sub">Create an account and land straight in the trip.</div>
+        <div class="joinbadge"><span class="em" style="font-size:24px">🇯🇵</span>
+          <div class="t"><b>Jelajah Jepun 2026</b><small>Invited by Hamzah · joining as Editor</small></div>
+          <span class="badge brand" style="margin-left:auto"><span class="d"></span>Editor</span></div>
+        <label class="fld2">Your name<input placeholder="Aina Nadhirah"></label>
+        <label class="fld2">Email<input type="email" placeholder="aina@example.com"></label>
+        <label class="fld2">Password (min 8 characters)<input type="password" placeholder="••••••••"></label>
+        <button class="btn" style="width:100%;justify-content:center"><svg class="i sm"><use href="#i-check"/></svg> Create account &amp; join</button>
+        <p class="hint" style="text-align:center;margin:16px 0 0">Already have an account? Log in, then open the link again.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="icons.js"></script>
+<script src="nav.js"></script>
+<script>
+  function mode(m) {
+    document.getElementById('v-login').hidden = m !== 'login';
+    document.getElementById('v-join').hidden = m !== 'join';
+    document.querySelectorAll('#authtabs button').forEach((b, i) =>
+      b.classList.toggle('on', (m === 'login') === (i === 0)));
+  }
+
+  const PLACES = [
+    { seed: 'kyoto-torii',    where: 'Kyoto · Japan',        place: 'Ten thousand torii, one shared plan',        hook: 'Every stop pinned, timed and split before you land.' },
+    { seed: 'santorini-blue', where: 'Santorini · Greece',   place: 'Split the villa, not the friendship',        hook: 'Sixteen people, one ledger, zero awkward maths.' },
+    { seed: 'cappadocia-air', where: 'Cappadocia · Türkiye', place: 'Sunrise balloons, sorted the night before',  hook: "Bookings, budgets and backups in everyone's pocket." },
+    { seed: 'banff-lake',     where: 'Banff · Canada',       place: 'Big family, bigger outdoors',                hook: 'Drag the day around — the times reflow themselves.' },
+    { seed: 'kl-skyline',     where: 'Kuala Lumpur · Home',  place: 'Home base. Next stop: anywhere',             hook: 'Made in Malaysia for families who travel in packs.' },
+  ];
+  const caro = document.getElementById('caro'), dots = document.getElementById('cdots');
+  PLACES.forEach((p, i) => {
+    const d = document.createElement('div');
+    d.className = 'ph';
+    d.style.backgroundImage = 'linear-gradient(rgba(8,20,18,.05),rgba(8,20,18,.05)),url(https://picsum.photos/seed/' + p.seed + '/1200/1400)';
+    caro.insertBefore(d, caro.firstChild);
+    const dot = document.createElement('i');
+    dot.onclick = () => show(i, true);
+    dots.appendChild(dot);
+  });
+  const phs = caro.querySelectorAll('.ph');
+  let cur = 0, timer;
+  function show(i, manual) {
+    cur = i;
+    phs.forEach((el, j) => el.classList.toggle('on', j === PLACES.length - 1 - i));
+    dots.querySelectorAll('i').forEach((el, j) => el.classList.toggle('on', j === i));
+    document.getElementById('cwhere').textContent = PLACES[i].where;
+    document.getElementById('cplace').textContent = PLACES[i].place;
+    document.getElementById('chook').textContent = PLACES[i].hook;
+    if (manual) { clearInterval(timer); timer = setInterval(next, 6000); }
+  }
+  const next = () => show((cur + 1) % PLACES.length);
+  show(0);
+  timer = setInterval(next, 6000);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) clearInterval(timer);
+</script>
+</body></html>

@@ -1,14 +1,22 @@
-// v0.13 personal Settings: MCP help + access tokens + referral link, for every user.
+// v0.19 personal Settings: MCP help + access tokens + referral link, for every
+// user. Restyled to card/cardhead/seg/.mono per the P4 Task 4 admin+settings
+// plan (design/ui-refresh/08-settings.html is the visual reference).
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { useT } from '../i18n';
+import { useT, Lang } from '../i18n';
 import { useToast } from '../components/Toast';
+import { Icon } from '../components/Icon';
+import PageHead from '../components/PageHead';
 import TokenCard from '../components/TokenCard';
+import { getThemePref, setThemePref, ThemePref } from '../theme';
 
 export default function Settings() {
-  const { t } = useT();
+  const { t, lang, setLang } = useT();
   const { toast } = useToast();
   const [referral, setReferral] = useState<{ code: string; url: string; used_count: number; max_uses: number; enabled: boolean } | null>(null);
+  const [pref, setPref] = useState<ThemePref>(getThemePref());
+  const pick = (p: ThemePref) => { setThemePref(p); setPref(p); api.patch('/me', { theme: p }).catch(() => {}); };
+  const changeLang = async (l: Lang) => { setLang(l); await api.patch('/me', { lang: l }); };
 
   useEffect(() => { api.get('/invites/referral').then(setReferral).catch(() => setReferral(null)); }, []);
 
@@ -20,27 +28,32 @@ export default function Settings() {
 
   return (
     <div>
-      <h1 style={{ margin: '20px 0 14px' }}>⚙️ {t.settings}</h1>
+      <PageHead crumb={t.settingsCrumb} title={t.settings} sub={t.settingsSub} />
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <h3>🎁 {t.referralTitle}</h3>
-        {referral && !referral.enabled && <p className="tiny">{t.referralDisabled}</p>}
+        <div className="cardhead"><h3><Icon name="gift" /> {t.referralTitle}</h3>
+          {referral && referral.enabled && (
+            <span className="badge brand"><span className="d" />{t.inviteUses(referral.used_count, referral.max_uses)}</span>
+          )}
+        </div>
+        {referral && !referral.enabled && <p className="hint">{t.referralDisabled}</p>}
         {referral && referral.enabled && (
           <>
-            <p className="tiny">{t.referralHint}</p>
-            <div className="row" style={{ flexWrap: 'nowrap' }}>
-              <pre className="mcp-url" style={{ flex: 1 }}>{location.origin + referral.url}</pre>
-              <button className="btn btn-ghost btn-sm" onClick={copyReferral}>📋</button>
+            <p className="hint">{t.referralHint}</p>
+            <div className="row" style={{ flexWrap: 'nowrap', gap: 10, alignItems: 'center' }}>
+              <div className="mono" style={{ flex: 1, minWidth: 220 }}>{location.origin + referral.url}</div>
+              <button className="btn secondary sm" onClick={copyReferral}><Icon name="copy" size={16} /> {t.copyLbl}</button>
             </div>
-            <span className="tiny">{t.inviteUses(referral.used_count, referral.max_uses)}</span>
           </>
         )}
       </div>
 
-      <div className="card">
-        <h3>🔌 {t.mcpTitle}</h3>
-        <p className="tiny">{t.mcpHelp}</p>
-        <pre className="mcp-url">{`${window.location.origin}/api/mcp`}</pre>
+      <TokenCard />
+
+      <div className="card" style={{ marginBottom: 16, marginTop: 16 }}>
+        <div className="cardhead"><h3><Icon name="chat" /> {t.mcpTitle}</h3></div>
+        <p className="hint">{t.mcpHelp}</p>
+        <div className="mono">{`${window.location.origin}/api/mcp`}</div>
         <details className="tiny" style={{ margin: '8px 0' }}>
           <summary>Claude Code</summary>
           <pre className="mcp-snippet">{`claude mcp add --transport http jelajah ${window.location.origin}/api/mcp \\
@@ -70,7 +83,24 @@ export default function Settings() {
 url = "${window.location.origin}/api/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_TOKEN" }`}</pre>
         </details>
-        <TokenCard />
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="cardhead"><h3><Icon name="moon" /> {t.appearance}</h3></div>
+        <div className="seg" role="group">
+          {([['', t.themeLight], ['dark', t.themeDark], ['system', t.themeSystem]] as const).map(([v, label]) => (
+            <button key={v} className={pref === v ? 'on' : ''} onClick={() => pick(v)}>{label}</button>
+          ))}
+        </div>
+        <p className="hint" style={{ marginTop: 10 }}>{t.themeHint}</p>
+      </div>
+
+      <div className="card">
+        <div className="cardhead"><h3><Icon name="globe" /> {t.languageTitle}</h3></div>
+        <div className="seg" role="group">
+          <button className={lang === 'en' ? 'on' : ''} onClick={() => changeLang('en')}>English</button>
+          <button className={lang === 'ms' ? 'on' : ''} onClick={() => changeLang('ms')}>Bahasa Malaysia</button>
+        </div>
       </div>
     </div>
   );

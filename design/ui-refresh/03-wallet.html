@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelajah refresh · Money</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui.css">
+</head><body data-nav="trip" data-page="money" data-title="Money" data-icon="i-wallet">
+<div class="protobar">🎨 prototype v2 · mock data · <a href="index.html">cover</a> <a href="00-trips.html">trips</a> <a href="01-dashboard.html">dashboard</a> <a href="02-plan.html">plan</a> <a href="03-wallet.html"><b>money</b></a> <a href="06-documents.html">docs</a> <a href="07-people.html">people</a> <a href="08-settings.html">settings</a> <a href="04-admin.html">admin</a> <a href="09-auth.html">auth</a> <a href="05-tokens.html">system</a></div>
+
+<div class="shell">
+
+  <main class="main">
+
+    <div class="pagehead">
+      <div class="row">
+        <div><div class="crumb">Jelajah Jepun 2026</div><h1>Money</h1>
+          <div class="sub">One place for the ledger, repayments and your private spend</div></div>
+        <div class="actions"><button class="btn secondary sm"><svg class="i sm"><use href="#i-file"/></svg> From document</button><button class="btn sm"><svg class="i sm"><use href="#i-plus"/></svg> Add expense</button></div>
+      </div>
+      <div style="margin-top:16px" class="seg">
+        <button class="on">Ledger</button><button>Payments</button><button>My spend</button>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="grid3">
+        <div class="card stat"><span class="k"><span class="tile sm"><svg class="i"><use href="#i-wallet"/></svg></span>Trip total</span><span class="v">RM 7,757</span><span class="t">paid by you, split 16 ways</span></div>
+        <div class="card stat"><span class="k"><span class="tile sm"><svg class="i"><use href="#i-hotel"/></svg></span>Committed</span><span class="v">RM 706</span><span class="t">pay at hotel — not owed yet</span></div>
+        <div class="card stat"><span class="k"><span class="tile sm"><svg class="i"><use href="#i-check"/></svg></span>Settled</span><span class="v">RM 2,202</span><span class="t"><span class="trend-up">▲ 28%</span> of the total</span></div>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3>Ledger</h3><span class="badge gray">6 expenses</span></div>
+        <div class="lrow">
+          <span class="tile"><svg class="i"><use href="#i-plane"/></svg></span>
+          <div class="l-main"><b>KUL → NRT · AirAsia X</b><small>29 Nov · 16 pax · OD872</small></div>
+          <div class="l-amt">RM 6,442.70<small>paid 12 Aug</small></div>
+          <div class="l-end"><span class="badge success"><span class="d"></span>Paid</span><button class="btn ghost sm"><svg class="i sm"><use href="#i-edit"/></svg></button></div>
+        </div>
+        <div class="lrow">
+          <span class="tile"><svg class="i"><use href="#i-hotel"/></svg></span>
+          <div class="l-main"><b>Y's Hotel Asahikawa</b><small>20–23 Dec · 3 rooms</small></div>
+          <div class="l-amt">RM 706.07<small>¥23,400</small></div>
+          <div class="l-end"><span class="badge warning"><span class="d"></span>Pay at hotel</span><button class="btn ghost sm"><svg class="i sm"><use href="#i-edit"/></svg></button></div>
+        </div>
+        <div class="lrow">
+          <span class="tile"><svg class="i"><use href="#i-ticket"/></svg></span>
+          <div class="l-main"><b>teamLab Planets tickets</b><small>30 Nov · 14 pax · e-ticket</small></div>
+          <div class="l-amt">RM 360.00<small>¥11,200</small></div>
+          <div class="l-end"><span class="badge success"><span class="d"></span>Paid</span><button class="btn ghost sm"><svg class="i sm"><use href="#i-edit"/></svg></button></div>
+        </div>
+        <div class="lrow">
+          <span class="tile"><svg class="i"><use href="#i-train"/></svg></span>
+          <div class="l-main"><b>JR Passes</b><small>instalments via Aina</small></div>
+          <div class="l-amt">RM 148.50<small>RM 150 due 15 Sep</small></div>
+          <div class="l-end"><span class="badge error"><span class="d"></span>Due soon</span><button class="btn ghost sm"><svg class="i sm"><use href="#i-edit"/></svg></button></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3>Who owes whom</h3><button class="btn secondary sm"><svg class="i sm"><use href="#i-coins"/></svg> Record payment</button></div>
+        <div class="lrow">
+          <span class="avatar">MI</span>
+          <div class="l-main"><b>Mak Long Ismah</b><small>owed RM 1,978.50 · paid RM 120</small></div>
+          <div class="l-amt">RM 1,858.50<small>outstanding</small></div>
+          <div class="l-end"><span class="badge error"><span class="d"></span>2 items</span><button class="btn sm">Settle</button></div>
+        </div>
+        <div class="lrow">
+          <span class="avatar">AN</span>
+          <div class="l-main"><b>Aina Nadhirah</b><small>owed RM 525.54 · paid RM 150</small></div>
+          <div class="l-amt">RM 375.54<small>outstanding</small></div>
+          <div class="l-end"><span class="badge warning"><span class="d"></span>Due 15 Sep</span><button class="btn sm">Settle</button></div>
+        </div>
+        <div class="lrow">
+          <span class="avatar">DR</span>
+          <div class="l-main"><b>Danish Rifqi</b><small>owed RM 256.18 · paid RM 0</small></div>
+          <div class="l-amt">RM 256.18<small>outstanding</small></div>
+          <div class="l-end"><span class="badge gray"><span class="d"></span>No due date</span><button class="btn sm">Settle</button></div>
+        </div>
+        <div class="lrow">
+          <span class="avatar">IL</span>
+          <div class="l-main"><b>Ilham Haziq</b><small>settled in full · 2 Sep</small></div>
+          <div class="l-amt pos">RM 0<small>clear</small></div>
+          <div class="l-end"><span class="badge success"><span class="d"></span>Clear</span></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+
+<script src="icons.js"></script>
+<script src="nav.js"></script>
+<script src="ux.js"></script>
+</body></html>

@@ -124,36 +124,36 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
   return (
     <form onSubmit={submit}>
       <div className="form-grid">
-        <label className="field"><span>{t.category}</span>
+        <label className="fld"><span>{t.category}</span>
           <select value={d.category} onChange={e => set({ category: e.target.value })}>
             {CATEGORIES.map(c => <option key={c} value={c}>{(t as any)[c]}</option>)}
           </select>
         </label>
-        <label className="field"><span>{t.vendor}</span>
+        <label className="fld"><span>{t.vendor}</span>
           <input value={d.vendor} onChange={e => set({ vendor: e.target.value })} placeholder="Trip.com, Airbnb…" />
         </label>
-        <label className="field full"><span>{t.description}</span>
+        <label className="fld full"><span>{t.description}</span>
           <input value={d.description} onChange={e => set({ description: e.target.value })} required />
         </label>
-        <label className="field full"><span>{t.location}</span>
+        <label className="fld full"><span>{t.location}</span>
           <input value={d.location} onChange={e => set({ location: e.target.value })} />
         </label>
-        <label className="field"><span>{t.date} ({t.checkIn}/{t.flightLegs})</span>
+        <label className="fld"><span>{t.date} ({t.checkIn}/{t.flightLegs})</span>
           <input type="date" value={d.expense_date} onChange={e => set({ expense_date: e.target.value })} />
         </label>
-        <label className="field"><span>{t.checkOut} ({t.optional})</span>
+        <label className="fld"><span>{t.checkOut} ({t.optional})</span>
           <input type="date" value={d.end_date} onChange={e => set({ end_date: e.target.value })} />
         </label>
-        <label className="field"><span>{t.paymentDate}</span>
+        <label className="fld"><span>{t.paymentDate}</span>
           <input type="date" value={d.payment_date} onChange={e => set({ payment_date: e.target.value })} />
         </label>
-        <label className="field"><span>{t.paymentStatusLbl}</span>
+        <label className="fld"><span>{t.paymentStatusLbl}</span>
           <select value={d.payment_status} onChange={e => set({ payment_status: e.target.value as any })}>
             <option value="paid">{t.paidLbl}</option>
-            <option value="pay_at_hotel">🏨 {t.payAtHotel}</option>
+            <option value="pay_at_hotel">{t.payAtHotel}</option>
           </select>
         </label>
-        <label className="field"><span>{t.amount}</span>
+        <label className="fld"><span>{t.amount}</span>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <select style={{ width: 90 }} value={d.currency} onChange={e => set({ currency: e.target.value })}>
               {CURRENCIES.map(c => <option key={c}>{c}</option>)}
@@ -164,25 +164,25 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
         </label>
         {d.currency !== 'MYR' && (
           <>
-            <label className="field"><span>{t.fxRate} → MYR</span>
+            <label className="fld"><span>{t.fxRate} → MYR</span>
               <div className="row" style={{ flexWrap: 'nowrap' }}>
                 <input type="number" step="0.000001" value={d.fx_rate}
                   onChange={e => {
                     const r = Number(e.target.value);
                     set({ fx_rate: r, amount_myr: Math.round(d.amount_original * r * 100) / 100 });
                   }} />
-                <button type="button" className="btn btn-ghost btn-sm" onClick={getRate} disabled={fxBusy}>
+                <button type="button" className="btn ghost sm" onClick={getRate} disabled={fxBusy}>
                   {fxBusy ? '…' : t.getRate}
                 </button>
               </div>
             </label>
-            <label className="field"><span>{t.amountMyr}</span>
+            <label className="fld"><span>{t.amountMyr}</span>
               <input type="number" step="0.01" value={d.amount_myr}
                 onChange={e => set({ amount_myr: Number(e.target.value) })} required />
             </label>
           </>
         )}
-        <label className="field full"><span>{t.payer}</span>
+        <label className="fld full"><span>{t.payer}</span>
           <select value={d.payer_participant_id} onChange={e => set({ payer_participant_id: Number(e.target.value) })} required>
             <option value={0} disabled>—</option>
             {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -196,9 +196,9 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
             {t.participants} ({d.participant_ids.length})
           </span>
           <span className="row">
-            <button type="button" className="btn btn-ghost btn-sm"
+            <button type="button" className="btn ghost sm"
               onClick={() => set({ participant_ids: members.map(m => m.id) })}>{t.selectAll}</button>
-            <button type="button" className="btn btn-ghost btn-sm"
+            <button type="button" className="btn ghost sm"
               onClick={() => set({ participant_ids: [] })}>{t.clearAll}</button>
           </span>
         </div>
@@ -247,7 +247,7 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
       <div style={{ marginBottom: 14 }}>
         <div className="row-between">
           <span style={{ fontWeight: 600, fontSize: '.85rem', color: 'var(--ink-2)' }}>{t.dueDates}</span>
-          <button type="button" className="btn btn-ghost btn-sm"
+          <button type="button" className="btn ghost sm"
             onClick={() => set({ due_dates: [...d.due_dates, { due_date: '' }] })}>＋ {t.addDueDate}</button>
         </div>
         {d.due_dates.map((dd, i) => (
@@ -259,8 +259,8 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
             <select value={dd.participant_id ?? 0} style={{ width: 170, flex: '0 0 auto' }}
               title={t.forWhom}
               onChange={e => set({ due_dates: d.due_dates.map((x, j) => j === i ? { ...x, participant_id: Number(e.target.value) || null } : x) })}>
-              <option value={0}>👥 {t.wholePayment}</option>
-              {members.map(m => <option key={m.id} value={m.id}>👤 {m.name}</option>)}
+              <option value={0}>{t.wholePayment}</option>
+              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
             <input placeholder={t.note} value={dd.note ?? ''} style={{ flex: 1, minWidth: 90 }}
               onChange={e => set({ due_dates: d.due_dates.map((x, j) => j === i ? { ...x, note: e.target.value } : x) })} />

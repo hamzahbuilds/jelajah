@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useT } from '../i18n';
+import AuthCarousel from '../components/AuthCarousel';
+import { Icon } from '../components/Icon';
 
 export default function Login() {
   const { t } = useT();
@@ -40,44 +42,47 @@ export default function Login() {
   if (mode === 'loading') return <div className="login-wrap"><div className="login-card muted">…</div></div>;
 
   return (
-    <div className="login-wrap">
-      <form className="login-card" onSubmit={submit}>
-        <div className="logo">🧭 {t.appName}</div>
-        {mode === 'setup' ? (
-          <>
-            <h2 style={{ margin: '10px 0 4px' }}>{t.setupTitle}</h2>
-            <p className="tiny" style={{ marginBottom: 14 }}>{t.setupHint}</p>
-            <label className="field">
-              <span>{t.name}</span>
-              <input value={name} onChange={e => setName(e.target.value)} required />
-            </label>
-          </>
-        ) : (
-          <p className="muted" style={{ marginBottom: 18 }}>{t.tagline}</p>
-        )}
-        <label className="field">
-          <span>{t.email}</span>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="username" required />
-        </label>
-        <label className="field">
-          <span>{mode === 'setup' ? t.newPassword : t.password}</span>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-            autoComplete={mode === 'setup' ? 'new-password' : 'current-password'}
-            minLength={mode === 'setup' ? 8 : undefined} required />
-        </label>
-        {mode === 'setup' && (
-          <label className="row" style={{ gap: 8, marginBottom: 12, fontSize: '.85rem' }}>
-            <input type="checkbox" checked={seed} onChange={e => setSeed(e.target.checked)}
-              style={{ width: 17, height: 17, accentColor: 'var(--brand)' }} />
-            <span>{t.seedJapan}</span>
+    <div className="split">
+      <AuthCarousel />
+      <div className="pane">
+        <form className="authcard login-card" onSubmit={submit}>
+          <div className="logo"><Icon name="pin" size={20} /> {t.appName}</div>
+          {mode === 'setup' ? (
+            <>
+              <h2>{t.setupTitle}</h2>
+              <p className="sub">{t.setupHint}</p>
+              <label className="fld2">
+                {t.name}
+                <input value={name} onChange={e => setName(e.target.value)} required />
+              </label>
+            </>
+          ) : (
+            <p className="sub">{t.tagline}</p>
+          )}
+          <label className="fld2">
+            {t.email}
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="username" required />
           </label>
-        )}
-        {err && <p className="callout warn">{mode === 'setup' ? '⚠️' : t.invalidLogin}</p>}
-        <button className="btn" style={{ width: '100%', marginTop: 6 }} disabled={busy}>
-          {mode === 'setup' ? t.setupGo : t.signIn}
-        </button>
-        <p className="tiny muted" style={{ marginTop: 12, textAlign: 'center' }}>{t.loginInviteHint}</p>
-      </form>
+          <label className="fld2">
+            {mode === 'setup' ? t.newPassword : t.password}
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+              autoComplete={mode === 'setup' ? 'new-password' : 'current-password'}
+              minLength={mode === 'setup' ? 8 : undefined} required />
+          </label>
+          {mode === 'setup' && (
+            <label className="row" style={{ gap: 8, marginBottom: 12, fontSize: '.85rem' }}>
+              <input type="checkbox" checked={seed} onChange={e => setSeed(e.target.checked)}
+                style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
+              <span>{t.seedJapan}</span>
+            </label>
+          )}
+          {err && <p className="callout warn">{mode === 'setup' ? <Icon name="alert" size={16} /> : t.invalidLogin}</p>}
+          <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>
+            {mode === 'setup' ? t.setupGo : t.signIn}
+          </button>
+          <p className="tiny muted" style={{ marginTop: 16, textAlign: 'center' }}>{t.loginInviteHint}</p>
+        </form>
+      </div>
     </div>
   );
 }

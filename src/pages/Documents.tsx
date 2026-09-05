@@ -7,14 +7,17 @@ import { extractPdfText, renderPdfPages } from '../pdf';
 import { parseDocument } from '../../shared/parsers';
 import { OCR_LANGS, savedLangs, saveLangs, looksScanned, ocrImages, OcrProgress } from '../ocr';
 import { useToast } from '../components/Toast';
+import PageHead from '../components/PageHead';
+import Empty from '../components/Empty';
+import { Icon, type IconName } from '../components/Icon';
 
-const ICONS: Record<string, string> = {
-  receipt: '🧾', itinerary: '🛫', confirmation: '🏠', other: '📄',
+const DOC_ICON: Record<string, IconName> = {
+  receipt: 'receipt', itinerary: 'plane', confirmation: 'hotel', other: 'file',
 };
 
 export default function Documents() {
   const { t, lang } = useT();
-  const { tripId, canLead } = useOutletContext<TripCtx>();
+  const { trip, tripId, canLead } = useOutletContext<TripCtx>();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [docs, setDocs] = useState<any[]>([]);
@@ -105,18 +108,19 @@ export default function Documents() {
 
   return (
     <div>
+      <PageHead crumb={trip.name} title={t.documents} sub={t.documentsSub} />
       {canLead && (
         <>
           <div
-            className={`dropzone ${drag ? 'drag' : ''} ${busy || ocrQueue ? 'disabled' : ''}`}
+            className={`drop2 ${drag ? 'drag' : ''} ${busy || ocrQueue ? 'disabled' : ''}`}
             onClick={() => !busy && !ocrQueue && fileRef.current?.click()}
             onDragOver={e => { e.preventDefault(); if (!busy && !ocrQueue) setDrag(true); }}
             onDragLeave={() => setDrag(false)}
             onDrop={e => { e.preventDefault(); setDrag(false); handleFiles(e.dataTransfer.files); }}
           >
-            <div style={{ fontSize: '1.6rem' }}>📥</div>
-            <strong>{busy ? t.parsing : t.uploadDoc}</strong>
-            <div className="tiny">{t.dropHint}</div>
+            <span className="tile"><Icon name="upload" /></span>
+            <b>{busy ? t.parsing : t.uploadDoc}</b>
+            <small>{t.dropHint}</small>
             <input ref={fileRef} type="file" accept="application/pdf,image/*" multiple hidden
               onChange={e => { handleFiles(e.target.files); e.target.value = ''; }} />
           </div>
@@ -124,17 +128,17 @@ export default function Documents() {
             <div className="upload-strip">
               <div className="row-between tiny" style={{ marginBottom: 3 }}>
                 <span>{busy ? t.uploadingDocs : t.uploadDone(prog.done, prog.errors.length)}</span>
-                <span>{t.uploadCount(prog.done, prog.total)}{prog.errors.length ? ` · ⚠️ ${prog.errors.length}` : ''}</span>
+                <span>{t.uploadCount(prog.done, prog.total)}{prog.errors.length ? <> · <Icon name="alert" size={16} /> {prog.errors.length}</> : ''}</span>
               </div>
               <div className="upload-track">
                 <div className="fillbar" style={{ width: `${Math.round((prog.done / Math.max(1, prog.total)) * 100)}%` }} />
-                <span className="plane" style={{ left: `${Math.max(4, Math.min(96, Math.round((prog.done / Math.max(1, prog.total)) * 100)))}%` }}>✈️</span>
+                <span className="plane" style={{ left: `${Math.max(4, Math.min(96, Math.round((prog.done / Math.max(1, prog.total)) * 100)))}%` }}><Icon name="plane" size={16} /></span>
               </div>
               {busy && <div className="tiny" style={{ marginTop: 2 }}>{prog.current}</div>}
               {prog.errors.length > 0 && !busy && (
                 <div className="callout warn" style={{ marginTop: 6 }}>
-                  {prog.errors.map((er, i) => <div key={i} className="tiny">⚠️ {er.name} — {er.reason}</div>)}
-                  <button className="btn btn-ghost btn-sm" style={{ marginTop: 4 }} onClick={() => setProg(null)}>✕ {t.close}</button>
+                  {prog.errors.map((er, i) => <div key={i} className="tiny"><Icon name="alert" size={16} /> {er.name} — {er.reason}</div>)}
+                  <button type="button" className="btn ghost sm" style={{ marginTop: 4 }} onClick={() => setProg(null)}><Icon name="plus" className="x-close" size={16} /> {t.close}</button>
                 </div>
               )}
             </div>
@@ -143,8 +147,9 @@ export default function Documents() {
       )}
 
       <div className="card" style={{ marginTop: 16 }}>
+        <div className="cardhead"><h3>{t.documents}</h3>{docs.length > 0 && <span className="badge gray">{docs.length}</span>}</div>
         {canLead && docs.length > 0 && (
-          <div className="row-between" style={{ paddingBottom: 8, borderBottom: '1px solid var(--line)' }}>
+          <div className="row-between" style={{ paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
             <label className="row tiny" style={{ gap: 6 }}>
               <input type="checkbox"
                 checked={selected.size === docs.length && docs.length > 0}
@@ -152,44 +157,49 @@ export default function Documents() {
               {t.selectAll}
             </label>
             {selected.size > 0 && (
-              <button className="btn btn-danger btn-sm" disabled={busy} onClick={bulkDelete}>
-                🗑️ {t.deleteSelected} ({selected.size})
+              <button type="button" className="btn danger sm" disabled={busy} onClick={bulkDelete}>
+                <Icon name="trash" size={16} /> {t.deleteSelected} ({selected.size})
               </button>
             )}
           </div>
         )}
-        {docs.length === 0 && <p className="muted">{t.noDocs}</p>}
+        {docs.length === 0 && (
+          <Empty icon="upload" title={t.noDocsTitle} sub={t.noDocsSub}
+            action={canLead ? { label: t.uploadDoc, onClick: () => fileRef.current?.click() } : undefined} />
+        )}
         {docs.map(d => (
-          <div className="doc-row" key={d.id}>
+          <div className="lrow" key={d.id}>
             {canLead && (
               <input type="checkbox" checked={selected.has(d.id)} onChange={() => toggleSel(d.id)}
-                style={{ width: 17, height: 17, flex: '0 0 auto', accentColor: 'var(--brand)' }} />
+                style={{ width: 17, height: 17, flex: '0 0 auto', accentColor: 'var(--brand-700)' }} />
             )}
-            <span className="ic">{ICONS[d.doc_type] ?? '📄'}</span>
-            <div className="grow">
-              <div className="fname">{d.filename}</div>
-              <div className="tiny">
+            <span className="tile sm"><Icon name={DOC_ICON[d.doc_type] ?? 'file'} /></span>
+            <div className="l-main">
+              <b>{d.filename}</b>
+              <small>
                 {d.vendor ?? '—'}{d.booking_no ? ` · ${d.booking_no}` : ''} · {fmtDate(d.created_at?.slice(0, 10), lang)}
-              </div>
+              </small>
             </div>
-            {d.status === 'confirmed'
-              ? <span className="badge ok">{t.confirmedStatus}</span>
-              : <span className="badge warn">{t.draft}</span>}
-            {d.expense_id && <Link className="badge brand" to={`/trips/${tripId}/ledger`}>{t.linkedExpense}</Link>}
-            <a className="btn btn-ghost btn-sm" href={`/api/documents/${d.id}/file`} target="_blank" rel="noreferrer">
-              {t.viewFile}
-            </a>
-            {canLead && d.status === 'draft' && (
-              <Link className="btn btn-sm" style={{ textDecoration: 'none' }}
-                to={`/trips/${tripId}/documents/${d.id}/review`}>{t.reviewNow}</Link>
-            )}
-            {canLead && (
-              <button className="icon" aria-label={t.delete} onClick={async () => {
-                if (!window.confirm(d.expense_id ? t.deleteDocLinked : t.deleteDocConfirm)) return;
-                await api.del(`/documents/${d.id}`);
-                await load();
-              }}>🗑️</button>
-            )}
+            <div className="l-end">
+              {d.status === 'confirmed'
+                ? <span className="badge success"><span className="d" />{t.confirmedStatus}</span>
+                : <span className="badge warning"><span className="d" />{t.draft}</span>}
+              {d.expense_id && <Link className="badge brand" to={`/trips/${tripId}/ledger`}>{t.linkedExpense}</Link>}
+              <a className="btn ghost sm" href={`/api/documents/${d.id}/file`} target="_blank" rel="noreferrer" aria-label={t.viewFile} title={t.viewFile}>
+                <Icon name="eye" size={16} />
+              </a>
+              {canLead && d.status === 'draft' && (
+                <Link className="btn sm" style={{ textDecoration: 'none' }}
+                  to={`/trips/${tripId}/documents/${d.id}/review`}>{t.reviewNow} <Icon name="arrow-r" size={16} /></Link>
+              )}
+              {canLead && (
+                <button type="button" className="btn ghost sm" aria-label={t.delete} onClick={async () => {
+                  if (!window.confirm(d.expense_id ? t.deleteDocLinked : t.deleteDocConfirm)) return;
+                  await api.del(`/documents/${d.id}`);
+                  await load();
+                }}><Icon name="trash" size={16} /></button>
+              )}
+            </div>
           </div>
         ))}
       </div>
@@ -260,8 +270,8 @@ function OcrModal({ files, single, upload, onClose }: {
     <div className="overlay" onClick={() => !running && onClose()}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
         <div className="row-between">
-          <h2>🔎 {t.ocrTitle}</h2>
-          {!running && <button className="icon" onClick={onClose}>✕</button>}
+          <h2><Icon name="search" size={20} /> {t.ocrTitle}</h2>
+          {!running && <button className="icon" onClick={onClose} aria-label={t.close}><Icon name="plus" className="x-close" size={20} /></button>}
         </div>
         <p className="tiny">{file.name}{files.length > 1 ? ` (${idx + 1}/${files.length})` : ''}</p>
         <p className="tiny">{t.ocrHint}</p>
@@ -270,7 +280,7 @@ function OcrModal({ files, single, upload, onClose }: {
             <span key={l.code}
               className={`chip ${langs.includes(l.code) ? 'on' : ''}`}
               onClick={() => !running && toggleLang(l.code)}>
-              {l.label}{!l.local && !langs.includes(l.code) ? ' ⬇️' : ''}
+              {l.label}{!l.local && !langs.includes(l.code) ? <> <Icon name="download" size={16} /></> : ''}
             </span>
           ))}
         </div>
@@ -289,8 +299,8 @@ function OcrModal({ files, single, upload, onClose }: {
         )}
         {err && <p className="callout warn">{err}</p>}
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
-          <button className="btn btn-ghost" disabled={running} onClick={skip}>{t.ocrSkip}</button>
-          <button className="btn" disabled={running} onClick={run}>▶️ {t.ocrStart}</button>
+          <button className="btn ghost" disabled={running} onClick={skip}>{t.ocrSkip}</button>
+          <button className="btn" disabled={running} onClick={run}><Icon name="chev-r" size={16} /> {t.ocrStart}</button>
         </div>
       </div>
     </div>

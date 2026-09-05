@@ -46,7 +46,7 @@ export function randomToken(): string {
 
 export interface SessionUser {
   id: number; email: string; name: string; role: 'admin' | 'member';
-  lang: 'en' | 'ms'; participant_id: number | null; must_change_password: number;
+  lang: 'en' | 'ms'; theme: '' | 'dark' | 'system'; participant_id: number | null; must_change_password: number;
 }
 
 export async function createSession(env: Env, userId: number): Promise<string> {
@@ -60,7 +60,7 @@ export async function createSession(env: Env, userId: number): Promise<string> {
 export async function getSessionUser(env: Env, token: string | undefined): Promise<SessionUser | null> {
   if (!token) return null;
   const row = await env.DB.prepare(
-    `SELECT u.id, u.email, u.name, u.role, u.lang, u.participant_id, u.must_change_password
+    `SELECT u.id, u.email, u.name, u.role, u.lang, u.theme, u.participant_id, u.must_change_password
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token = ? AND s.expires_at > datetime('now') AND u.disabled = 0`,
   ).bind(token).first<SessionUser>();

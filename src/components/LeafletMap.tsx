@@ -6,13 +6,28 @@ export interface Pin { lat: number; lng: number; label?: string; icon?: string }
 
 export interface Arc { from: Pin; to: Pin; label?: string }
 
-export default function LeafletMap({ pins, picked, onPick, height = 260, line = false, arcs = [], accent, focus = null }: {
+export interface Route { points: [number, number][]; mode: string }
+
+// v0.19 per-mode route-line styling (ported from design/ui-refresh/ui.css
+// .leg-train/.leg-walk/.leg-taxi). Colours are literal hex, not CSS vars —
+// Leaflet draws SVG attributes at paint time via its own JS, outside the
+// page's stylesheet cascade, so `var(--gray-400)` would not resolve there;
+// #A8A69F is that token's actual value (src/styles.css --gray-400).
+const ROUTE_STYLE: Record<string, { color: string; dashArray?: string }> = {
+  train: { color: '#0E9384' }, metro: { color: '#0E9384' }, transit: { color: '#0E9384' }, intercity: { color: '#0E9384' },
+  walk: { color: '#A8A69F', dashArray: '1 6' },
+  taxi: { color: '#F79009', dashArray: '7 5' }, car: { color: '#F79009', dashArray: '7 5' }, drive: { color: '#F79009', dashArray: '7 5' },
+};
+const FALLBACK_ROUTE_STYLE = { color: '#A8A69F' };
+
+export default function LeafletMap({ pins, picked, onPick, height = 260, line = false, arcs = [], routes = [], accent, focus = null }: {
   pins: Pin[];
   picked?: Pin | null;
   onPick?: (lat: number, lng: number) => void;
   height?: number;
   line?: boolean;
   arcs?: Arc[];               // dashed great-line connections (e.g. flights)
+  routes?: Route[];           // per-mode leg polylines (Plan page day map)
   accent?: string;            // trip accent colour for pins/lines
   focus?: number | null;      // index into pins to pan to and open — keeps the
                               // itinerary list and the map pointing at one place
@@ -59,7 +74,7 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
     if (!map || !layer) return;
     layer.clearLayers();
     markersRef.current = [];
-    const color = accent || 'var(--data)';
+    const color = accent || 'var(--brand-600)';
     const all: Pin[] = [...pins, ...(picked ? [picked] : []), ...arcs.flatMap(a => [a.from, a.to])];
     pins.forEach((p, i) => {
       const inner = (p as any).icon ?? String(i + 1);
@@ -94,9 +109,13 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
     if (line && pins.length > 1) {
       L.polyline(pins.map(p => [p.lat, p.lng] as [number, number]), { color, weight: 3, dashArray: '6 6' }).addTo(layer);
     }
+    for (const r of routes) {
+      const style = ROUTE_STYLE[r.mode] ?? FALLBACK_ROUTE_STYLE;
+      L.polyline(r.points, { color: style.color, weight: 2.5, dashArray: style.dashArray }).addTo(layer);
+    }
     if (all.length === 1) map.setView([all[0].lat, all[0].lng], 14);
     else if (all.length > 1) map.fitBounds(L.latLngBounds(all.map(p => [p.lat, p.lng] as [number, number])), { padding: [30, 30] });
-  }, [JSON.stringify(pins), JSON.stringify(picked ?? null), line, JSON.stringify(arcs), accent]);
+  }, [JSON.stringify(pins), JSON.stringify(picked ?? null), line, JSON.stringify(arcs), JSON.stringify(routes), accent]);
 
   // Pan to the pin the user tapped in the itinerary list and open its popup.
   useEffect(() => {
@@ -108,5 +127,5 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
     m.openPopup();
   }, [focus, JSON.stringify(pins)]);
 
-  return <div ref={divRef} style={{ height, borderRadius: 8, border: '1px solid var(--line)' }} />;
+  return <div ref={divRef} style={{ height, borderRadius: 8, border: '1px solid var(--border)' }} />;
 }

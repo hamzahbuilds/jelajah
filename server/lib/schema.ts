@@ -16,6 +16,7 @@ export const SCHEMA: string[] = [
     salt TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin','member')),
     lang TEXT NOT NULL DEFAULT 'en' CHECK (lang IN ('en','ms')),
+    theme TEXT NOT NULL DEFAULT '' CHECK (theme IN ('','dark','system')),
     participant_id INTEGER REFERENCES participants(id),
     referred_by INTEGER REFERENCES users(id),
     referral_invite_id INTEGER REFERENCES invites(id),
@@ -40,6 +41,8 @@ export const SCHEMA: string[] = [
     hidden_features TEXT NOT NULL DEFAULT '[]',
     member_can_edit_plan INTEGER NOT NULL DEFAULT 0,
     watch_currencies TEXT NOT NULL DEFAULT '[]',  -- ISO codes shown in the forex widget
+    cover_key TEXT,
+    cover_credit TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS trip_members (
@@ -301,6 +304,9 @@ export const UPGRADES: string[] = [
   `ALTER TABLE users ADD COLUMN referred_by INTEGER REFERENCES users(id)`,
   `ALTER TABLE users ADD COLUMN referral_invite_id INTEGER REFERENCES invites(id)`,
   `ALTER TABLE participants ADD COLUMN created_by INTEGER REFERENCES users(id)`,
+  `ALTER TABLE trips ADD COLUMN cover_key TEXT`,
+  `ALTER TABLE trips ADD COLUMN cover_credit TEXT`,
+  `ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT ''`,
   ...SCHEMA.filter(s =>
     /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily)\b/.test(s)
     || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code/.test(s)),

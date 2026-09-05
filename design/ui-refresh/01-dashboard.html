@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelajah refresh · Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui.css">
+<style>
+  .updot { display:flex; gap:14px; padding:12px 0; border-bottom:1px solid var(--border); }
+  .updot:last-child { border-bottom:none; }
+  .updot .when { width:86px; flex:0 0 auto; font-size:12px; color:var(--ink-3); font-weight:600; padding-top:2px; }
+  .mapmock { height:260px; border-radius:var(--r-md); background:
+    linear-gradient(160deg,var(--brand-50) 0%,var(--gray-100) 60%); position:relative; overflow:hidden; border:1px solid var(--border); }
+  [data-theme="dark"] .mapmock { background:linear-gradient(160deg,rgba(21,183,158,.08),var(--gray-800)); }
+  .mappin { position:absolute; width:26px; height:26px; border-radius:13px; background:var(--brand-600);
+    color:#fff; display:grid; place-items:center; font-size:12px; font-weight:700; box-shadow:var(--shadow-md); }
+  .fxrow { display:flex; align-items:center; gap:14px; padding:12px 0; border-bottom:1px solid var(--border); }
+  .fxrow:last-child { border-bottom:none; }
+  .spark { flex:1; min-width:80px; }
+</style>
+</head><body data-nav="trip" data-page="overview" data-title="Overview" data-icon="i-home">
+<div class="protobar">🎨 prototype v2 · mock data · <a href="index.html">cover</a> <a href="00-trips.html">trips</a> <a href="01-dashboard.html"><b>dashboard</b></a> <a href="02-plan.html">plan</a> <a href="03-wallet.html">money</a> <a href="06-documents.html">docs</a> <a href="07-people.html">people</a> <a href="08-settings.html">settings</a> <a href="04-admin.html">admin</a> <a href="09-auth.html">auth</a> <a href="05-tokens.html">system</a></div>
+
+<div class="shell">
+
+  <main class="main">
+
+    <div class="pagehead">
+      <div class="row">
+        <div><div class="crumb">Jelajah Jepun 2026</div><h1>Overview</h1>
+          <div class="sub">Tokyo &amp; Osaka · 16 travellers · you lead this trip</div></div>
+        <div class="actions"><button class="btn secondary sm"><svg class="i sm"><use href="#i-swap"/></svg> Rates</button><button class="btn sm"><svg class="i sm"><use href="#i-plus"/></svg> Add expense</button></div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="hero">
+        <div class="eyebrow">DEPARTURE · SUN 29 NOV</div>
+        <div class="big">86 days to go</div>
+        <div class="sub">KUL → NRT 00:10 · everyone's passports checked ✓</div>
+        <div class="wm">🗼</div>
+      </div>
+
+      <div class="grid3">
+        <div class="card stat"><span class="k"><span class="tile sm"><svg class="i"><use href="#i-wallet"/></svg></span>Trip total</span><span class="v">RM 7,757</span><span class="t">6 expenses · flights are 83%</span></div>
+        <div class="card stat"><span class="k"><span class="tile sm"><svg class="i"><use href="#i-clock"/></svg></span>Outstanding</span><span class="v">RM 5,555</span><span class="t"><span class="trend-down">▼ RM 320</span> since last week</span></div>
+        <div class="card stat"><span class="k"><span class="tile sm"><svg class="i"><use href="#i-calendar"/></svg></span>Next due date</span><span class="v">15 Sep</span><span class="t">JR Pass instalment · RM 50 · Aina</span></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="cardhead"><h3><svg class="i"><use href="#i-pin"/></svg> Journey</h3><span class="badge gray">1 flight · 3 places · 5,350 km</span></div>
+          <div class="mapmock">
+            <span class="mappin" style="left:18%;top:64%">1</span>
+            <span class="mappin" style="left:52%;top:38%">2</span>
+            <span class="mappin" style="left:74%;top:22%">3</span>
+            <svg width="100%" height="100%"><path d="M 90 180 Q 240 60 420 70" stroke="#0E9384" stroke-width="2" stroke-dasharray="3 7" fill="none"/></svg>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="cardhead"><h3><svg class="i"><use href="#i-swap"/></svg> Currency</h3><div class="seg"><button>1W</button><button class="on">1M</button><button>3M</button><button>1Y</button></div></div>
+          <div class="fxrow">
+            <span class="tile sm" style="font-size:11px;font-weight:700">JPY</span>
+            <div style="min-width:0"><b>1 MYR = 38.63 JPY</b><div style="font-size:12px;color:var(--ink-3)">band 38.89 – 39.85</div></div>
+            <svg class="spark" viewBox="0 0 120 36"><rect x="0" y="8" width="120" height="14" fill="var(--tile)"/><polyline points="0,20 15,16 30,18 45,10 60,13 75,22 90,26 105,24 120,28" fill="none" stroke="var(--brand-600)" stroke-width="1.5"/></svg>
+            <span class="badge warning"><span class="d"></span>Consider waiting</span>
+          </div>
+          <div class="fxrow">
+            <span class="tile sm" style="font-size:11px;font-weight:700">USD</span>
+            <div style="min-width:0"><b>1 MYR = 0.2473 USD</b><div style="font-size:12px;color:var(--ink-3)">band 0.2462 – 0.2478</div></div>
+            <svg class="spark" viewBox="0 0 120 36"><rect x="0" y="10" width="120" height="12" fill="var(--tile)"/><polyline points="0,24 20,20 40,16 60,18 80,15 100,17 120,16" fill="none" stroke="var(--brand-600)" stroke-width="1.5"/></svg>
+            <span class="badge gray"><span class="d"></span>Usual range</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="cardhead"><h3><svg class="i"><use href="#i-clock"/></svg> Up next</h3><a href="02-plan.html" style="font-size:13px;font-weight:600">Open plan →</a></div>
+          <div class="updot"><span class="when">Sun 29 Nov</span><span class="tile sm"><svg class="i"><use href="#i-plane"/></svg></span><div><b>KUL → Tokyo (OD872)</b><div style="font-size:13px;color:var(--ink-2)">00:10 · in 86 days · everyone</div></div></div>
+          <div class="updot"><span class="when">Mon 30 Nov</span><span class="tile sm"><svg class="i"><use href="#i-camera"/></svg></span><div><b>teamLab Planets</b><div style="font-size:13px;color:var(--ink-2)">10:30 · booked · RM 160/pax</div></div></div>
+          <div class="updot"><span class="when">Mon 30 Nov</span><span class="tile sm"><svg class="i"><use href="#i-temple"/></svg></span><div><b>Sensoji Temple</b><div style="font-size:13px;color:var(--ink-2)">16:30 · free entry</div></div></div>
+        </div>
+
+        <div class="card">
+          <div class="cardhead"><h3><svg class="i"><use href="#i-users"/></svg> Largest outstanding</h3><a href="03-wallet.html" style="font-size:13px;font-weight:600">Payments →</a></div>
+          <table class="table">
+            <tr><td><span class="avatar">MI</span></td><td>Mak Long Ismah</td><td class="num">RM 1,858.50</td><td><span class="badge error"><span class="d"></span>2 items</span></td></tr>
+            <tr><td><span class="avatar">AN</span></td><td>Aina Nadhirah</td><td class="num">RM 375.54</td><td><span class="badge warning"><span class="d"></span>due 15 Sep</span></td></tr>
+            <tr><td><span class="avatar">DR</span></td><td>Danish Rifqi</td><td class="num">RM 256.18</td><td><span class="badge gray"><span class="d"></span>no due date</span></td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+
+<script src="icons.js"></script>
+<script src="nav.js"></script>
+<script src="ux.js"></script>
+</body></html>

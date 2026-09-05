@@ -1,0 +1,15 @@
+import { chromium } from 'playwright';
+const base = 'file://' + process.cwd() + '/design/ui-refresh/';
+const b = await chromium.launch();
+const d = await b.newPage({ viewport: { width: 1440, height: 860 } });
+const errs = []; d.on('pageerror', e => errs.push(e.message));
+await d.goto(base + '09-auth.html'); await d.waitForTimeout(2500);
+await d.screenshot({ path: 'e2e-shots/v8-auth-desktop.png' });
+await d.evaluate(() => mode('join')); await d.waitForTimeout(300);
+await d.screenshot({ path: 'e2e-shots/v8-auth-join.png' });
+const m = await b.newPage({ viewport: { width: 390, height: 844 } });
+m.on('pageerror', e => errs.push('m:' + e.message));
+await m.goto(base + '09-auth.html'); await m.waitForTimeout(2000);
+await m.screenshot({ path: 'e2e-shots/v8-auth-mobile.png' });
+console.log(errs.length ? 'ERR: ' + errs.join('|') : 'clean');
+await b.close();

@@ -1,8 +1,12 @@
 // v0.12 personal access tokens — create (shown once) and revoke.
+// v0.19: revoke confirmation moved from an immediate action into a Modal
+// destructive pattern (red primary, "no undo" copy) — proof wiring for Task 5.
 import { useEffect, useState } from 'react';
 import { api, fmtDate } from '../api';
 import { useT } from '../i18n';
 import { useToast } from './Toast';
+import Modal from './Modal';
+import { Icon } from './Icon';
 
 export default function TokenCard() {
   const { t, lang } = useT();
@@ -10,6 +14,7 @@ export default function TokenCard() {
   const [tokens, setTokens] = useState<any[]>([]);
   const [name, setName] = useState('');
   const [fresh, setFresh] = useState<string | null>(null);
+  const [pendingRevoke, setPendingRevoke] = useState<{ id: number; name: string } | null>(null);
 
   const load = async () => setTokens(await api.get('/tokens'));
   useEffect(() => { load(); }, []);
@@ -24,6 +29,7 @@ export default function TokenCard() {
   };
 
   const revoke = async (id: number) => {
+    setPendingRevoke(null);
     await api.del(`/tokens/${id}`);
     toast(t.tokenRevoked);
     await load();
@@ -32,7 +38,7 @@ export default function TokenCard() {
   return (
     <div style={{ marginTop: 12 }}>
       <div className="row-between">
-        <strong style={{ fontSize: '.9rem' }}>🔑 {t.accessTokens}</strong>
+        <strong style={{ fontSize: '.9rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}><Icon name="key" size={16} /> {t.accessTokens}</strong>
       </div>
       {fresh && (
         <div className="callout info" style={{ margin: '8px 0' }}>
@@ -41,18 +47,35 @@ export default function TokenCard() {
         </div>
       )}
       {tokens.map(tk => (
-        <div className="row-between" key={tk.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+        <div className="row-between" key={tk.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
           <span style={{ fontSize: '.85rem' }}>
-            {tk.name} {tk.revoked ? <span className="badge warn">{t.revokedLbl}</span> : null}
+            {tk.name} {tk.revoked ? <span className="badge warning">{t.revokedLbl}</span> : null}
             <span className="tiny"> · {tk.last_used_at ? `${t.lastUsed} ${fmtDate(tk.last_used_at.slice(0, 10), lang)}` : t.neverUsed}</span>
           </span>
-          {!tk.revoked && <button className="btn btn-ghost btn-sm" onClick={() => revoke(tk.id)}>{t.revoke}</button>}
+          {!tk.revoked && <button className="btn ghost sm" onClick={() => setPendingRevoke({ id: tk.id, name: tk.name })}>{t.revoke}</button>}
         </div>
       ))}
       <form className="row" onSubmit={create} style={{ marginTop: 8 }}>
         <input value={name} onChange={e => setName(e.target.value)} placeholder={t.tokenName} required style={{ maxWidth: 220 }} />
-        <button className="btn btn-sm" type="submit">＋ {t.newToken}</button>
+        <button className="btn sm" type="submit">＋ {t.newToken}</button>
       </form>
+      <Modal
+        open={pendingRevoke !== null}
+        onClose={() => setPendingRevoke(null)}
+        icon="trash"
+        title={`${t.revoke} "${pendingRevoke?.name ?? ''}"?`}
+        sub={t.deleteNoUndo}
+        closeLabel={t.close}
+        footer={
+          <>
+            <button className="btn secondary" onClick={() => setPendingRevoke(null)}>{t.cancel}</button>
+            <button className="btn danger"
+              onClick={() => pendingRevoke && revoke(pendingRevoke.id)}>
+              {t.revoke}
+            </button>
+          </>
+        }
+      />
     </div>
   );
 }

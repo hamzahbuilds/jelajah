@@ -1,6 +1,8 @@
 // v0.12 global toast system — every add/save/delete confirms itself.
-// success: trip-accent ✓, auto-dismiss; error: red, stays until tapped.
+// success: trip-accent check, auto-dismiss; error: red, stays until tapped.
+// v0.19: pill restyle (.toast, ported from prototype .jtoast) — API/logic unchanged.
 import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { Icon } from './Icon';
 
 export interface ToastMsg { id: number; text: string; kind: 'ok' | 'error'; leaving?: boolean }
 
@@ -28,7 +30,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       <div className="toasts" aria-live="polite" aria-atomic="false">
         {list.map(m => (
           <div key={m.id} className={`toast ${m.kind} ${m.leaving ? 'leaving' : ''}`} onClick={() => dismiss(m.id)}>
-            <span className="ti">{m.kind === 'ok' ? '✓' : '⚠️'}</span> {m.text}
+            {m.kind === 'ok' ? <Icon name="check" className="i" size={16} /> : <Icon name="alert" className="i" size={16} />}
+            {m.text}
           </div>
         ))}
       </div>

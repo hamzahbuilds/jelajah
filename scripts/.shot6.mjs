@@ -1,0 +1,13 @@
+import { chromium } from 'playwright';
+const base = 'file://' + process.cwd() + '/design/ui-refresh/';
+const b = await chromium.launch();
+const d = await b.newPage({ viewport: { width: 1280, height: 800 } });
+await d.goto(base + '08-settings.html'); await d.waitForTimeout(500);
+await d.screenshot({ path: 'e2e-shots/v5-settings-desktop.png' });
+await d.goto(base + '00-trips.html'); await d.waitForTimeout(600);
+await d.screenshot({ path: 'e2e-shots/v5-home-desktop.png' });
+const m = await b.newPage({ viewport: { width: 390, height: 844 } });
+await m.goto(base + '03-wallet.html'); await m.waitForTimeout(400);
+const el = await m.$('.tab[data-key=more]'); await el.click(); await m.waitForTimeout(300);
+await m.screenshot({ path: 'e2e-shots/v5-more-sheet.png' });
+await b.close(); console.log('done');

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelajah UI Refresh — proposal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui.css">
+<style>
+  .cover { max-width:880px; margin:0 auto; padding:48px 20px 96px; }
+  .cover h1 { font-size:36px; line-height:1.1; letter-spacing:-1px; font-weight:700; margin:8px 0; }
+  .shots { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:24px 0; }
+  @media (max-width:640px){ .shots { grid-template-columns:1fr; } }
+  .shot { display:block; border:1px solid var(--border); border-radius:var(--r-lg); background:var(--surface);
+    box-shadow:var(--shadow-xs); padding:18px; color:var(--ink); }
+  .shot:hover { box-shadow:var(--shadow-md); }
+  .shot b { display:flex; gap:10px; align-items:center; font-size:15px; }
+  .shot p { color:var(--ink-2); font-size:13px; margin:6px 0 0 42px; }
+  .kv { display:grid; grid-template-columns:170px 1fr; gap:8px 16px; font-size:14px; }
+  .kv dt { color:var(--ink-3); font-weight:500; }
+  .kv dd { margin:0; }
+</style>
+</head><body>
+<div class="protobar">🎨 prototype v2 · mock data only · nothing here touches the live app</div>
+<div class="cover">
+  <div class="badge brand" style="margin-bottom:8px"><span class="d"></span>Proposal · not implemented</div>
+  <h1>Jelajah, in Untitled UI clothes</h1>
+  <p style="font-size:16px;color:var(--ink-2);max-width:640px">
+    Same features, new bones: an Untitled UI shell (Inter, gray + teal scales, 8px grid),
+    a sidebar on desktop, a thumb-reach tab bar on mobile, a proper stroke-icon system, and one signature that keeps
+    Jelajah feeling like a family trip and not a SaaS invoice — the numbered day rail. Every screen below is clickable mock data. Try 🌗 dark mode.
+  </p>
+
+  <div class="shots">
+    <a class="shot" href="00-trips.html"><b><span class="tile sm"><svg class="i"><use href="#i-folder"/></svg></span>My trips</b><p>The home for every user — trip cards with role badges, plus the new-trip entry.</p></a>
+    <a class="shot" href="01-dashboard.html"><b><span class="tile sm"><svg class="i"><use href="#i-home"/></svg></span>Dashboard</b><p>Countdown hero, metric cards, journey + currency side by side, balances.</p></a>
+    <a class="shot" href="02-plan.html"><b><span class="tile sm"><svg class="i"><use href="#i-calendar"/></svg></span>Plan</b><p>A full day on the numbered day rail — 8 stops, legs, meals — synced to the map.</p></a>
+    <a class="shot" href="03-wallet.html"><b><span class="tile sm"><svg class="i"><use href="#i-wallet"/></svg></span>Money</b><p>Ledger / Payments / My-spend unified; mobile-safe list rows replace squished tables.</p></a>
+    <a class="shot" href="06-documents.html"><b><span class="tile sm"><svg class="i"><use href="#i-file"/></svg></span>Documents</b><p>Dropzone, parse statuses, and the keyword-chip review flow.</p></a>
+    <a class="shot" href="07-people.html"><b><span class="tile sm"><svg class="i"><use href="#i-users"/></svg></span>People</b><p>Members with role selects, invite links, trip details, the danger zone.</p></a>
+    <a class="shot" href="08-settings.html"><b><span class="tile sm"><svg class="i"><use href="#i-settings"/></svg></span>Settings</b><p>Every user page: MCP tokens, referral link, language.</p></a>
+    <a class="shot" href="09-auth.html"><b><span class="tile sm"><svg class="i"><use href="#i-key"/></svg></span>Login &amp; Join</b><p>The front door and the invite-link registration card.</p></a>
+    <a class="shot" href="04-admin.html"><b><span class="tile sm"><svg class="i"><use href="#i-shield"/></svg></span>Admin</b><p>Platform dashboard: stats, signups bars, feature usage, referral leaderboard.</p></a>
+    <a class="shot" href="05-tokens.html"><b><span class="tile sm"><svg class="i"><use href="#i-chart"/></svg></span>Design system</b><p>The token sheet — palettes, type, components, layout rules. Build starts here.</p></a>
+  </div>
+
+  <div class="card">
+    <h3>What changes, in five lines</h3>
+    <dl class="kv" style="margin-top:12px">
+      <dt>Navigation</dt><dd>Top tab strip → desktop <b>sidebar</b> + mobile <b>bottom tab bar</b> (5 slots; Ledger/Payments/My-spend fold into <b>Money</b>).</dd>
+      <dt>Look</dt><dd>Untitled UI tokens: Inter, gray-25…950, teal brand scale (your #0F766E ≈ teal-700 — the brand survives), radius 12 cards, pill badges with status dots.</dd>
+      <dt>Icons</dt><dd>Lucide-style 2px stroke icons in Untitled UI featured tiles; emoji remain only as user content (a trip picks its own badge).</dd>
+      <dt>Signature</dt><dd>The Plan becomes a <b>numbered day rail</b> whose nodes are literally the map pins.</dd>
+      <dt>Mobile</dt><dd>48px touch targets, thumb-zone navigation, safe-area insets, one-hand reachable actions.</dd>
+      <dt>Dark mode</dt><dd>Free at the token layer — toggle on every page of this prototype.</dd>
+    </dl>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3>Noted for the real build (beyond this mockup)</h3>
+    <ul style="margin:8px 0 0;padding-left:18px;color:var(--ink-2);line-height:1.9;font-size:14px">
+      <li><b>Route lines by transport mode</b> — the day map draws each leg in its mode's style (train solid teal · walk dotted gray · taxi dashed amber). The app already computes per-leg modes, so this is a straight Leaflet polyline-style mapping.</li>
+      <li><b>Navigation v4</b> — Home always opens the trips folder; trip pages get a fixed, collapsible sidebar (icons-only rail, choice persisted). On mobile, long-press Plan/Money/Docs in the tab bar to open the trip switcher sheet; More holds People, Settings, Admin, log out. Real build: same localStorage persistence, plus per-user server-side once settings sync lands.</li>
+      <li><b>Auth carousel</b> — login page cycles destination photography (Ken Burns crossfade, 6s, paused for reduced-motion). Mock uses random picsum seeds, so photos won't match captions — real build ships 5–6 curated, licensed images bundled as static assets (no API needed).</li>
+      <li><b>Trip covers</b> — leader uploads an image (KV, same store as documents) or Jelajah auto-fetches one for the destination from a keyless source (Wikimedia/Wikivoyage page image via geocode). Mock uses placeholder photos.</li>
+      <li><b>Theme setting</b> — Light / Dark / System persisted per user (localStorage first, `users` column later so it follows logins).</li>
+    </ul>
+  </div>
+</div>
+<script src="icons.js"></script>
+<script src="nav.js"></script>
+</body></html>

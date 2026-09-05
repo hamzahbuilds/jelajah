@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelajah refresh · People</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui.css">
+<style>
+  .roleselect { border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--ink);
+    font:inherit; font-size:13px; font-weight:600; padding:7px 10px; min-height:36px; }
+  .danger-card { border-color:#FECDCA; }
+  [data-theme="dark"] .danger-card { border-color:#7A271A; }
+  .invlink { font-family:ui-monospace,monospace; font-size:12px; color:var(--ink-2);
+    background:var(--gray-100); border-radius:8px; padding:8px 10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  [data-theme="dark"] .invlink { background:var(--gray-800); }
+</style>
+</head><body data-nav="trip" data-page="people" data-title="People" data-icon="i-users">
+<div class="protobar">🎨 prototype v2 · mock data · <a href="index.html">cover</a> <a href="00-trips.html">trips</a> <a href="01-dashboard.html">dashboard</a> <a href="02-plan.html">plan</a> <a href="03-wallet.html">money</a> <a href="06-documents.html">docs</a> <a href="07-people.html"><b>people</b></a> <a href="08-settings.html">settings</a> <a href="04-admin.html">admin</a> <a href="09-auth.html">auth</a> <a href="05-tokens.html">system</a></div>
+
+<div class="shell">
+
+  <main class="main">
+
+    <div class="pagehead">
+      <div class="row">
+        <div><div class="crumb">Jelajah Jepun 2026</div><h1>People</h1>
+          <div class="sub">Travellers, roles, invites and the trip's own settings</div></div>
+        <div class="actions"><button class="btn sm"><svg class="i sm"><use href="#i-plus"/></svg> Add traveller</button></div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <div class="cardhead"><h3>Trip members</h3><span class="badge gray">16 travellers · 5 with accounts</span></div>
+        <div class="lrow">
+          <span class="avatar">HZ</span>
+          <div class="l-main"><b>Hamzah</b><small>you · leads this trip</small></div>
+          <div class="l-end"><select class="roleselect"><option selected>Leader</option><option>Editor</option><option>Viewer</option></select></div>
+        </div>
+        <div class="lrow">
+          <span class="avatar">AN</span>
+          <div class="l-main"><b>Aina Nadhirah</b><small>account · joined via your invite</small></div>
+          <div class="l-end"><select class="roleselect"><option>Leader</option><option selected>Editor</option><option>Viewer</option></select>
+            <button class="btn ghost sm" title="Make leader & step down"><svg class="i sm"><use href="#i-flag"/></svg></button></div>
+        </div>
+        <div class="lrow">
+          <span class="avatar">DR</span>
+          <div class="l-main"><b>Danish Rifqi</b><small>account</small></div>
+          <div class="l-end"><select class="roleselect"><option>Leader</option><option>Editor</option><option selected>Viewer</option></select>
+            <button class="btn ghost sm" title="Make leader & step down"><svg class="i sm"><use href="#i-flag"/></svg></button></div>
+        </div>
+        <div class="lrow">
+          <span class="avatar">MI</span>
+          <div class="l-main"><b>Mak Long Ismah</b><small>no account — traveller only</small></div>
+          <div class="l-end"><span class="badge gray">Traveller</span><button class="btn secondary sm"><svg class="i sm"><use href="#i-key"/></svg> Create login</button></div>
+        </div>
+        <div class="lrow">
+          <span class="avatar" style="background:var(--gray-100);color:var(--gray-500)">HA</span>
+          <div class="l-main"><b>Hareth Azran</b><small>infant · no account</small></div>
+          <div class="l-end"><span class="badge gray">Traveller</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-link"/></svg> Invite links</h3>
+          <div style="display:flex;gap:8px;align-items:center"><select class="roleselect"><option selected>Joins as Viewer</option><option>Joins as Editor</option></select>
+          <button class="btn sm"><svg class="i sm"><use href="#i-plus"/></svg> New link</button></div></div>
+        <div class="lrow">
+          <span class="tile sm"><svg class="i"><use href="#i-link"/></svg></span>
+          <div class="l-main"><div class="invlink">jelajah.dev/join/inv_9f3a…c21e</div><small>Editor · 3/10 used · until 19 Sep</small></div>
+          <div class="l-end"><button class="btn secondary sm"><svg class="i sm"><use href="#i-copy"/></svg> Copy</button>
+            <button class="btn ghost sm" title="Revoke"><svg class="i sm"><use href="#i-trash"/></svg></button></div>
+        </div>
+        <div class="lrow">
+          <span class="tile sm"><svg class="i"><use href="#i-link"/></svg></span>
+          <div class="l-main"><div class="invlink">jelajah.dev/join/inv_1bb0…77aa</div><small>Viewer · 8/10 used · until 12 Sep</small></div>
+          <div class="l-end"><button class="btn secondary sm"><svg class="i sm"><use href="#i-copy"/></svg> Copy</button>
+            <button class="btn ghost sm" title="Revoke"><svg class="i sm"><use href="#i-trash"/></svg></button></div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-edit"/></svg> Trip details</h3></div>
+          <div class="stack" style="gap:12px">
+            <label style="font-size:13px;font-weight:500;color:var(--ink-2)">Trip name
+              <input value="Jelajah Jepun 2026" style="display:block;width:100%;margin-top:4px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit"></label>
+            <div class="grid2" style="gap:12px">
+              <label style="font-size:13px;font-weight:500;color:var(--ink-2)">Starts
+                <input type="date" value="2026-11-29" style="display:block;width:100%;margin-top:4px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit"></label>
+              <label style="font-size:13px;font-weight:500;color:var(--ink-2)">Ends
+                <input type="date" value="2026-12-07" style="display:block;width:100%;margin-top:4px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit"></label>
+            </div>
+            <p class="hint" style="margin:0">Shortening the dates never deletes anything — days with activities keep showing.</p>
+            <div style="display:flex;justify-content:flex-end"><button class="btn sm">Save changes</button></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-eye"/></svg> Visibility</h3></div>
+          <p class="hint">Hide features from everyone who isn't a leader.</p>
+          <div class="notes">
+            <div class="lrow" style="padding:10px 0"><div class="l-main"><b>Payments &amp; balances</b></div><div class="l-end"><span class="badge success"><span class="d"></span>Visible</span></div></div>
+            <div class="lrow" style="padding:10px 0"><div class="l-main"><b>Ledger</b></div><div class="l-end"><span class="badge success"><span class="d"></span>Visible</span></div></div>
+            <div class="lrow" style="padding:10px 0"><div class="l-main"><b>AI assistant</b></div><div class="l-end"><span class="badge gray"><span class="d"></span>Hidden</span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card danger-card">
+        <div class="cardhead"><h3 style="color:var(--error-700)"><svg class="i"><use href="#i-trash"/></svg> Delete this trip</h3></div>
+        <p class="hint">Removes every plan, expense and document. There is no undo. Type the trip name to arm the button.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <input placeholder="Jelajah Jepun 2026" style="flex:1;min-width:200px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit">
+          <button class="btn danger" disabled style="opacity:.5">Delete trip</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+
+<script src="icons.js"></script>
+<script src="nav.js"></script>
+<script src="ux.js"></script>
+</body></html>

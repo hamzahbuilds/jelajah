@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelajah refresh · Documents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui.css">
+<style>
+  .drop { border:1.5px dashed var(--gray-300); border-radius:var(--r-xl); padding:32px 20px; text-align:center; color:var(--ink-2); }
+  [data-theme="dark"] .drop { border-color:var(--gray-700); }
+  .drop .tile { margin:0 auto 12px; }
+  .drop b { display:block; font-size:15px; color:var(--ink); }
+  .drop small { color:var(--ink-3); }
+</style>
+</head><body data-nav="trip" data-page="docs" data-title="Documents" data-icon="i-file">
+<div class="protobar">🎨 prototype v2 · mock data · <a href="index.html">cover</a> <a href="00-trips.html">trips</a> <a href="01-dashboard.html">dashboard</a> <a href="02-plan.html">plan</a> <a href="03-wallet.html">money</a> <a href="06-documents.html"><b>docs</b></a> <a href="07-people.html">people</a> <a href="08-settings.html">settings</a> <a href="04-admin.html">admin</a> <a href="09-auth.html">auth</a> <a href="05-tokens.html">system</a></div>
+
+<div class="shell">
+
+  <main class="main">
+
+    <div class="pagehead">
+      <div class="row">
+        <div><div class="crumb">Jelajah Jepun 2026</div><h1>Documents</h1>
+          <div class="sub">Drop a booking PDF or receipt photo — Jelajah reads it and drafts the expense</div></div>
+        <div class="actions"><button class="btn sm"><svg class="i sm"><use href="#i-upload"/></svg> Upload</button></div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="drop">
+        <span class="tile"><svg class="i"><use href="#i-upload"/></svg></span>
+        <b>Drop files here, or tap to choose</b>
+        <small>PDF, JPG, PNG · Trip.com, Airbnb, AirAsia read automatically · anything else via OCR</small>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3>Uploaded</h3><span class="badge gray">4 documents</span></div>
+        <div class="lrow">
+          <span class="tile"><svg class="i"><use href="#i-plane"/></svg></span>
+          <div class="l-main"><b>KUL_NRT_Itinerary.pdf</b><small>AirAsia itinerary · 2 legs · 16 passengers matched</small></div>
+          <div class="l-end"><span class="badge success"><span class="d"></span>Confirmed</span><button class="btn ghost sm"><svg class="i sm"><use href="#i-eye"/></svg></button></div>
+        </div>
+        <div class="lrow">
+          <span class="tile"><svg class="i"><use href="#i-hotel"/></svg></span>
+          <div class="l-main"><b>Checkin_Voucher.pdf</b><small>Trip.com voucher · pay at hotel · due on check-in</small></div>
+          <div class="l-end"><span class="badge warning"><span class="d"></span>Committed</span><button class="btn ghost sm"><svg class="i sm"><use href="#i-eye"/></svg></button></div>
+        </div>
+        <div class="lrow">
+          <span class="tile"><svg class="i"><use href="#i-receipt"/></svg></span>
+          <div class="l-main"><b>ereceipt_jrpass.jpg</b><small>Read by OCR · amount + date found · 2 keywords to review</small></div>
+          <div class="l-end"><span class="badge brand"><span class="d"></span>Review draft</span><button class="btn sm">Review <svg class="i sm"><use href="#i-arrow-r"/></svg></button></div>
+        </div>
+        <div class="lrow">
+          <span class="tile"><svg class="i"><use href="#i-file"/></svg></span>
+          <div class="l-main"><b>travel_insurance.pdf</b><small>Uploading · 68%</small></div>
+          <div class="l-end"><span class="badge gray"><span class="d"></span>Uploading</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3>Receipts</h3><span class="badge gray">0 files</span></div>
+        <div class="empty">
+          <span class="etile"><svg class="i"><use href="#i-receipt"/></svg></span>
+          <h4>No receipts yet</h4>
+          <p>Snap or upload receipts as you spend — Jelajah reads the amounts and drafts the expense for you.</p>
+          <button class="btn sm" onclick="jlToast('Upload — mock')"><svg class="i sm"><use href="#i-upload"/></svg> Upload a receipt</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3>Review draft — ereceipt_jrpass.jpg</h3><span class="badge brand"><span class="d"></span>Detected keywords</span></div>
+        <p class="hint">Tap a chip to fill the expense form with it.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+          <button class="btn secondary sm">RM 148.50</button>
+          <button class="btn secondary sm">15 Sep 2026</button>
+          <button class="btn secondary sm">Ref: JRP-8841</button>
+          <button class="btn secondary sm">Klook</button>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:flex-end">
+          <button class="btn ghost sm">Discard</button>
+          <button class="btn sm"><svg class="i sm"><use href="#i-check"/></svg> Confirm into ledger</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+
+<script src="icons.js"></script>
+<script src="nav.js"></script>
+<script src="ux.js"></script>
+</body></html>

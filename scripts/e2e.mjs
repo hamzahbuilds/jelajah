@@ -45,8 +45,8 @@ await shot('03-dashboard-empty');
 console.log('dashboard ok:', await page.textContent('.hero .big'));
 
 // 3. upload the Trip.com Visa receipt
-await page.click('nav.tabs a:has-text("Documents")');
-await page.waitForSelector('.dropzone');
+await page.click('.sidebar a.nav-item:has-text("Documents")');
+await page.waitForSelector('.drop2');
 await page.setInputFiles('input[type=file]', 'docs-samples/db86bdd3-Ereceipt_from_Hamzah_Travels.pdf');
 await page.waitForURL(/review/, { timeout: 30000 });
 await page.waitForSelector('text=Review extracted data');
@@ -60,16 +60,21 @@ console.log('parse ok:', desc);
 
 // payer: pick Hamzah Bin Hamizan
 await page.selectOption('.card form select[required]', { label: 'Hamzah Bin Hamizan' });
-await page.click('.card form button.btn:not(.btn-ghost) >> nth=-1');
+await page.click('.card form button.btn:not(.ghost) >> nth=-1');
 await page.waitForURL(/ledger/);
-await page.waitForSelector('table');
+await page.waitForSelector('.lrow');
 await shot('05-ledger');
-const total = await page.textContent('.row-between .muted strong');
+// v0.19: the filtered total moved from an inline count row into the first
+// stat card ("Trip total") atop the Ledger page.
+const total = await page.textContent('.stats .stat .v >> nth=0');
 if (!/5,508/.test(total ?? '')) await fail(`ledger total wrong: ${total}`);
 console.log('ledger ok:', total);
 
 // 4. record a payment: Hairuni → Hamzah RM 500
-await page.click('nav.tabs a:has-text("Payments")');
+// Money is a single sidebar nav item now (targets ledger/payments/myspend by
+// priority) — Payments isn't its default target while ledger is visible, so
+// reach it directly by URL (brief-sanctioned fallback for merged Money nav).
+await page.goto(`${BASE}/trips/1/payments`);
 await page.waitForSelector('text=Record payment');
 await page.selectOption('form.card select >> nth=0', { label: 'Hairuni Binti Hassim' });
 await page.selectOption('form.card select >> nth=1', { label: 'Hamzah Bin Hamizan' });
@@ -83,7 +88,7 @@ if (!bodyText.includes('1,336.00')) await fail('expected Hairuni remaining RM1,3
 console.log('payments ok: Hairuni remaining 1,336.00 found');
 
 // 5. dashboard now has money data
-await page.click('nav.tabs a:has-text("Dashboard")');
+await page.click('.sidebar a.nav-item:has-text("Overview")');
 await page.waitForSelector('.barlist .barrow');
 await shot('07-dashboard');
 
@@ -94,8 +99,11 @@ await page.waitForSelector('.check-item');
 await shot('08-dashboard-checklist');
 
 // 7. BM language switch
-await page.selectOption('.topbar select', 'ms');
-await page.waitForSelector('nav.tabs a:has-text("Papan pemuka")');
+// .topbar is mobile-only chrome (hidden >=1024px) — the sidebar's language
+// select is the desktop equivalent, and the Dashboard tab is now the
+// sidebar's "Overview" nav item (BM: "Ringkasan").
+await page.selectOption('.side-lang', 'ms');
+await page.waitForSelector('.sidebar a.nav-item:has-text("Ringkasan")');
 await shot('09-dashboard-bm');
 console.log('BM switch ok');
 
@@ -106,12 +114,12 @@ await shot('10-mobile-dashboard');
 
 /* ---------------- Phase 2 ---------------- */
 await page.setViewportSize({ width: 1280, height: 900 });
-await page.selectOption('.topbar select', 'en');
-await page.waitForSelector('nav.tabs a:has-text("Dashboard")');
+await page.selectOption('.side-lang', 'en');
+await page.waitForSelector('.sidebar a.nav-item:has-text("Overview")');
 
 // 9. upload the flight ITINERARY (same booking no) as document-only → enriches plan with times
-await page.click('nav.tabs a:has-text("Documents")');
-await page.waitForSelector('.dropzone');
+await page.click('.sidebar a.nav-item:has-text("Documents")');
+await page.waitForSelector('.drop2');
 await page.setInputFiles('input[type=file]', 'docs-samples/12fa568b-Itinerary_from_Hamzah_Travels.pdf');
 await page.waitForURL(/review/, { timeout: 30000 });
 await page.waitForSelector('text=Review extracted data');
@@ -129,7 +137,7 @@ console.log('itinerary doc-only ok');
 // (goto instead of tab-click: the Documents list re-renders right after confirm,
 // which can swallow a click on the tab bar — observed flake)
 await page.goto(`${BASE}/trips/1/plan`);
-await page.waitForSelector('.daychips');
+await page.waitForSelector('.daypills');
 await page.waitForTimeout(600);
 await shot('11-plan-day');
 const planBody = await page.textContent('body');
@@ -145,9 +153,9 @@ await page.fill('.modal input[type=date]', '2026-11-30');
 await page.fill('.modal input[type=time] >> nth=0', '10:30');
 await page.fill('.modal input[type=number]', '160');
 await page.click('.modal button:has-text("Everyone")');
-await page.click('.modal button.btn:not(.btn-ghost):has-text("Save")');
+await page.click('.modal .mfoot button.btn:not(.secondary):has-text("Save")');
 await page.waitForSelector('.modal', { state: 'detached' });
-await page.click('.daychip:has-text("D2")');
+await page.click('.daypill:has-text("D2")');
 await page.waitForSelector('text=Lawatan teamLab Planets');
 await shot('12-plan-activity');
 console.log('activity add ok');
@@ -158,7 +166,7 @@ await page.waitForSelector('.cal-grid');
 await shot('13-plan-month');
 
 // 13. hide Ledger+Payments from members; Accounts card moved off People onto /admin (v0.17 Addendum 2)
-await page.click('nav.tabs a:has-text("People")');
+await page.click('.sidebar a.nav-item:has-text("People")');
 await page.waitForSelector('text=Member visibility');
 await page.uncheck(`label:has-text("Ledger") input`);
 await page.waitForTimeout(300);
@@ -194,9 +202,17 @@ await p2.click('.login-card button');
 await p2.waitForURL(`${BASE}/`);
 await p2.click('text=Jelajah Jepun 2026');
 await p2.waitForSelector('.hero');
-const tabs = await p2.$$eval('nav.tabs a', els => els.map(e => e.textContent));
-if (tabs.some(x => /Ledger|Payments/.test(x))) await fail(`member still sees hidden tabs: ${tabs}`);
-if (!tabs.some(x => /Plan/.test(x))) await fail('member should still see Plan');
+// Ledger/Payments no longer have their own sidebar entries — they're both
+// folded into the single "Money" nav item, whose href picks the first
+// visible sub-page (ledger → payments → myspend). With both hidden for this
+// member, Money's href must fall through past both to /myspend; asserting
+// that preserves the original intent (member's nav cannot reach either
+// hidden page) even though there's no separate "Ledger"/"Payments" label to
+// grep for any more.
+const navLinks = await p2.$$eval('.sidebar a.nav-item', els => els.map(e => ({ href: e.getAttribute('href'), text: e.textContent })));
+const moneyLink = navLinks.find(x => /\/(ledger|payments|myspend)$/.test(x.href ?? ''));
+if (!moneyLink || /\/(ledger|payments)$/.test(moneyLink.href)) await fail(`member's Money nav should route to myspend (ledger+payments hidden), got ${JSON.stringify(moneyLink)}`);
+if (!navLinks.some(x => /Plan/.test(x.text ?? ''))) await fail('member should still see Plan');
 const memberBody = await p2.textContent('body');
 if (memberBody.includes('TRIP TOTAL') || memberBody.includes('Trip total')) await fail('member still sees money widgets');
 await p2.screenshot({ path: `${OUT}/15-member-hidden.png`, fullPage: true });
@@ -222,9 +238,9 @@ await page.evaluate(async (a) => {
     body: JSON.stringify({ title: 'Sensoji Temple', day: a.day, start_time: '15:00', lat: 35.7148, lng: 139.7967, participant_ids: [] }),
   });
 }, act0);
-await page.click('nav.tabs a:has-text("Plan")');
-await page.waitForSelector('.daychips');
-await page.click('.daychip:has-text("D2")');
+await page.click('.sidebar a.nav-item:has-text("Plan")');
+await page.waitForSelector('.daypills');
+await page.click('.daypill:has-text("D2")');
 await page.waitForSelector('.leg-row');
 const legText = await page.textContent('body');
 if (!legText.includes('¥')) await fail('leg fare in ¥ missing');
@@ -240,7 +256,9 @@ if (!ov.length || ov[0].mode !== 'taxi') await fail('leg override not persisted'
 console.log('leg override ok');
 
 // 15. My spend (admin's own) + privacy vs member + promote
-await page.click('nav.tabs a:has-text("My spend")');
+// Money's sidebar target is ledger for admin (ledger visible) — go straight
+// to My spend by URL rather than via the merged Money nav item.
+await page.goto(`${BASE}/trips/1/myspend`);
 await page.waitForSelector('text=Add spending');
 await page.fill('form.card input[type=date]', '2026-12-04');
 await page.fill('form.card .form-grid input:not([type=date]):not([type=number]) >> nth=0', 'Ichiran ramen');
@@ -276,46 +294,46 @@ const promoted = await p3.evaluate((id) =>
 if (!promoted.expense_id) await fail('promote failed');
 const mineAfter = await p3.evaluate(() => fetch('/api/trips/1/myspend').then(r => r.json()));
 if ((mineAfter.items ?? []).length !== 0) await fail('promoted item still in private list');
-await page.click('nav.tabs a:has-text("Ledger")');
+await page.click('.sidebar a.nav-item:has-text("Money")');
 await page.waitForSelector('text=Rahsia Donki haul');
 console.log('promote ok (moved to shared ledger)');
 await ctx3.close();
 
 // 16. AirAsia invoice upload → parse → confirm
-await page.click('nav.tabs a:has-text("Documents")');
-await page.waitForSelector('.dropzone');
+await page.click('.sidebar a.nav-item:has-text("Documents")');
+await page.waitForSelector('.drop2');
 await page.setInputFiles('input[type=file]', 'docs-samples/45e16bd7-AirAsia_Invoice.pdf');
 await page.waitForURL(/review/, { timeout: 30000 });
 await page.waitForSelector('text=SH3P9K');
 const aaDesc = await page.inputValue('.card form input[required]');
 if (!aaDesc.includes('AirAsia')) await fail(`AirAsia parse: ${aaDesc}`);
 await page.selectOption('.card form select[required]', { label: 'Hamzah Bin Hamizan' });
-await page.click('.card form button.btn:not(.btn-ghost) >> nth=-1');
+await page.click('.card form button.btn:not(.ghost) >> nth=-1');
 await page.waitForURL(/ledger/);
 await page.waitForSelector('text=AirAsia booking SH3P9K');
 console.log('AirAsia parse + confirm ok (4 pax matched, RM934.70)');
 
 // 17. delete a linked document; expense must survive
-await page.click('nav.tabs a:has-text("Documents")');
-await page.waitForSelector('.doc-row');
-const docCountBefore = (await page.$$('.doc-row')).length;
-await page.click(`.doc-row:has-text("AirAsia") button[aria-label="Delete"]`);
+await page.click('.sidebar a.nav-item:has-text("Documents")');
+await page.waitForSelector('.lrow');
+const docCountBefore = (await page.$$('.lrow')).length;
+await page.click(`.lrow:has-text("AirAsia") button[aria-label="Delete"]`);
 await page.waitForTimeout(700);
-const docCountAfter = (await page.$$('.doc-row')).length;
+const docCountAfter = (await page.$$('.lrow')).length;
 if (docCountAfter !== docCountBefore - 1) await fail('document not deleted');
-await page.click('nav.tabs a:has-text("Ledger")');
+await page.click('.sidebar a.nav-item:has-text("Money")');
 await page.waitForSelector('text=AirAsia booking SH3P9K');
 console.log('doc delete ok (expense survived unlinked)');
 
 /* ---------------- v0.7 ---------------- */
 
 // 18. CSV export → edit → import round trip
-await page.click('nav.tabs a:has-text("Plan")');
-await page.waitForSelector('.daychips');
+await page.click('.sidebar a.nav-item:has-text("Plan")');
+await page.waitForSelector('.daypills');
 const dlPromise = page.waitForEvent('download');
 await page.click('button:has-text("Data")');           // v0.14: import/export consolidated
-await page.waitForSelector('.datamenu');
-await page.click('.datamenu-row:has-text("Export CSV")');
+await page.waitForSelector('.menu');                   // v0.19: Data menu moved onto shared Menu (.menu)
+await page.click('.menu .mi:has-text("Export CSV")');
 const dl = await dlPromise;
 const csvPath = await dl.path();
 let csv = readFileSync(csvPath, 'utf8').replace(/^﻿/, '');
@@ -327,8 +345,11 @@ csv = csv.replace('15:00', '16:30'); // move Sensoji
 csv += '\r\n,2026-12-01,09:00,,Ueno Park,,,Ueno Park,35.7141,139.7745,,ALL,'; // v0.12: category column after title
 writeFileSync('/tmp/plan-import.csv', csv);
 await page.click('button:has-text("Data")');
-await page.waitForSelector('.datamenu');
-await page.setInputFiles('.datamenu-row:has-text("Import CSV") input', '/tmp/plan-import.csv');
+await page.waitForSelector('.menu');
+await page.click('.menu .mi:has-text("Import CSV")');
+// v0.19: Import CSV is a plain menu item that opens a hidden file input by id
+// (Menu items are buttons, not label-wrapped inputs like the old .datamenu-row)
+await page.setInputFiles('#plan-import-csv-input', '/tmp/plan-import.csv');
 await page.waitForSelector('text=Import preview');
 const previewText = await page.textContent('.modal');
 if (!previewText.includes('Ueno Park')) await fail('preview missing new row');
@@ -363,7 +384,7 @@ await page.evaluate(async ({ h, z }) => {
     }),
   });
 }, { h: hairuni.id, z: hamzah.id });
-await page.click('nav.tabs a:has-text("Dashboard")');
+await page.click('.sidebar a.nav-item:has-text("Overview")');
 await page.waitForSelector('a:has-text("JR Pass instalment")');
 const dashText = await page.textContent('body');
 if (!dashText.includes('Hairuni Binti Hassim')) await fail('per-person due date name missing on dashboard');
@@ -373,7 +394,7 @@ console.log('per-person due date ok (dashboard shows 👤 Hairuni)');
 /* ---------------- v0.8 ---------------- */
 
 // 20. spending chart: by-item toggle + category breakdown tooltip
-await page.click('nav.tabs a:has-text("Dashboard")');
+await page.click('.sidebar a.nav-item:has-text("Overview")');
 await page.waitForSelector('a:has-text("JR Pass instalment")');
 await page.click('.barlist .chip:has-text("Item")');
 await page.waitForSelector('.barlist .scroll-cap-lg');
@@ -417,8 +438,8 @@ console.log('balances scroll cap ok');
 /* ---------------- v0.9 ---------------- */
 
 // 25. AirAsia itinerary parsing: legs with dates + guest matching
-await page.click('nav.tabs a:has-text("Documents")');
-await page.waitForSelector('.dropzone');
+await page.click('.sidebar a.nav-item:has-text("Documents")');
+await page.waitForSelector('.drop2');
 await page.setInputFiles('input[type=file]', 'docs-samples/72159215-KUL_NRT_Itinerary.pdf');
 await page.waitForURL(/review/, { timeout: 30000 });
 await page.waitForSelector('text=AJ6ZYE');
@@ -426,27 +447,27 @@ const rvw = await page.textContent('body');
 if (!rvw.includes('2026-11-28')) await fail('AirAsia itin: leg date missing');
 if (!rvw.includes('AK892')) await fail('AirAsia itin: flight AK892 missing');
 if (!rvw.includes('XJ602')) await fail('AirAsia itin: second leg XJ602 missing');
-if ((await page.$$('.badge.ok')).length < 2) await fail('AirAsia itin: guests not matched to participants');
+if ((await page.$$('.badge.success')).length < 2) await fail('AirAsia itin: guests not matched to participants');
 await page.click('button:has-text("Save as document only")');
 await page.waitForURL(/documents/);
 console.log('AirAsia itinerary parse ok (dates, 2 legs, names matched)');
 
 // 26. bulk delete all documents; ledger must survive
-await page.waitForSelector('.doc-row');
+await page.waitForSelector('.lrow');
 await page.click('label:has-text("Select all") input');
 await page.waitForSelector('button:has-text("Delete selected")');
 await page.click('button:has-text("Delete selected")');
 await page.waitForTimeout(1500);
-if ((await page.$$('.doc-row')).length !== 0) await fail('bulk delete left documents behind');
-await page.click('nav.tabs a:has-text("Ledger")');
+if ((await page.$$('.lrow')).length !== 0) await fail('bulk delete left documents behind');
+await page.click('.sidebar a.nav-item:has-text("Money")');
 await page.waitForSelector('text=AirAsia booking SH3P9K');
 console.log('bulk delete ok (all docs removed, expenses intact)');
 
 /* ---------------- v0.10 ---------------- */
 
 // 27. hotel voucher → pay-at-hotel: committed, not owed
-await page.click('nav.tabs a:has-text("Documents")');
-await page.waitForSelector('.dropzone');
+await page.click('.sidebar a.nav-item:has-text("Documents")');
+await page.waitForSelector('.drop2');
 await page.setInputFiles('input[type=file]', 'docs-samples/a5969b58-Checkin_Voucher.pdf');
 await page.waitForURL(/review/, { timeout: 30000 });
 await page.waitForSelector('text=tripcom-hotel-voucher');
@@ -460,13 +481,14 @@ if (psSel !== 'pay_at_hotel') await fail(`payment status not preselected: ${psSe
 const dueVal = await page.inputValue('.card form input[type=date] >> nth=3');
 if (dueVal !== '2026-12-20') await fail(`auto due date should be check-in day, got ${dueVal}`);
 await page.selectOption('.card form select[required]', { label: 'Hamzah Bin Hamizan' });
-await page.click('.card form button.btn:not(.btn-ghost)');
+await page.click('.card form button.btn:not(.ghost)');
 await page.waitForURL(/ledger/);
 console.log('voucher review ok (status preselected, due date on check-in)');
 
 // ledger badge + excluded from balances
 await page.waitForSelector('text=ASAHIKAWA');
-if (!(await page.textContent('body')).includes('🏨💤')) await fail('ledger missing pay-at-hotel badge');
+// v0.19: no functional emoji — the pay-at-hotel state is a text badge now.
+if (!(await page.textContent('body')).includes('Pay at hotel')) await fail('ledger missing pay-at-hotel badge');
 let balv = await page.evaluate(() => fetch('/api/trips/1/balances').then(r => r.json()));
 if (!(balv.committedTotal > 700 && balv.committedTotal < 710)) await fail(`committedTotal wrong: ${balv.committedTotal}`);
 let inBal = balv.balances.some(b => b.byPayee.some(bp => bp.items.some(it => /ASAHIKAWA/.test(it.description))));
@@ -474,13 +496,13 @@ if (inBal) await fail('pay-at-hotel expense leaked into balances');
 console.log('committed-not-owed ok (excluded from balances, committedTotal =', balv.committedTotal, ')');
 
 // dashboard shows committed amount beside trip total
-await page.click('nav.tabs a:has-text("Dashboard")');
+await page.click('.sidebar a.nav-item:has-text("Overview")');
 await page.waitForSelector('.stats');
 if (!(await page.textContent('.stats')).includes('committed')) await fail('dashboard missing committed amount');
 await shot('20-committed');
 
 // mark paid → enters balances
-await page.click('nav.tabs a:has-text("Ledger")');
+await page.click('.sidebar a.nav-item:has-text("Money")');
 await page.waitForSelector('button:has-text("Mark paid")');
 await page.click('button:has-text("Mark paid")');
 await page.waitForSelector('button:has-text("Mark paid")', { state: 'detached' });
@@ -491,19 +513,19 @@ if (!inBal) await fail('marked-paid expense should now be in balances');
 console.log('mark paid ok (expense entered balances)');
 
 // 28. dashboard journey card (pins from located activities/stays)
-await page.click('nav.tabs a:has-text("Dashboard")');
+await page.click('.sidebar a.nav-item:has-text("Overview")');
 await page.waitForSelector('h3:has-text("Journey")');
 await page.waitForSelector('.journey-stats .jstat');
 const jtxt = await page.textContent('.journey-stats');
-if (!/📍 \d+ places/.test(jtxt)) await fail(`journey stats missing places: ${jtxt}`);
+if (!/\d+ places/.test(jtxt)) await fail(`journey stats missing places: ${jtxt}`);
 if ((await page.$$('.pin-dot')).length < 2) await fail('journey map missing pins');
 await shot('21-journey');
 console.log('journey card ok:', jtxt.trim());
 
 // 29. reorder + smart reflow + undo (D2: teamLab 10:30/160min, then Sensoji 15:00)
-await page.click('nav.tabs a:has-text("Plan")');
-await page.waitForSelector('.daychips');
-await page.click('.daychip:has-text("D2")');
+await page.click('.sidebar a.nav-item:has-text("Plan")');
+await page.waitForSelector('.daypills');
+await page.click('.daypill:has-text("D2")');
 await page.waitForSelector('text=Sensoji Temple');
 const before = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
   .then(p => p.activities.filter(a => a.day === '2026-11-30').sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || String(a.start_time).localeCompare(String(b.start_time)))));
@@ -534,8 +556,8 @@ await page.evaluate(() => Promise.all([
   fetch('/api/trips/1/activities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'Bulk Two', day: '2026-12-03', participant_ids: [] }) }),
 ]));
 await page.reload();
-await page.waitForSelector('.daychips');
-await page.click('.daychip:has-text("D5")');
+await page.waitForSelector('.daypills');
+await page.click('.daypill:has-text("D5")');
 await page.waitForSelector('.plan-item:has-text("Bulk One")');
 // optimistic done toggle: the row greys out immediately, server catches up
 await page.click('.plan-item:has-text("Bulk One") input[type=checkbox][title="Done"]');
@@ -576,10 +598,10 @@ await page.fill('.daytitle input', 'Nara day trip');
 await page.click('.daytitle button:has-text("Save")');
 await page.waitForSelector('.daytitle-text:has-text("Nara day trip")');
 await page.reload();
-await page.waitForSelector('.daychips');
+await page.waitForSelector('.daypills');
 // a reload lands back on D1, so look for the title on the chip that owns it
-await page.waitForSelector('.daychip:has-text("Nara day trip")');
-if (!(await page.textContent('.daychip:has-text("Nara day trip")')).includes('D5')) await fail('day title landed on the wrong day chip');
+await page.waitForSelector('.daypill:has-text("Nara day trip")');
+if (!(await page.textContent('.daypill:has-text("Nara day trip")')).includes('D5')) await fail('day title landed on the wrong day chip');
 const dsSrv = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
   .then(p => p.daySettings.find(d => d.day === '2026-12-03')));
 if (dsSrv?.title !== 'Nara day trip') await fail(`day title not persisted: ${JSON.stringify(dsSrv)}`);
@@ -597,7 +619,7 @@ console.log('day title ok (chip, reload, no clobber with start/end)');
 
 // 33c. pin numbers on the list match the map, and pin 1 is where the day starts
 // with no start point set, the first located activity is pin 1
-await page.click('.daychip:has-text("D2")');
+await page.click('.daypill:has-text("D2")');
 await page.waitForSelector('.plan-item .pinno');
 let listNos = await page.$$eval('.plan-item .pinno:not(.none)', els => els.map(e => e.textContent.trim()));
 let mapNos = await page.$$eval('.pin-dot span', els => els.map(e => e.textContent.trim()));
@@ -614,8 +636,8 @@ await page.evaluate(() => fetch('/api/trips/1/daysettings', {
   body: JSON.stringify({ day: '2026-11-30', start_name: 'Hotel Shinjuku', start_lat: 35.6938, start_lng: 139.7036 }),
 }));
 await page.reload();
-await page.waitForSelector('.daychips');
-await page.click('.daychip:has-text("D2")');
+await page.waitForSelector('.daypills');
+await page.click('.daypill:has-text("D2")');
 await page.waitForSelector('.plan-item .pinno');
 listNos = await page.$$eval('.plan-item .pinno:not(.none)', els => els.map(e => e.textContent.trim()));
 mapNos = await page.$$eval('.pin-dot span', els => els.map(e => e.textContent.trim()));
@@ -629,13 +651,16 @@ await page.waitForTimeout(500);
 await shot('22f-pinsync');
 console.log(`pin sync ok (list ${listNos.join(',')} ⊂ map ${mapNos.join(',')}, pin 1 = stay)`);
 // hand the page back to the day the bulk-delete step below expects
-await page.click('.daychip:has-text("D5")');
+await page.click('.daypill:has-text("D5")');
 await page.waitForSelector('.plan-item:has-text("Bulk One")');
 // bulk delete: select mode → select all (this day only) → one confirm
-await page.click('button:has-text("☑️ Select")');
+await page.click('button:has-text("Select")');
 await page.waitForSelector('.bulkbar');
 await page.check('.bulkbar input[type=checkbox]');
 await page.click('.bulkbar button:has-text("Delete selected (2)")');
+// v0.19: bulk delete now confirms via the shared destructive Modal, not window.confirm
+await page.waitForSelector('.modal .mfoot button.danger');
+await page.click('.modal .mfoot button.danger');
 await page.waitForSelector('.plan-item:has-text("Bulk One")', { state: 'detached' });
 await page.waitForSelector('.toast:has-text("2 activities deleted")');
 await page.waitForTimeout(400);
@@ -663,9 +688,9 @@ await page.click('button[aria-label="#7c3aed"]');
 await page.waitForSelector('.modal datalist#fx-codes option', { state: 'attached' });
 await page.fill('.modal input[list="fx-codes"]', 'JPY');
 await page.press('.modal input[list="fx-codes"]', 'Enter');
-await page.click('.modal button.btn:not(.btn-ghost)');
-await page.waitForSelector('a.card:has-text("Kyushu Campervan")');
-const border = await page.$eval('a.card:has-text("Kyushu Campervan")', el => getComputedStyle(el).borderTopColor);
+await page.click('.modal button.btn:not(.secondary)');
+await page.waitForSelector('a.tripcard:has-text("Kyushu Campervan")');
+const border = await page.$eval('a.tripcard:has-text("Kyushu Campervan")', el => getComputedStyle(el).borderTopColor);
 if (border !== 'rgb(124, 58, 237)') await fail(`trip accent not applied to card: ${border}`);
 await shot('23-trip-style');
 console.log('trip emoji + accent ok');
@@ -673,14 +698,14 @@ const kTrip = await page.evaluate(() => fetch('/api/me').then(r => r.json()).the
 if (!JSON.parse(kTrip.watch_currencies ?? '[]').includes('JPY')) await fail('trip creation did not persist watch currency');
 console.log('trip creation currencies ok');
 
-await page.click('a.card:has-text("Kyushu Campervan")');
+await page.click('a.tripcard:has-text("Kyushu Campervan")');
 await page.waitForSelector('.hero');
 const heroBg = await page.$eval('.hero', el => getComputedStyle(el).backgroundColor);
 console.log('trip shell accent applied, hero bg:', heroBg);
-await page.click('nav.tabs a:has-text("Plan")');
+await page.click('.sidebar a.nav-item:has-text("Plan")');
 await page.click('button:has-text("Data")');
-await page.waitForSelector('.datamenu');
-await page.click('.datamenu-row:has-text("Map columns")');
+await page.waitForSelector('.menu');
+await page.click('.menu .mi:has-text("Map columns")');
 await page.waitForSelector('.modal input[type=file]', { state: 'attached' });
 await page.setInputFiles('.modal input[type=file]', 'tests/fixtures/client-campervan.csv');
 await page.waitForSelector('.modal select');
@@ -695,7 +720,7 @@ await page.click('.modal button:has-text("Apply")');
 await page.waitForSelector('.modal', { state: 'detached' });
 await page.waitForSelector('text=Himeji Castle');
 const kb = await page.textContent('body');
-if (!kb.includes('💰')) await fail('day budget chip missing after wizard import');
+if (!kb.includes('¥')) await fail('day budget chip missing after wizard import');
 if (!/20,000|¥20000/.test(kb)) await fail('day budget total ¥20,000 missing');
 const tripId2 = Number(page.url().match(/trips\/(\d+)/)[1]);
 const profs = await page.evaluate((tid) => fetch(`/api/trips/${tid}/importprofiles`).then(r => r.json()), tripId2);
@@ -729,7 +754,7 @@ await rPage.screenshot({ path: '/tmp/ocr-receipt.png' });
 await rPage.close();
 
 await page.goto(`${BASE}/trips/1/documents`);
-await page.waitForSelector('.dropzone');
+await page.waitForSelector('.drop2');
 await page.setInputFiles('input[type=file]', '/tmp/ocr-receipt.png');
 await page.waitForSelector('h2:has-text("Scanned document")');
 await shot('28-ocr-modal');
@@ -765,7 +790,7 @@ console.log('keyword chips fill form ok (participant + payment date)');
 
 // save the expense end-to-end
 await page.selectOption('.card form select[required]', { label: 'Hamzah Bin Hamizan' });
-await page.click('.card form button.btn:not(.btn-ghost)');
+await page.click('.card form button.btn:not(.ghost)');
 await page.waitForURL(/ledger/);
 await page.waitForSelector('text=SUNWAY TRAVEL');
 console.log('OCR receipt confirmed into ledger ok');
@@ -825,9 +850,9 @@ await shot('32-settings');
 
 // 35. ✨ suggestions → Add → lands in the plan with category icon
 await page.goto(`${BASE}/trips/1/plan`);
-await page.waitForSelector('.daychips');
+await page.waitForSelector('.daypills');
 await page.click('button:has-text("Suggest with AI")');
-await page.waitForSelector('.modal h2:has-text("Suggest with AI")');
+await page.waitForSelector('.modal h3:has-text("Suggest with AI")');
 await page.fill('.modal input[placeholder*="Asakusa"]', 'family afternoon ideas');
 await page.click('.modal button:has-text("Suggest")');
 await page.waitForSelector('.suggest-card');
@@ -838,8 +863,8 @@ await page.click('.suggest-card >> nth=0 >> button:has-text("Add")');
 await page.waitForSelector('.toast:has-text("Added to the itinerary")');
 await page.waitForSelector('.suggest-card.added');
 await shot('33-suggestions');
-await page.click('.modal button.icon'); // close
-await page.click('.daychip:has-text("D3")');
+await page.click('.modal button.x'); // close (v0.19: shared Modal's own close button)
+await page.click('.daypill:has-text("D3")');
 await page.waitForSelector('.plan-item:has-text("Ueno Park stroll")');
 console.log('AI suggestion added to itinerary ok');
 
@@ -872,7 +897,7 @@ await p5.waitForSelector('.hero');
 await p5.waitForSelector('.chat-fab'); // assistant visible by default
 // member cannot edit the plan yet
 await p5.goto(`${BASE}/trips/1/plan`);
-await p5.waitForSelector('.daychips');
+await p5.waitForSelector('.daypills');
 if (await p5.$('button:has-text("Add activity")')) await fail('member should not see Add activity yet');
 let st = await p5.evaluate(() => fetch('/api/trips/1/activities', {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -890,7 +915,7 @@ await page.waitForSelector('.toast');
 await page.waitForTimeout(400);
 
 await p5.goto(`${BASE}/trips/1/plan`);
-await p5.waitForSelector('.daychips');
+await p5.waitForSelector('.daypills');
 if (await p5.$('.chat-fab')) await fail('member still sees chat after assistant hidden');
 const chatSt = await p5.evaluate(() => fetch('/api/trips/1/assistant/chat', {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -902,9 +927,9 @@ await p5.click('button:has-text("Add activity")');
 await p5.waitForSelector('.modal');
 await p5.fill('.modal input[required]', 'Member Added Karaoke');
 await p5.fill('.modal input[type=date]', '2026-12-02');
-await p5.click('.modal button.btn:not(.btn-ghost):has-text("Save")');
+await p5.click('.modal .mfoot button.btn:not(.secondary):has-text("Save")');
 await p5.waitForSelector('.modal', { state: 'detached' });
-await p5.click('.daychip:has-text("D4")');
+await p5.click('.daypill:has-text("D4")');
 await p5.waitForSelector('.plan-item:has-text("Member Added Karaoke")');
 console.log('member plan-edit permission ok (403 before, add works after toggle; assistant hidden)');
 await p5.screenshot({ path: `${OUT}/35-member-edit.png`, fullPage: true });
@@ -957,7 +982,7 @@ const fxRows = await page.$$('.fx-row');
 if (fxRows.length !== 2) await fail(`expected 2 fx rows, got ${fxRows.length}`);
 const fxText = await page.textContent('.card:has(.fx-row)');
 if (!/1 MYR = [\d.,]+ JPY/.test(fxText)) await fail('fx display rate missing');
-if (!(await page.$('.fx-badge'))) await fail('fx signal badge missing');
+if (!(await page.$('.fx-row .badge'))) await fail('fx signal badge missing');
 // the API itself: band ordered, signal valid, direction sane
 const fxApi = await page.evaluate(() => fetch('/api/trips/1/fxseries?quote=JPY&window=1m').then(r => r.json()));
 if (!fxApi.band || !(fxApi.band.low < fxApi.band.high)) await fail(`fx band malformed: ${JSON.stringify(fxApi.band)}`);
@@ -1062,7 +1087,7 @@ const viewerActSt = await p5.evaluate(() => fetch('/api/trips/1/activities', {
 }).then(r => r.status));
 if (viewerActSt !== 403) await fail(`viewer activity POST should be 403, got ${viewerActSt}`);
 await p5.goto(`${BASE}/trips/1/plan`);
-await p5.waitForSelector('.daychips');
+await p5.waitForSelector('.daypills');
 if (await p5.$('button:has-text("Add activity")')) await fail('viewer should not see Add activity button after reload');
 
 const vAdd = await mcp('tools/call', { name: 'add_activity', arguments: { trip_id: 1, day: '2026-12-02', title: 'nope-viewer' } }, memberToken);
@@ -1187,7 +1212,12 @@ if (pathBad.status !== 401) await fail(`path-token wrong token should be 401, go
 console.log('MCP token-in-URL endpoint ok (claude.ai connector path)');
 
 // revoke → 401
+// v0.19: revoke is no longer immediate — clicking Revoke opens a destructive
+// confirm Modal (TokenCard.tsx); the actual revoke happens on the modal's
+// own "Revoke" button in its footer.
 await page.click('.row-between:has-text("e2e-claude") button:has-text("Revoke")');
+await page.waitForSelector('.modal');
+await page.click('.modal .mfoot button:has-text("Revoke")');
 await page.waitForSelector('.toast:has-text("Token revoked")');
 await page.waitForTimeout(300);
 const dead = await mcp('ping', {});
@@ -1273,7 +1303,7 @@ console.log('role chips ok (Leader/Editor shown, no role chip reads platform "Ad
 await p6.goto(`${BASE}/settings`);
 await p6.waitForSelector('text=Your referral link');
 const referralCard = '.card:has(h3:has-text("Your referral link"))';
-const referralLinkText = (await p6.textContent(`${referralCard} pre`)).trim();
+const referralLinkText = (await p6.textContent(`${referralCard} .mono`)).trim();
 if (!/^https?:\/\//.test(referralLinkText)) {
   await fail(`referral link shown to joiner must be an absolute URL, got "${referralLinkText}"`);
 }
@@ -1322,7 +1352,7 @@ console.log('isolation ok (zero trips, plan 403, /admin redirects home)');
 await p7.click('button:has-text("New trip")');
 await p7.waitForSelector('.modal');
 await p7.fill('.modal input >> nth=0', 'Solo Getaway'); // trip name is the first text input
-await p7.click('.modal button.btn:not(.btn-ghost)');
+await p7.click('.modal button.btn:not(.secondary)');
 await p7.waitForSelector('.modal', { state: 'detached' });
 const p7MeAfterCreate = await p7.evaluate(() => fetch('/api/me').then(r => r.json()));
 const soloTrip = (p7MeAfterCreate.trips ?? []).find(t => t.name === 'Solo Getaway');
@@ -1339,7 +1369,7 @@ console.log(`any-account creation ok (Solo Getaway id=${soloTripId}, my_role=lea
 // (not the raw PATCH endpoint tested earlier for a different member).
 await page.goto(`${BASE}/trips/1/people`);
 await page.waitForSelector('text=Trip members');
-const joinerRoleSelect = `${membersCard} .row-between:has-text("Join Test") select`;
+const joinerRoleSelect = `${membersCard} .lrow:has-text("Join Test") select`;
 await page.waitForSelector(joinerRoleSelect);
 await page.selectOption(joinerRoleSelect, 'viewer');
 await page.waitForSelector('.toast:has-text("Saved")');
@@ -1398,7 +1428,7 @@ if (promoteAdminSt !== 200) await fail(`promoting admin's own participant to lea
 await page.goto(`${BASE}/trips/1/people`);
 await page.waitForSelector(`${membersCard}:has-text("Join Test")`);
 
-await page.click(`${membersCard} .row-between:has-text("Join Test") button:has-text("Make leader")`);
+await page.click(`${membersCard} .lrow:has-text("Join Test") button[title="Make leader & step down"]`);
 await page.waitForSelector('.toast:has-text("Leadership transferred")');
 await page.waitForTimeout(300);
 const tripAfterTransfer = await page.evaluate(() => fetch('/api/trips/1').then(r => r.json()));
@@ -1436,32 +1466,29 @@ if (JSON.stringify(memberIdsAfterCleanup) !== JSON.stringify([...originalMemberI
 }
 console.log('transfer restored ok (joiner → admin back to leader/editor, admin\'s temporary membership removed, member set restored exactly)');
 
-// 49. dashboard: /admin as admin — four .stat values numeric, signups SVG
-// has ≥1 bar, feature list shows "Plan views", referral leaderboard names
-// the joiner (count ≥ 1), activity feed non-empty.
+// 49. dashboard: /admin as admin — four .stat values numeric, signups lieflat
+// line has a drawn path with real cumulative data, feature list shows
+// "Plan views", referral leaderboard names the joiner (count ≥ 1), activity
+// feed non-empty. (v0.19: cards restyled to card/lf, bar-chart -> LfLine path.)
 await page.goto(`${BASE}/admin`);
 await page.waitForSelector('.stats .stat');
-const statValues = await page.$$eval('.stats .stat .value', els => els.map(e => e.textContent?.trim() ?? ''));
+const statValues = await page.$$eval('.stats .stat .v', els => els.map(e => e.textContent?.trim() ?? ''));
 if (statValues.length !== 4) await fail(`dashboard should render 4 stat cards, got ${statValues.length}`);
 for (const v of statValues) {
   if (!/^\d+/.test(v)) await fail(`dashboard stat value should start with a number, got "${v}"`);
 }
-const barRectHeights = await page.$$eval('.dash-chart rect', els => els.map(e => e.getAttribute('height')));
-const barRectCount = barRectHeights.length;
-if (barRectCount < 1) await fail('signups chart should render at least one bar rect');
-if (!barRectHeights.some(h => Number(h) > 0)) {
-  await fail(`signups chart should have at least one bar rect with numeric height > 0, got ${JSON.stringify(barRectHeights)}`);
-}
-const featureNames = await page.$$eval('.card.barlist .barrow .name', els => els.map(e => e.textContent?.trim() ?? ''));
+const lineD = await page.$eval('.card.lf svg path.draw', el => el.getAttribute('d')).catch(() => null);
+if (!lineD || !/^M/.test(lineD)) await fail(`signups chart should render a drawn line path, got ${JSON.stringify(lineD)}`);
+const featureNames = await page.$$eval('.card.lf .lfrow .nm', els => els.map(e => e.textContent?.trim() ?? ''));
 if (!featureNames.includes('Plan views')) await fail(`feature usage list should include "Plan views", got ${JSON.stringify(featureNames)}`);
 const dashReferralCard = '.card:has(h3:has-text("Referral leaderboard"))';
 await page.waitForSelector(`${dashReferralCard} tbody tr`, { timeout: 10000 }).catch(() => {});
 const referralRows = await page.$$eval(`${dashReferralCard} tbody tr`, els => els.map(e => e.textContent ?? ''));
 if (!referralRows.some(r => r.includes('Join Test'))) await fail(`referral leaderboard should list the joiner, got ${JSON.stringify(referralRows)}`);
 const activityCard = '.card:has(h3:has-text("Recent activity"))';
-const activityRows = await page.$$eval(`${activityCard} .row-between`, els => els.length);
+const activityRows = await page.$$eval(`${activityCard} .lrow`, els => els.length);
 if (activityRows < 1) await fail('activity feed should be non-empty');
-console.log(`dashboard ok (4 stats numeric, ${barRectCount} bar(s), Plan views listed, joiner in referral leaderboard, ${activityRows} activity row(s))`);
+console.log(`dashboard ok (4 stats numeric, signups line drawn, Plan views listed, joiner in referral leaderboard, ${activityRows} activity row(s))`);
 
 // 50. trip-dates edit (Addendum 4a): extend trip 1's end_date by one day via
 // the Trip details card → Plan shows one more D-chip; restore the exact
@@ -1469,7 +1496,7 @@ console.log(`dashboard ok (4 stats numeric, ${barRectCount} bar(s), Plan views l
 // exclude an activity-bearing day, and confirm that day's chip survives
 // anyway (union of range + activity days — no silent loss); restore again.
 const detailsCard = '.card:has(h3:has-text("Trip details"))';
-const endDateInput = `${detailsCard} label:has-text("End date") input`;
+const endDateInput = `${detailsCard} .fld:has(label:has-text("End date")) input`;
 const saveTripDates = async (end) => {
   await page.goto(`${BASE}/trips/1/people`);
   await page.waitForSelector(detailsCard);
@@ -1480,8 +1507,8 @@ const saveTripDates = async (end) => {
 };
 const chipCount = async () => {
   await page.goto(`${BASE}/trips/1/plan`);
-  await page.waitForSelector('.daychips');
-  return page.$$eval('.daychip .dd', els => els.map(e => e.textContent?.trim() ?? ''));
+  await page.waitForSelector('.daypills');
+  return page.$$eval('.daypill .dd', els => els.map(e => e.textContent?.trim() ?? ''));
 };
 
 const ORIGINAL_END = '2026-12-07';
@@ -1525,7 +1552,8 @@ if (chipsRestored2.length !== chipsBefore.length) {
 }
 console.log(`trip-dates edit ok (+1 chip on extend, activity-bearing day survives a shrink, exact restore both times: ${chipsBefore.length} chips)`);
 
-// 51. BM smoke: the joiner switches to BM via the topbar language select.
+// 51. BM smoke: the joiner switches to BM via the sidebar language select
+// (.topbar is mobile-only chrome, hidden at this desktop viewport width).
 // NOTE: `/join/:code`'s own <I18nProvider> (App.tsx) has no `initial` prop
 // and always renders English regardless of the logged-in user's saved
 // lang — pre-existing behaviour from v0.17, not part of Tasks 1-7 — so a
@@ -1537,14 +1565,14 @@ console.log(`trip-dates edit ok (+1 chip on extend, activity-bearing day survive
 // step (ms.myTrips): 'Perjalanan saya'.
 const BM_MY_TRIPS = 'Perjalanan saya';
 await p6.goto(`${BASE}/`);
-await p6.waitForSelector('.topbar select');
-await p6.selectOption('.topbar select', 'ms');
+await p6.waitForSelector('.side-lang');
+await p6.selectOption('.side-lang', 'ms');
 await p6.waitForTimeout(300); // PATCH /me { lang: 'ms' } persists
 await p6.reload();
 await p6.waitForSelector('h1');
 const bmHeading = (await p6.textContent('h1'))?.trim();
 if (bmHeading !== BM_MY_TRIPS) await fail(`BM smoke: expected ms myTrips "${BM_MY_TRIPS}", got "${bmHeading}"`);
-await p6.selectOption('.topbar select', 'en');
+await p6.selectOption('.side-lang', 'en');
 await p6.waitForTimeout(300);
 console.log(`BM smoke ok (myTrips ms="${bmHeading}", switched back to EN)`);
 
@@ -1559,7 +1587,7 @@ await p7.waitForSelector(membersCard);
 const NEW_TRAVELLER_NAME = 'Fresh Traveller';
 await p7.fill(`${membersCard} input[placeholder="Add participant"]`, NEW_TRAVELLER_NAME);
 await p7.click(`${membersCard} button:has-text("Add")`);
-await p7.waitForSelector(`${membersCard} .row-between:has-text("${NEW_TRAVELLER_NAME}")`);
+await p7.waitForSelector(`${membersCard} .lrow:has-text("${NEW_TRAVELLER_NAME}")`);
 const soloTripAfterAdd = await p7.evaluate(id => fetch(`/api/trips/${id}`).then(r => r.json()), soloTripId);
 if (!soloTripAfterAdd.members.some((m) => m.name === NEW_TRAVELLER_NAME)) {
   await fail(`adding a brand-new traveller via the People form should succeed, got members ${JSON.stringify(soloTripAfterAdd.members.map((m) => m.name))}`);
@@ -1642,13 +1670,13 @@ console.log('invite lifecycle ok (revoked → invalid page, used_count increment
 
 // 40. multi-file upload → ✈️ progress + summary toast, dropzone disabled mid-batch
 await page.goto(`${BASE}/trips/1/documents`);
-await page.waitForSelector('.dropzone');
+await page.waitForSelector('.drop2');
 await page.setInputFiles('input[type=file]', [
   'docs-samples/45e16bd7-AirAsia_Invoice.pdf',
   'docs-samples/50c0ce7c-KUL_NRT_Invoice.pdf',
 ]);
 const stripSeen = await page.waitForSelector('.upload-strip', { timeout: 8000 }).then(() => true).catch(() => false);
-const dzDisabled = await page.$('.dropzone.disabled') !== null;
+const dzDisabled = await page.$('.drop2.disabled') !== null;
 await page.waitForSelector('.toast:has-text("2 imported")', { timeout: 60000 });
 console.log(`upload progress ok (strip:${stripSeen} disabled-mid-batch:${dzDisabled}, summary toast)`);
 await shot('38-upload-progress');
@@ -1664,9 +1692,121 @@ const hasHScroll = await page.evaluate(() => document.documentElement.scrollWidt
 if (hasHScroll) await fail('horizontal scroll on 360px dashboard');
 await shot('26-mobile-journey');
 await page.goto(`${BASE}/trips/1/plan`);
-await page.waitForSelector('.daychips');
+await page.waitForSelector('.daypills');
 await shot('27-mobile-plan');
 console.log('mobile 360px ok (no horizontal scroll)');
 
+// ---------------------------------------------------------------------
+// v0.20 (T4) — mobile-chrome nav (spec §3), server-side theme sync
+// (spec §2), trip covers upload/render (spec §1). Own context(s), appended
+// behind the desktop suite above; final PASSED line covers it below.
+// ---------------------------------------------------------------------
+
+// 53. mobile chrome: 390x844 context, admin login (post-password-change
+// from step 1), tab bar visible / sidebar hidden, Money tab -> ledger,
+// long-press Plan tab -> trip switcher (seeded trip), Escape closes it,
+// More sheet -> Settings.
+const ctx9 = await browser.newContext({ viewport: { width: 390, height: 844 } });
+const p9 = await ctx9.newPage();
+p9.setDefaultTimeout(25000);
+await blockExternal(p9);
+await p9.goto(`${BASE}/login`);
+await p9.fill('input[type=email]', 'admin@jelajah.local');
+await p9.fill('input[type=password]', 'kata-laluan-baru-99');
+await p9.click('.login-card button');
+await p9.waitForURL(`${BASE}/`);
+console.log('mobile login ok');
+
+await p9.waitForSelector('.tabbar');
+const tabbarVisible = await p9.isVisible('.tabbar');
+const sidebarVisible = await p9.isVisible('.sidebar').catch(() => false);
+if (!tabbarVisible) await fail('mobile chrome: .tabbar should be visible at 390x844');
+if (sidebarVisible) await fail('mobile chrome: .sidebar should not be visible at 390x844');
+console.log('mobile chrome ok (tabbar visible, sidebar hidden)');
+
+// trip context needed so the Money/Plan tab targets resolve into the trip
+// (account context — no mounted /trips/:id route — routes them to Overview
+// instead, per navModel.ts)
+await p9.goto(`${BASE}/trips/1`);
+await p9.waitForSelector('.hero');
+await p9.click('.tabbar .tab:has-text("Money")');
+await p9.waitForURL(/\/trips\/1\/ledger/);
+console.log('mobile Money tab ok (-> ledger)');
+
+// long-press (pointerdown, 600ms wait, pointerup) on the Plan tab -> trip switcher sheet
+const planTab = p9.locator('.tabbar .tab:has-text("Plan")');
+await planTab.dispatchEvent('pointerdown', { pointerId: 1, bubbles: true });
+await p9.waitForTimeout(600);
+await planTab.dispatchEvent('pointerup', { pointerId: 1, bubbles: true });
+await p9.waitForSelector('.sheet:has-text("Switch trip")');
+await p9.waitForSelector('.sheet .srow:has-text("Jelajah Jepun 2026")');
+console.log('mobile long-press trip switcher ok (seeded trip listed)');
+await p9.keyboard.press('Escape');
+await p9.waitForSelector('.sheetwrap', { state: 'detached' });
+console.log('mobile trip switcher escape-close ok');
+
+// More sheet -> Settings
+await p9.click('.tabbar .tab:has-text("More")');
+await p9.waitForSelector('.sheet:has-text("More")');
+await p9.click('.sheet .srow:has-text("Settings")');
+await p9.waitForURL(`${BASE}/settings`);
+console.log('mobile More sheet -> Settings ok');
+
+// 54. theme: Settings seg control PATCHes /me; html[data-theme] flips and
+// the server confirms via /me (the pre-paint script itself is untouched —
+// this is the post-hydration sync path, spec §2).
+await p9.waitForSelector('.seg');
+const appearanceSeg = '.card:has(h3:has-text("Appearance")) .seg';
+await p9.click(`${appearanceSeg} button:has-text("Dark")`);
+await p9.waitForTimeout(300); // PATCH /me { theme: 'dark' }
+const dataThemeDark = await p9.getAttribute('html', 'data-theme');
+if (dataThemeDark !== 'dark') await fail(`theme: expected html[data-theme="dark"], got "${dataThemeDark}"`);
+const meThemeDark = await p9.evaluate(() => fetch('/api/me').then(r => r.json()).then(d => d.user.theme));
+if (meThemeDark !== 'dark') await fail(`theme: /me should report theme "dark" after the seg click, got "${meThemeDark}"`);
+console.log('mobile theme ok (data-theme=dark, /me theme=dark)');
+await p9.click(`${appearanceSeg} button:has-text("Light")`);
+await p9.waitForTimeout(300);
+const dataThemeLight = await p9.getAttribute('html', 'data-theme');
+if (dataThemeLight !== '') await fail(`theme: expected html[data-theme=""] after switching back to Light, got "${dataThemeLight}"`);
+console.log('mobile theme reset ok (back to Light)');
+await ctx9.close();
+
+// 55. covers: leader (admin) on trip 1's People page uploads a tiny fixture
+// image, the toast fires and the Trips grid card picks up the photo, then
+// Remove restores the gradient fallback. The auto/Wikipedia endpoint
+// (POST .../cover/auto) is deliberately NOT e2e'd here — it calls out to
+// en.wikipedia.org, external network this sandbox blocks (blockExternal)
+// and which CI has no business depending on; covered by manual verification
+// per the T1 self-review note.
+await page.setViewportSize({ width: 1280, height: 900 });
+await page.goto(`${BASE}/trips/1/people`);
+const tripDetailsCard = '.card:has(h3:has-text("Trip details"))';
+await page.waitForSelector(`${tripDetailsCard} .cover-block`);
+// 1x1 transparent PNG, inline — the smallest valid fixture; uploadCover's
+// resizeImageFile canvas-redraws it to JPEG client-side regardless of the
+// source format, so a 1x1 source is enough to exercise the whole path.
+const PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
+await page.setInputFiles(`${tripDetailsCard} .cover-block input[type=file]`, {
+  name: 'cover.png', mimeType: 'image/png', buffer: PIXEL_PNG,
+});
+await page.waitForSelector('.toast:has-text("Cover photo updated")', { timeout: 15000 });
+console.log('cover upload ok (toast)');
+await page.goto(`${BASE}/`);
+await page.waitForSelector('a.tripcard img[src*="/cover"]');
+console.log('cover render ok (Trips card shows the photo)');
+
+await page.goto(`${BASE}/trips/1/people`);
+await page.waitForSelector(`${tripDetailsCard} .cover-block button:has-text("Remove")`);
+await page.click(`${tripDetailsCard} .cover-block button:has-text("Remove")`);
+await page.waitForSelector('.toast:has-text("Cover photo removed")');
+await page.goto(`${BASE}/`);
+await page.waitForSelector('a.tripcard');
+const coverImgGone = await page.$('a.tripcard img[src*="/cover"]');
+if (coverImgGone) await fail('cover remove: Trips card should fall back to the gradient, still found a cover img');
+console.log('cover remove ok (gradient fallback restored)');
+
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.18)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.20)');

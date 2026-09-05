@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelajah refresh · My trips</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui.css">
+<style>
+  .tripgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:20px; }
+  .tripcard { display:block; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-xl);
+    box-shadow:var(--shadow-xs); overflow:hidden; color:var(--ink); }
+  .tripcard:hover { box-shadow:var(--shadow-md); }
+  .tc-cover { height:88px; position:relative; display:flex; align-items:flex-end; padding:12px 16px; }
+  .tc-cover .em { position:absolute; right:10px; top:6px; font-size:44px; opacity:.35; }
+  .tc-cover .badge { position:relative; }
+  .tc-body { padding:14px 16px 16px; }
+  .tc-body h3 { margin:0 0 2px; font-size:16px; }
+  .tc-body .sub { color:var(--ink-2); font-size:13px; }
+  .tc-meta { display:flex; align-items:center; justify-content:space-between; margin-top:14px; }
+  .avars { display:flex; }
+  .avars .avatar { width:28px; height:28px; font-size:11px; margin-left:-8px; border:2px solid var(--surface); }
+  .avars .avatar:first-child { margin-left:0; }
+  .newcard { display:grid; place-items:center; min-height:208px; border:1.5px dashed var(--gray-300);
+    border-radius:var(--r-xl); color:var(--ink-3); background:none; }
+  [data-theme="dark"] .newcard { border-color:var(--gray-700); }
+  .newcard:hover { border-color:var(--brand-500); color:var(--brand-700); }
+  .newcard .inner { display:flex; flex-direction:column; align-items:center; gap:8px; font-weight:600; }
+</style>
+</head><body data-nav="account" data-page="home" data-title="My trips" data-icon="i-folder">
+<div class="protobar">🎨 prototype v2 · mock data · <a href="index.html">cover</a> <a href="00-trips.html"><b>trips</b></a> <a href="01-dashboard.html">dashboard</a> <a href="02-plan.html">plan</a> <a href="03-wallet.html">money</a> <a href="06-documents.html">docs</a> <a href="07-people.html">people</a> <a href="08-settings.html">settings</a> <a href="04-admin.html">admin</a> <a href="09-auth.html">auth</a> <a href="05-tokens.html">system</a></div>
+
+<div class="shell">
+
+  <main class="main">
+
+    <div class="pagehead">
+      <div class="row">
+        <div><div class="crumb">Home</div><h1>My trips</h1>
+          <div class="sub">Every trip you belong to — lead your own, follow the others</div></div>
+        <div class="actions"><button class="btn"><svg class="i sm"><use href="#i-plus"/></svg> New trip</button></div>
+      </div>
+    </div>
+
+    <div class="tripgrid">
+      <a class="tripcard" href="01-dashboard.html">
+        <div class="tc-cover" style="background:linear-gradient(rgba(10,41,38,.25),rgba(10,41,38,.55)),url(https://picsum.photos/seed/tokyo-shrine/600/240) center/cover">
+          <span class="em">🇯🇵</span><span class="badge" style="background:rgba(255,255,255,.15);color:#fff;border-color:transparent">In 86 days</span>
+        </div>
+        <div class="tc-body">
+          <h3>Jelajah Jepun 2026</h3>
+          <div class="sub">Tokyo &amp; Osaka · 29 Nov – 7 Dec</div>
+          <div class="tc-meta">
+            <div class="avars"><span class="avatar">HZ</span><span class="avatar">MI</span><span class="avatar">AN</span><span class="avatar" style="background:var(--gray-100);color:var(--gray-600)">+13</span></div>
+            <span class="badge brand"><span class="d"></span>Leader</span>
+          </div>
+        </div>
+      </a>
+
+      <a class="tripcard" href="#">
+        <div class="tc-cover" style="background:linear-gradient(rgba(60,30,5,.25),rgba(60,30,5,.55)),url(https://picsum.photos/seed/kyushu-road/600/240) center/cover">
+          <span class="em">🚐</span><span class="badge" style="background:rgba(255,255,255,.15);color:#fff;border-color:transparent">In 132 days</span>
+        </div>
+        <div class="tc-body">
+          <h3>Kyushu Campervan</h3>
+          <div class="sub">Fukuoka loop · 15 – 22 Jan</div>
+          <div class="tc-meta">
+            <div class="avars"><span class="avatar">SN</span><span class="avatar">HZ</span></div>
+            <span class="badge gray"><span class="d"></span>Editor</span>
+          </div>
+        </div>
+      </a>
+
+      <a class="tripcard" href="#">
+        <div class="tc-cover" style="background:linear-gradient(rgba(12,17,29,.35),rgba(12,17,29,.6)),url(https://picsum.photos/seed/madinah/600/240) center/cover">
+          <span class="em">🕌</span><span class="badge" style="background:rgba(255,255,255,.15);color:#fff;border-color:transparent">Done · Mar 2026</span>
+        </div>
+        <div class="tc-body">
+          <h3>Umrah Keluarga</h3>
+          <div class="sub">Makkah &amp; Madinah · 2 – 14 Mar</div>
+          <div class="tc-meta">
+            <div class="avars"><span class="avatar">HZ</span><span class="avatar">MI</span><span class="avatar" style="background:var(--gray-100);color:var(--gray-600)">+8</span></div>
+            <span class="badge gray"><span class="d"></span>Viewer</span>
+          </div>
+        </div>
+      </a>
+
+      <button class="newcard"><span class="inner"><svg class="i lg"><use href="#i-plus"/></svg>Start a new trip</span></button>
+    </div>
+
+    <p class="hint" style="margin:14px 4px 0">Covers: upload your own, or Jelajah auto-picks one from the destination (mock photos here — the real build fetches a destination image from a keyless source like Wikimedia).</p>
+
+    <div class="card" style="margin-top:24px">
+      <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-gift"/></svg> Invite someone</h3><a href="08-settings.html" style="font-size:13px;font-weight:600">Your referral link →</a></div>
+      <p class="hint" style="margin:0">Friends who join through your link count as invited by you — trip invites live on each trip's People page.</p>
+    </div>
+  </main>
+</div>
+
+
+<script src="icons.js"></script>
+<script src="nav.js"></script>
+<script src="ux.js"></script>
+</body></html>

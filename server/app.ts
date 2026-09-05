@@ -34,6 +34,18 @@ async function filesGet(env: Env, key: string): Promise<ReadableStream | null> {
 async function filesDelete(env: Env, key: string) {
   await (env.FILES as any).delete(key);
 }
+/** Like filesGet, but also returns the stored content-type (KV metadata / R2 httpMetadata). */
+async function filesGetWithType(env: Env, key: string): Promise<{ body: ReadableStream; contentType: string } | null> {
+  const s: any = env.FILES;
+  if (isKV(s)) {
+    const { value, metadata } = await s.getWithMetadata(key, 'stream');
+    if (!value) return null;
+    return { body: value, contentType: (metadata as any)?.contentType || 'application/octet-stream' };
+  }
+  const obj = await s.get(key);
+  if (!obj) return null;
+  return { body: obj.body, contentType: obj.httpMetadata?.contentType || 'application/octet-stream' };
+}
 
 async function audit(env: Env, userId: number | null, action: string, entity?: string, entityId?: number) {
   try {
@@ -248,6 +260,9 @@ app.patch('/me', async c => {
   const body = await c.req.json<any>();
   if (body.lang === 'en' || body.lang === 'ms') {
     await c.env.DB.prepare('UPDATE users SET lang = ? WHERE id = ?').bind(body.lang, user.id).run();
+  }
+  if (body.theme === '' || body.theme === 'dark' || body.theme === 'system') {
+    await c.env.DB.prepare('UPDATE users SET theme = ? WHERE id = ?').bind(body.theme, user.id).run();
   }
   if (typeof body.newPassword === 'string' && body.newPassword.length >= 8) {
     const { hash, salt } = await hashPassword(body.newPassword);
@@ -686,6 +701,130 @@ app.delete('/documents/:id', async c => {
   await c.env.DB.prepare('DELETE FROM documents WHERE id = ?').bind(id).run();
   await audit(c.env, c.get('user').id, 'document_delete', 'document', id);
   return c.json({ ok: true, unlinked_expense_id: linked?.id ?? null });
+});
+
+/* ---------------- trip cover ---------------- */
+
+// F1: explicit allowlist, not `startsWith('image/')` — that admits
+// `image/svg+xml`, which is stored verbatim and served back same-origin
+// (stored XSS). Applied to both the direct PUT upload and the auto/Wikipedia
+// thumbnail download, since both paths write attacker/remote-influenced
+// bytes into the same KV namespace under the same content-type.
+const ALLOWED_COVER_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+
+app.get('/trips/:id/cover', async c => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'not_found', 404);
+  if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
+  const trip = await c.env.DB.prepare('SELECT cover_key FROM trips WHERE id = ?').bind(id).first<any>();
+  if (!trip?.cover_key) return bad(c, 'not_found', 404);
+  const file = await filesGetWithType(c.env, trip.cover_key);
+  if (!file) return bad(c, 'not_found', 404);
+  return new Response(file.body as any, {
+    headers: {
+      'Content-Type': file.contentType,
+      'Cache-Control': 'private, max-age=86400',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+});
+
+app.put('/trips/:id/cover', requireLeader, async c => {
+  const id = Number(c.req.param('id'));
+  // F4: an integer guard so a platform admin (tripRole ⇒ 'leader' on any id,
+  // including NaN/nonexistent) can't write orphan cover/NaN blobs into KV.
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'not_found', 404);
+  const trip = await c.env.DB.prepare('SELECT cover_key FROM trips WHERE id = ?').bind(id).first<any>();
+  if (!trip) return bad(c, 'not_found', 404);
+  const contentType = (c.req.header('content-type') || '').split(';')[0].trim();
+  if (!ALLOWED_COVER_TYPES.has(contentType)) return bad(c, 'invalid_content_type', 415);
+  // F5: reject an oversized body before buffering it into memory.
+  if (Number(c.req.header('content-length') || 0) > 600_000) return bad(c, 'file_too_large', 413);
+  const buf = await c.req.arrayBuffer();
+  if (buf.byteLength > 600_000) return bad(c, 'file_too_large', 413);
+  // F3: versioned key — the client embeds it in the <img> src (?v=<key>),
+  // so a cover replacement is a new URL for every viewer, and the 24h
+  // Cache-Control on GET no longer serves stale bytes to other members.
+  const key = `cover/${id}/${Date.now()}`;
+  await filesPut(c.env, key, buf, contentType);
+  await c.env.DB.prepare('UPDATE trips SET cover_key = ?, cover_credit = NULL WHERE id = ?').bind(key, id).run();
+  if (trip.cover_key) {
+    try { await filesDelete(c.env, trip.cover_key); } catch { /* best-effort */ }
+  }
+  await audit(c.env, c.get('user').id, 'cover_set', 'trip', id);
+  await trackUsage(c.env, c.get('user').id, 'cover_set');
+  return c.json({ ok: true, cover_key: key });
+});
+
+app.post('/trips/:id/cover/auto', requireLeader, async c => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'not_found', 404);
+  const trip = await c.env.DB.prepare('SELECT destination, name, cover_key FROM trips WHERE id = ?').bind(id).first<any>();
+  if (!trip) return bad(c, 'not_found', 404);
+  const dest = trip.destination || trip.name;
+  const UA = 'Jelajah/1.0 (family trip planner; personal use)';
+  let json: any;
+  try {
+    const res = await fetch(
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(dest)}`,
+      { headers: { 'User-Agent': UA } },
+    );
+    if (!res.ok) return bad(c, 'no_photo', 404);
+    json = await res.json();
+  } catch {
+    return bad(c, 'no_photo', 404);
+  }
+  const thumbUrl = json?.thumbnail?.source;
+  if (!thumbUrl) return bad(c, 'no_photo', 404);
+  // F2: pin the second hop to the real Wikimedia thumbnail host — the first
+  // hop's summary JSON is otherwise the only thing standing between a leader
+  // action and an arbitrary server-side fetch (SSRF surface).
+  let parsed: URL;
+  try {
+    parsed = new URL(thumbUrl);
+  } catch {
+    return bad(c, 'no_photo', 404);
+  }
+  if (parsed.protocol !== 'https:' || !/(^|\.)wikimedia\.org$/.test(parsed.hostname)) {
+    return bad(c, 'no_photo', 404);
+  }
+  let imgRes: Response;
+  try {
+    // redirect: 'error' — a redirect off the allowlisted host after the
+    // check above must fail closed, not be followed.
+    imgRes = await fetch(thumbUrl, { headers: { 'User-Agent': UA }, redirect: 'error' });
+  } catch {
+    return bad(c, 'no_photo', 404);
+  }
+  const imgType = (imgRes.headers.get('content-type') || '').split(';')[0].trim();
+  if (!imgRes.ok || !ALLOWED_COVER_TYPES.has(imgType)) return bad(c, 'no_photo', 404);
+  // F5: reject on the remote content-length before buffering, when present.
+  if (Number(imgRes.headers.get('content-length') || 0) > 600_000) return bad(c, 'no_photo', 404);
+  const buf = await imgRes.arrayBuffer();
+  if (buf.byteLength > 600_000) return bad(c, 'no_photo', 404);
+  const key = `cover/${id}/${Date.now()}`;
+  await filesPut(c.env, key, buf, imgType);
+  const credit = `${json.title} · Wikipedia · ${json.content_urls?.desktop?.page ?? ''}`;
+  await c.env.DB.prepare('UPDATE trips SET cover_key = ?, cover_credit = ? WHERE id = ?').bind(key, credit, id).run();
+  if (trip.cover_key) {
+    try { await filesDelete(c.env, trip.cover_key); } catch { /* best-effort */ }
+  }
+  await audit(c.env, c.get('user').id, 'cover_set', 'trip', id);
+  await trackUsage(c.env, c.get('user').id, 'cover_set');
+  return c.json({ ok: true, credit, cover_key: key });
+});
+
+app.delete('/trips/:id/cover', requireLeader, async c => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'not_found', 404);
+  const trip = await c.env.DB.prepare('SELECT cover_key FROM trips WHERE id = ?').bind(id).first<any>();
+  if (!trip) return bad(c, 'not_found', 404);
+  if (trip?.cover_key) {
+    try { await filesDelete(c.env, trip.cover_key); } catch { /* best-effort */ }
+  }
+  await c.env.DB.prepare('UPDATE trips SET cover_key = NULL, cover_credit = NULL WHERE id = ?').bind(id).run();
+  await audit(c.env, c.get('user').id, 'cover_delete', 'trip', id);
+  return c.json({ ok: true });
 });
 
 /* -------- expense payload helpers -------- */

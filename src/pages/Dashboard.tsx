@@ -6,6 +6,8 @@ import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import LeafletMap, { Pin, Arc } from '../components/LeafletMap';
 import FxWidget from '../components/FxWidget';
+import PageHead from '../components/PageHead';
+import { Icon, type IconName } from '../components/Icon';
 import { ymd } from '../../shared/days';
 import { airportCoords } from '../../shared/airports';
 import { haversine } from '../../shared/fares';
@@ -50,17 +52,17 @@ export default function Dashboard() {
   const upcoming = (() => {
     if (!plan) return [];
     const now = new Date();
-    const all: Array<{ when: Date; time: string | null; title: string; icon: string }> = [];
+    const all: Array<{ when: Date; time: string | null; title: string; icon: IconName }> = [];
     for (const e of plan.autoEvents ?? []) {
       // v0.12: members only see the flights/stays THEY are booked on
       if (!canLead && user.participant_id && e.participant_ids?.length > 0
         && !e.participant_ids.includes(user.participant_id)) continue;
-      all.push({ when: new Date(`${e.day}T${e.time ?? '00:00'}:00`), time: e.time, title: e.title, icon: e.kind === 'flight' ? '✈️' : e.kind === 'checkin' ? '🔑' : '🧳' });
+      all.push({ when: new Date(`${e.day}T${e.time ?? '00:00'}:00`), time: e.time, title: e.title, icon: e.kind === 'flight' ? 'plane' : e.kind === 'checkin' ? 'key' : 'bag' });
     }
     for (const a of plan.activities ?? []) {
       if (!canLead && user.participant_id && a.participant_ids.length > 0
         && !a.participant_ids.includes(user.participant_id)) continue;
-      all.push({ when: new Date(`${a.day}T${a.start_time ?? '00:00'}:00`), time: a.start_time, title: a.title, icon: '📍' });
+      all.push({ when: new Date(`${a.day}T${a.start_time ?? '00:00'}:00`), time: a.start_time, title: a.title, icon: 'pin' });
     }
     return all.filter(x => x.when.getTime() >= now.getTime() - 3600e3).sort((a, b) => a.when.getTime() - b.when.getTime());
   })();
@@ -133,6 +135,7 @@ export default function Dashboard() {
 
   return (
     <div>
+      <PageHead crumb={trip.name} title={t.dashboard} />
       <div className="hero">
         <div className="big">{cd.big}</div>
         <div className="sub">{trip.destination} · {fmtDate(trip.start_date, lang)} → {fmtDate(trip.end_date, lang)}</div>
@@ -140,51 +143,51 @@ export default function Dashboard() {
 
       <div className="stats">
         {!moneyHidden && (
-        <div className="stat">
-          <div className="label">{t.tripTotal}</div>
-          <div className="value">{bal ? fmtMYR(bal.tripTotal) : '…'}</div>
-          <div className="sub">
+        <div className="card stat">
+          <span className="k"><span className="tile sm"><Icon name="wallet" /></span>{t.tripTotal}</span>
+          <span className="v">{bal ? fmtMYR(bal.tripTotal) : '…'}</span>
+          <span className="t">
             {bal?.expenseCount ?? 0} {t.expenses}
-            {bal?.committedTotal > 0 && <> · 🏨 {fmtMYR(bal.committedTotal)} {t.committed}</>}
-          </div>
+            {bal?.committedTotal > 0 && <> · <Icon name="hotel" size={16} /> {fmtMYR(bal.committedTotal)} {t.committed}</>}
+          </span>
         </div>
         )}
         {moneyHidden ? null : canLead ? (
-          <div className="stat">
-            <div className="label">{t.outstanding}</div>
-            <div className="value">{bal ? fmtMYR(outstanding.reduce((a: number, b: any) => a + b.outstanding, 0)) : '…'}</div>
+          <div className="card stat">
+            <span className="k"><span className="tile sm"><Icon name="clock" /></span>{t.outstanding}</span>
+            <span className="v">{bal ? fmtMYR(outstanding.reduce((a: number, b: any) => a + b.outstanding, 0)) : '…'}</span>
           </div>
         ) : mine ? (
-          <div className="stat">
-            <div className="label">{t.myBalance}</div>
-            <div className="value">{fmtMYR(mine.outstanding)}</div>
-            <div className="sub">{t.owed} {fmtMYR(mine.owed)} · {t.paid} {fmtMYR(mine.paid)}</div>
+          <div className="card stat">
+            <span className="k"><span className="tile sm"><Icon name="wallet" /></span>{t.myBalance}</span>
+            <span className="v">{fmtMYR(mine.outstanding)}</span>
+            <span className="t">{t.owed} {fmtMYR(mine.owed)} · {t.paid} {fmtMYR(mine.paid)}</span>
           </div>
         ) : null}
         {mySpendTotal != null && (
-          <div className="stat">
-            <div className="label">👤 {t.myspend}</div>
-            <div className="value">{fmtMYR(mySpendTotal)}</div>
+          <div className="card stat">
+            <span className="k"><span className="tile sm"><Icon name="user" /></span>{t.myspend}</span>
+            <span className="v">{fmtMYR(mySpendTotal)}</span>
           </div>
         )}
         {!moneyHidden && (
-        <div className="stat">
-          <div className="label">{t.upcomingDues}</div>
-          <div className="value">{openDues.length}</div>
+        <div className="card stat">
+          <span className="k"><span className="tile sm"><Icon name="calendar" /></span>{t.upcomingDues}</span>
+          <span className="v">{openDues.length}</span>
         </div>
         )}
       </div>
 
       {journey && (
         <div className="card">
-          <h3>🗺️ {t.journey}</h3>
+          <div className="cardhead"><h3><Icon name="pin" /> {t.journey}</h3></div>
           <LeafletMap pins={journey.pins} arcs={journey.arcs} height={300}
             accent={(trip as any).color || undefined} />
           <div className="journey-stats">
-            {journey.flights > 0 && <span className="jstat">✈️ {journey.flights} {t.flights}</span>}
-            {journey.stays > 0 && <span className="jstat">🏨 {journey.stays} {t.stays}</span>}
-            {journey.places > 0 && <span className="jstat">📍 {journey.places} {t.places}</span>}
-            {journey.km > 0 && <span className="jstat">🧭 {journey.km.toLocaleString()} km {t.totalDistance}</span>}
+            {journey.flights > 0 && <span className="jstat"><Icon name="plane" size={16} /> {journey.flights} {t.flights}</span>}
+            {journey.stays > 0 && <span className="jstat"><Icon name="hotel" size={16} /> {journey.stays} {t.stays}</span>}
+            {journey.places > 0 && <span className="jstat"><Icon name="pin" size={16} /> {journey.places} {t.places}</span>}
+            {journey.km > 0 && <span className="jstat"><Icon name="globe" size={16} /> {journey.km.toLocaleString()} km {t.totalDistance}</span>}
           </div>
         </div>
       )}
@@ -192,11 +195,11 @@ export default function Dashboard() {
       <FxWidget tripId={tripId} trip={trip} isAdmin={canLead} onChanged={reload} />
 
       {upcoming.length > 0 ? (
-        <div className="card" style={{ borderLeft: '4px solid var(--data)' }}>
-          <h3>⏭️ {t.upNext}</h3>
+        <div className="card" style={{ borderLeft: '4px solid var(--brand-600)' }}>
+          <div className="cardhead"><h3><Icon name="clock" /> {t.upNext}</h3></div>
           {upcoming.slice(0, canLead ? 3 : 1).map((u2, i) => (
             <div className="row-between" key={i} style={{ padding: '4px 0' }}>
-              <span>{u2.icon} <strong>{u2.title}</strong></span>
+              <span className="row" style={{ gap: 8 }}><span className="tile sm"><Icon name={u2.icon} /></span><strong>{u2.title}</strong></span>
               <span className="muted" style={{ whiteSpace: 'nowrap' }}>
                 {fmtDate(ymd(u2.when), lang)}{u2.time ? ` · ${u2.time}` : ''} · {t.inDays(daysUntil(u2.when))}
               </span>
@@ -204,13 +207,13 @@ export default function Dashboard() {
           ))}
         </div>
       ) : plan ? (
-        <div className="card"><h3>⏭️ {t.upNext}</h3><p className="muted">{t.nothingUpcoming}</p></div>
+        <div className="card"><div className="cardhead"><h3><Icon name="clock" /> {t.upNext}</h3></div><p className="muted">{t.nothingUpcoming}</p></div>
       ) : null}
 
       <div className="grid grid-2">
         {!moneyHidden && (
         <div className="card barlist">
-          <div className="row-between">
+          <div className="cardhead">
             <h3>{t.byCategory}</h3>
             <span className="row" style={{ gap: 4 }}>
               <button className={`chip ${chartBy === 'category' ? 'on' : ''}`} onClick={() => setChartBy('category')}>{t.byCategoryLbl}</button>
@@ -255,7 +258,7 @@ export default function Dashboard() {
 
         {moneyHidden ? null : canLead ? (
           <div className="card">
-            <h3>{t.topOutstanding}</h3>
+            <div className="cardhead"><h3>{t.topOutstanding}</h3></div>
             {outstanding.length === 0 && <p className="muted">{t.allSettled}</p>}
             <div className="scroll-cap">
               {outstanding.map((b: any) => {
@@ -281,7 +284,7 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="card">
-            <h3>{t.myBalance}</h3>
+            <div className="cardhead"><h3>{t.myBalance}</h3></div>
             {!mine || mine.outstanding <= 0.004
               ? <p className="muted">{t.allSettled}</p>
               : mine.byPayee.map((bp: any) => (
@@ -295,19 +298,19 @@ export default function Dashboard() {
         )}
 
         <div className="card">
-          <h3>{t.upcomingDues}</h3>
+          <div className="cardhead"><h3>{t.upcomingDues}</h3></div>
           {openDues.length === 0 && <p className="muted">{t.none}</p>}
           {openDues.map(d => (
             <div className="row-between" key={d.id} style={{ padding: '5px 0' }}>
               <Link style={{ color: 'inherit', display: 'block' }}
                 to={`/trips/${tripId}/payments?expense=${d.expense_id}${d.participant_id ? `&participant=${d.participant_id}` : ''}`}>
-                <div>{d.description} {d.participant_id != null && <span className="badge">👤 {d.participant_name}</span>} <span className="tiny">→</span></div>
+                <div>{d.description} {d.participant_id != null && <span className="badge gray"><Icon name="user" size={16} /> {d.participant_name}</span>} <span className="tiny">→</span></div>
                 <div className="tiny">{fmtDate(d.due_date, lang)}{d.vendor ? ` · ${d.vendor}` : ''}</div>
               </Link>
               <div className="row">
                 {d.amount_myr ? <strong>{fmtMYR(d.amount_myr)}</strong> : null}
                 {canLead && (
-                  <button className="btn btn-ghost btn-sm" onClick={async () => {
+                  <button className="btn ghost sm" onClick={async () => {
                     await api.patch(`/duedates/${d.id}`, { settled: true });
                     setDues(await api.get(`/trips/${tripId}/duedates`));
                   }}>{t.markSettled}</button>
@@ -318,18 +321,18 @@ export default function Dashboard() {
         </div>
 
         <div className="card">
-          <h3>{t.myChecklist}</h3>
+          <div className="cardhead"><h3>{t.myChecklist}</h3></div>
           {items.length === 0 && <p className="muted">{t.noTasks}</p>}
           {items.map(it => (
             <div className={`check-item ${it.done ? 'done' : ''}`} key={it.id}>
               <input type="checkbox" checked={!!it.done} onChange={() => toggle(it)} />
               <span className="txt">{it.text}</span>
-              <button className="icon" onClick={() => remove(it)} aria-label={t.delete}>✕</button>
+              <button type="button" className="btn ghost sm" onClick={() => remove(it)} aria-label={t.delete}><Icon name="trash" size={16} /></button>
             </div>
           ))}
           <form className="row" onSubmit={addTask} style={{ marginTop: 10 }}>
             <input value={newTask} onChange={e => setNewTask(e.target.value)} placeholder={t.addTask} style={{ flex: 1 }} />
-            <button className="btn btn-sm" type="submit">{t.add}</button>
+            <button className="btn sm" type="submit">{t.add}</button>
           </form>
         </div>
       </div>

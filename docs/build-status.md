@@ -1,6 +1,334 @@
 # Jelajah — Build Status
 
-Updated: 5 Sep 2026 (v0.18 — released)
+Updated: 6 Sep 2026 (v0.20 COMPLETE — trip covers · server-side theme ·
+mobile-chrome e2e · /join BM, e2e green)
+
+## v0.20.0 — "Covers, server theme, mobile e2e" (6 Sep 2026) — v0.20 COMPLETE
+
+Closes the three backlog items recorded at v0.19 closeout plus the /join BM
+debt, per `docs/08-spec-v0.20-covers-theme.md`. Rooms allocation, PWA/offline,
+and licensed carousel photos stay explicitly out of scope (each needs its own
+brainstorm+spec / Sage's photo picks).
+
+**Shipped:**
+- **Trip photo covers.** A trip can have a cover image from two sources: a
+  leader upload (`src/lib/image.ts` `resizeImageFile` — canvas resize to
+  ≤1280px wide, JPEG quality .82, client-side) or a one-tap "Use destination
+  photo" that fetches a free Wikipedia REST summary photo server-side
+  (`POST /trips/:id/cover/auto`, keyless, `en.wikipedia.org` only — never
+  hotlinked, bytes land in the same `FILES` KV `cover/<tripId>` key as the
+  upload path). Covers render on the Trips grid (`TripCardCover` in
+  `Trips.tsx`, gradient+emoji stays the fallback on error/absence) and as a
+  subtle header backdrop in `TripShell.tsx`. Leader-only writes (`PUT`/`POST
+  .../auto`/`DELETE /trips/:id/cover`, `requireLeader`), member-only reads
+  (`GET`, `assertTripAccess`); server enforces ≤600KB + `image/*` content
+  type on upload; attribution (`cover_credit`) rendered as a linked credit
+  line in People's Trip details card when the auto-fetch path set one.
+  `trips.cover_key`/`trips.cover_credit` added to SCHEMA + UPGRADES
+  (idempotent ADD COLUMN).
+- **Server-side theme preference.** `users.theme TEXT NOT NULL DEFAULT ''
+  CHECK (theme IN ('','dark','system'))` (SCHEMA fresh-DB CHECK; UPGRADES
+  adds the column without CHECK — SQLite can't ALTER one in — with an
+  app-side value guard on the PATCH handler covering old/upgraded rows).
+  `PATCH /me` accepts `theme` (mirrors the existing `lang` handling exactly);
+  `GET /me` returns it. Client: `App.tsx` syncs `setThemePref(user.theme)`
+  once per session load when it differs from the device's `jl-theme`
+  localStorage value (server wins); Settings' theme seg control now PATCHes
+  `/me` alongside its existing localStorage write. The pre-paint script
+  (`index.html`) is untouched — still reads localStorage only, so there's no
+  flash; the server sync happens after hydration.
+- **Mobile-chrome e2e coverage.** New `scripts/e2e.mjs` section (steps 53–55,
+  own 390×844 context) behind the full desktop suite: tab bar visible /
+  sidebar hidden at that width; Money tab → `/ledger`; long-press
+  (pointerdown → 600ms wait → pointerup) on the Plan tab opens the trip
+  switcher sheet listing the seeded trip, Escape closes it; More sheet →
+  Settings; the Settings theme seg flips `html[data-theme]` and is confirmed
+  server-side via a live `/me` fetch, then reset back to Light. A separate
+  step (54) covers the cover upload/render/remove round trip on the desktop
+  context (leader uploads a 1×1 PNG fixture via the hidden file input on
+  People's cover-block, toast fires, the Trips card picks up `img[src*=
+  "/cover"]`, Remove restores the gradient). The `/cover/auto` (Wikipedia)
+  endpoint is deliberately **not** e2e'd — external network the sandbox's
+  `blockExternal` blocks and CI has no business depending on; left to manual
+  verification.
+  - **Regression fix found along the way:** the chat FAB (`.chat-fab`,
+    v0.12) sat on top of the tab bar's rightmost "More" tab below 1024px,
+    intercepting its taps (pre-existing since the v0.19 T7 tab bar shipped,
+    just never previously exercised by an e2e click at that width). Fixed by
+    lifting `.chat-fab`/`.chat-drawer` above the tab bar's reserved space in
+    the same `@media (max-width: 1023px)` breakpoint `styles.css` already
+    uses for it — CSS-only, no logic touched.
+- **/join Bahasa Malaysia.** `Join.tsx`'s last two EN-hardcoded strings
+  (the weak-password and generic-error callouts) converted to `t.weak
+  PasswordMsg`/`t.genericErrorMsg` (en+ms keys in `i18n.tsx`); the invite-role
+  badge's ad-hoc `charAt(0).toUpperCase()` capitalization swapped for the
+  same `t.roleLeader`/`t.roleEditor`/`t.roleViewer` keys People.tsx/TabBar.tsx
+  already use (falling back to the old capitalize behavior for any
+  unrecognized role string). Logic byte-identical: fetch/validate/register/
+  accept untouched, markup/classNames untouched, only JSX text and the one
+  derived-label expression changed. No lang toggle added — `Login.tsx` (the
+  page Join mirrors) has none either; both pre-auth pages render in whatever
+  language the browser/session default resolves to, unchanged from before.
+- **Full ritual, reset from scratch:** `npx tsc --noEmit` clean · `npx
+  vitest run` 153/153 · `npm run build` clean · `node scripts/e2e.mjs` →
+  `E2E PASSED (Phase 1 + 2 + v0.6-v0.20)`.
+
+**Explicitly deferred (recorded, untouched — spec §5):**
+- `api.del` body support — no current consumer.
+- MySpend fx race ticket — needs its own repro + fix plan.
+- Rooms allocation — needs its own brainstorm+spec.
+- PWA/offline — needs its own brainstorm+spec.
+- Licensed carousel/cover stock photos — needs Sage's photo picks; gradients
+  and the Wikipedia auto-fetch remain the only cover sources until then.
+- **`migrations/0001_init.sql` full regeneration** — flagged in the v0.20
+  T1 review: the file is ~6 versions stale (missing invites/usage_daily/
+  watch_currencies and now the v0.20 columns too). Left untouched on
+  purpose — a partial sync would be false consistency, and `UPGRADES`
+  self-heals both fresh and existing DBs regardless, so there's zero
+  functional risk. Parked as its own chore: regenerate the file from
+  `server/lib/schema.ts`'s `SCHEMA` end-to-end in one pass.
+
+## v0.19.0 — "UI refresh cleanup" (P5, 5 Sep 2026) — v0.19 COMPLETE
+
+Final sweep closing out the v0.19 design-system refresh (P1–P5): legacy-class
+migration and rename (P5 tasks 1–3, prior commits) followed by this task's
+dead-CSS purge, contrast pass, 360px re-check, and full e2e ritual.
+
+**Shipped (Task 4):**
+- **Carried fixes from T3 review.** `TripShell.tsx`'s accent inline-style
+  dropped the now-dead `--brand`/`--brand-strong` writes (zero remaining
+  reads after the P5 alias-token removal), keeping only `--brand-600`/
+  `--brand-700`; i18n `ms.backToTrips` unified to "Perjalanan saya" (lowercase
+  *saya*), matching `myTrips`'s casing.
+- **Dead-CSS purge.** Every class selector in `src/styles.css` grepped
+  against `src/**/*.tsx` and `scripts/e2e.mjs`; zero-consumer rules deleted:
+  `.dash-chart`, `.doc-row` (+ its `.ic`/`.grow`/`.fname` children —
+  superseded by `.lrow` in `Documents.tsx`), `.budget-strip` (+ `.bseg`/
+  `.btotal`), `.wizard-grid`, `.wizard-preview`, `.mcp-url` (its `.mcp-snippet`
+  selector partner stays, still used in `Settings.tsx`), `.upload-filelist`
+  (+ `.uf-row`), `.nav-label` (+ its reference in the `html.side-min` group
+  selector — `Sidebar.tsx` never renders a section label), and a legacy
+  `.trend`/`.trend.up`/`.trend.down` trio superseded by `.trend-up`/
+  `.trend-down` (which already had dark overrides). `.leaflet-pane` kept —
+  its consumer is the `leaflet` library's own generated DOM, not our tsx.
+- **Contrast pass.** Every `-700`/raw-hex text color in `styles.css` checked
+  for a `[data-theme="dark"]` override. Six gaps found and fixed (all sit on
+  a theme-aware `var(--bg)`/`var(--surface)` ancestor, so `--brand-700` text
+  would go low-contrast on dark): global `a` link color, `.weekcell .wc-head`,
+  `.suggest-card .sc-time`, `.note-row .note-dot`, `.newcard:hover`, and
+  `.authcard .logo` — each given a `var(--brand-300)` dark override matching
+  the existing convention (`.tile`, `.invite-icon`, `.nav-item.on`, `.tab.on`).
+  `.login-card .logo` deliberately left alone: `.login-card` has a fixed
+  `background:#fff` regardless of theme (same exemption as `fld2`'s
+  auth-layout difference), so it's self-contained. `.callout.warn`/
+  `.callout.info` likewise left alone — fixed light backgrounds + matching
+  fixed text, self-contained in both themes.
+- **360px re-check.** `.plan-cols`, `.tripgrid`, `.split`, `.stats` all
+  already responsive (media-query collapse / `auto-fit`+`auto-fill` with
+  `minmax`); no fixed-width leaks found, no changes needed.
+- **Full e2e ritual.** DB reset required mid-ritual (a stale `.wrangler/state`
+  D1 snapshot from an earlier session held a different admin password hash);
+  wiped `.wrangler/state`, reseeded via `npm run db:local`, restarted
+  `wrangler dev`, reran clean: `E2E PASSED (Phase 1 + 2 + v0.6-v0.18)`,
+  including its own BM-casing and 360px-no-scroll assertions. `npx vitest
+  run` (148 tests) and `npx tsc --noEmit` both green.
+
+**Remaining (future):** photo covers spec (Wikimedia auto-covers — needs a
+KV-storage design), server-side theme preference persistence, e2e
+mobile-chrome coverage, licensed auth-page photos.
+
+## v0.19.0 — "Plan page redesign" (P4b, 5 Sep 2026)
+
+Plan.tsx (Jelajah's biggest, most-used screen) brought to the v0.19 design
+system per `design/ui-refresh/02-plan.html`, presentational only — zero
+behavior change to drag/reflow, times, fares, import/export, notes, budgets.
+
+**Shipped (Tasks 1–5):**
+- **Two-column layout + day-pill rail.** `.daychips` → horizontal-scroll pill
+  rail (D-number + date + title lines, brand-tinted active ring); `.plan-cols`
+  two-column grid ≥1024px (main 1fr · right 360px), stacking below that (main
+  → map → budget → notes); day header restyled with inline title edit,
+  budget badge2, undoReflow/bulk buttons as btn2 ghost sm with icons.
+- **Numbered pin-rail activity rows.** Each row: pin-number circle (existing
+  `pinNumbers`/`actRef`, unchanged), time range, title + category badge,
+  meta line, edit/drag Icons; transit chip between stops (mode icon + minutes
+  + fare, display-only, sourced from the existing `legs` data); drag/reorder
+  wiring byte-identical. Legs/transport card deliberately stayed in the main
+  column (interaction-heavy, not a sidebar widget) — noted deviation from the
+  prototype, which puts route data on the map only.
+- **Per-mode route lines + map legend + right column.** `LeafletMap` gained
+  an additive `routes` prop (one polyline per leg, train/metro solid teal ·
+  walk dotted gray · taxi/car dashed orange · fallback solid gray) with a
+  `.maplegend` under the map; day budget and day notes cards moved into the
+  right column, restyled to lrow-ish, same CRUD/math unchanged.
+- **Data menu + modals onto shared chrome.** The Data dropdown moved onto
+  the shared `Menu`; ActivityModal/StartEndModal/BudgetModal/Suggest preview
+  moved onto the shared `Modal` wrapper — all form logic/props/handlers
+  unchanged, only chrome restyled.
+- **Emoji reconciliation (P4-final F2 parked items).** Mixed emoji/Icon rows
+  cleaned up: `Review.tsx`'s keyword panel (📅🔖👤🏪💳 → calendar/ticket/user/
+  bag/wallet Icons, beside the existing coins/plane Icons in the same block);
+  `Plan.tsx`'s `KIND_ICON` map (✈️🔑🧳 → plane/key/bag Icons) and its
+  week/month-view + pin-rail-fallback usages, remaining standalone 📍 leftover
+  glyphs → pin Icon, 👤/👥 → user/users Icon, and the `MODE_ICON` badges in
+  the transport card (train/taxi → train/car Icon via a local UI-layer map,
+  consistent with the pin-rail transit chip; walk keeps its 🚶 emoji — no
+  1:1 icon exists for it); `FxWidget.tsx`'s 💱 header → swap Icon, and the
+  🟢⚪🟠 signal dots → `badge2` success/gray/warning variants with a `.d` dot;
+  `ExpenseForm.tsx`'s `<option>👤 name</option>` — the emoji was dropped
+  (native `<select><option>` cannot render an SVG `<Icon>` child, so no 1:1
+  replacement was possible there; plain text is the correct fix). Trip
+  emblem, `LeafletMap` pin markers, and `StylePicker` swatches intentionally
+  stay emoji (user-facing content/branding, out of scope). 30 emoji glyphs
+  removed across the four files, plus 2 `MODE_ICON` badges (train/taxi legs
+  in the transport card) switched to conditional Icon rendering.
+
+**e2e:** two selectors fixed, both intent-preserving, no assertion weakened:
+`button:has-text("☑️ Select")` → `button:has-text("Select")` (bulk-select
+button lost its emoji prefix in the Task 2 restyle) and
+`page.$('.fx-badge')` → `page.$('.fx-row .badge2')` (the fx signal badge's
+class changed from `fx-badge fx-{signal}` to `badge2 {variant}` in this
+task's FxWidget reconciliation). Full reset ritual (DEV-RUNBOOK §2) run to
+green: `E2E PASSED (Phase 1 + 2 + v0.6-v0.18)`. `npx vitest run` (148 tests)
+and `npx tsc --noEmit` both green.
+
+**Remaining:** P5 cleanup (alias design tokens, `2`-suffix renames, dead
+legacy CSS, BM copy audit), photo covers (Wikimedia auto-covers — needs a
+KV-storage design), server-side theme persistence.
+
+## v0.19.0 — "UI refresh pages" (P4, 5 Sep 2026)
+
+On top of the P1–P3 foundation below: every page migrated to the v0.19
+design system (`docs/07-spec-v0.19-design-system.md`), presentational only —
+no server/schema/API changes, all behavior preserved, e2e green at the end.
+
+**Shipped (Tasks 1–6):**
+- **Page scaffolding + Trips (Home).** New `PageHead` and `Empty` shared
+  components; Trips → card grid (gradient+emoji covers, member avatars,
+  role badge2, days-to-go chip, dashed "Start a new trip" card, empty
+  state, referral hint card); `TripShell` failed-load state now shows an
+  error card with "Back to My trips" instead of an infinite spinner.
+- **Dashboard + Documents + People.** Dashboard → stat2 tile cards +
+  card2/cardhead sections; Documents → styled dropzone + lrow upload list
+  with an Empty state; People → lrow member list, invite panel with copy
+  button, danger-zone delete-trip Modal.
+- **Money pages (Ledger · Payments · MySpend).** New shared `MoneyTabs`
+  seg2 nav atop all three under one "Money" PageHead; stat2 totals trio;
+  expense/payment lists restyled to lrow; MySpend privacy-forward empty
+  state; money math and privacy boundaries verified unchanged.
+- **Settings + Admin charts.** Settings cards → card2; Admin wired to the
+  real `/admin/stats` + `/admin/referrals` payloads with hand-written SVG
+  charts (`components/charts/`: capsule bars, cumulative line, dot waffle) —
+  honest-data ruling followed (no hourly buckets in `usage_daily`, so the
+  punch-card chart was skipped rather than faked).
+- **Auth (Login + Join) split layout.** Photo-free destination carousel
+  (bundled CSS gradients + large emoji scenes, 6s crossfade, reduced-motion
+  safe, licensed-photo swap point commented); Join's security-frozen logic
+  untouched (markup/classes only).
+- **Emoji sweep + dark pass + 360px pass + closeout.** Functional chrome
+  emoji (nav/menu/button/card-header glyphs) replaced with `<Icon>` across
+  `App.tsx`, `TokenCard.tsx`, `FxWidget.tsx`, `Review.tsx`, `Login.tsx`,
+  `Join.tsx`, `Plan.tsx`'s shared chrome (data menu, directions card, budget
+  chip/modal, group chips) — day-rail item visuals and trip-emblem/map-marker
+  emoji (user content) intentionally left as-is, reserved for P4b. Dark pass
+  found one inline `var(--brand-700)` text color with no dark override
+  (Trips.tsx invite-card icon) — moved to a `.invite-icon` class with a
+  `[data-theme="dark"]` override to `--brand-300`, matching the existing
+  `.tile`/`.badge2.brand`/`.empty .etile` convention. 360px pass found one
+  real regression via e2e's new mobile spot-check: `.stats` grid items
+  (stat2 cards) had no `min-width: 0`, so an unwrapped money value could
+  force the grid — and the whole page — wider than the viewport; fixed with
+  `.stats > * { min-width: 0 }` plus `overflow-wrap: anywhere` on `.stat2
+  .v`. `.split`, `.tripgrid`, `.lrow`, `.tabbar` were already safe (verified,
+  no changes needed).
+- **Parked items closed out:** unused `.authtabs`/`.avars` CSS trimmed;
+  added a pure unit test (`tests/scrollLock.test.ts`) for the
+  `lockScroll`/`unlockScroll` refcount in `components/uiHelpers.ts`, incl.
+  the unmount-safety guard against the counter going negative.
+
+**e2e:** one selector fixed (Dashboard checklist form wrapper moved from
+`.card` to `.card2` in the Task 2 restyle) and one assertion updated
+(`'💰'` → `'¥'` in the wizard-import day-budget check, since that chip's
+emoji was swept to `<Icon name="coins">` in this task) — both
+intent-preserving, no server logic or assertion strength changed. Full
+reset ritual (DEV-RUNBOOK §2) run clean: `E2E PASSED (Phase 1 + 2 +
+v0.6-v0.18)`. `npx vitest run` (148 tests) and `npx tsc --noEmit` both
+green.
+
+**Not in this phase (see task-6 brief "Not in P4"):** Plan-page deep
+redesign (day rail visuals, per-mode route lines, pin-rail sync visuals) —
+P4b, its own plan, because Plan.tsx is the largest page and carries
+drag/reflow logic; this phase only gave Plan the shared chrome it inherits
+for free. Photo covers + Wikimedia auto-covers — needs a KV-storage design,
+separate spec addendum. Server-side theme persistence — future spec
+addendum.
+
+**Pending — P5 (cleanup):** alias design tokens once every page is off
+them, `2`-suffix renames, dead legacy CSS (`.tabs`, old `.toast`, old
+`.btn`/`.badge`/`.card` once unused elsewhere — verify with a grep audit
+before deleting anything), BM copy audit.
+
+## v0.19.0 — "UI refresh foundation" (5 Sep 2026, in progress)
+
+P1–P3 of the UI refresh (tokens/dark mode, icons, components + modal system,
+sidebar + tab bar) have shipped and the full e2e suite is green against
+them. P4 (page-by-page restyle) and P5 (cleanup) are still pending — see
+below.
+
+**Shipped (P1–P3, Tasks 1–7):**
+- **Design tokens + dark mode.** New CSS custom-property token set (spacing,
+  radii, ink/brand/accent colors) plus a `data-theme` dark palette, ported
+  from `design/ui-refresh/`.
+- **Icon system.** Inline SVG icon set (`components/Icon.tsx` + `iconDefs`)
+  replacing ad hoc emoji/text glyphs across nav and buttons.
+- **Component + modal system.** A shared `Modal` component (scrim, focus
+  trap, Escape-to-close) exists but has exactly one consumer so far —
+  `TokenCard`'s revoke action, which moved from an immediate destructive
+  click to a confirm-gated Modal (red primary, "no undo" copy) as proof
+  wiring for the pattern. `Menu.tsx` ships with no consumer yet. Wiring
+  Modal/Menu onto other in-app dialogs (Add activity, import wizard, AI
+  suggestions, Data menu, etc.) is P4 work, not yet done.
+- **Sidebar (desktop, ≥1024px).** `TripShell`'s old `.tabs` nav is gone;
+  navigation is a fixed collapsible `.sidebar` (`components/Sidebar.tsx`)
+  driven by a pure `navModel()` (`components/navModel.ts`) shared with the
+  tab bar. Money (Ledger/Payments/My spend) is now a single "Money" nav item
+  that targets the first visible sub-page in priority order
+  (ledger → payments → myspend) rather than three separate tabs.
+- **Bottom tab bar (mobile, <1024px).** `components/TabBar.tsx` — 5-slot
+  tab bar (Home/Plan/Money/Documents/More) with long-press trip switcher and
+  a "More" sheet for People/Settings/Admin/logout. The old `.topbar` still
+  renders, but only as mobile-only chrome under 1024px (desktop uses the
+  sidebar exclusively).
+- **Toast restyle.** Toasts moved from `.toast`/`.toasts` to a new
+  `.toast2`/`.toasts2` pill style (`components/Toast.tsx`); the old classes
+  are dead CSS, not removed yet (see Parked below).
+
+**e2e (Task 8):** `scripts/e2e.mjs` selectors updated for the new shell —
+`nav.tabs a:has-text(...)` clicks became `.sidebar a.nav-item:has-text(...)`
+(Dashboard → "Overview", Ledger → "Money"); steps that specifically needed
+Payments or My spend (not Money's default ledger target) now `page.goto`
+those routes directly; `.topbar select` language-switch steps moved to the
+sidebar's `.side-lang` select (`.topbar` is hidden at the suite's 1280px
+viewport); the member nav-hiding check now asserts the Money link's href
+falls through to `/myspend` (no more separate Ledger/Payments tab labels to
+grep for); all `.toast` assertions moved to `.toast2`; the token-revoke step
+now clicks through the new confirm Modal instead of expecting an immediate
+toast. Full ritual (DEV-RUNBOOK §2) run clean: `E2E PASSED (Phase 1 + 2 +
+v0.6-v0.18)`. No server/, shared/, or assertion-intent changes were needed —
+every failure was a selector/flow catch-up to an intentional T1–T7 UI change.
+
+**Pending (not in this phase):**
+- **P4 — page-by-page restyle.** Trips folder cards+covers, Dashboard, Plan
+  (day rail, pin sync visuals, per-mode route lines), Money merge
+  (Ledger/Payments/MySpend under one page with seg tabs + empty states),
+  Documents (+Receipts empty state), People, Settings cards, Admin lieflat
+  charts, Auth carousel (needs licensed images sourced first). Also:
+  TripShell fetch-error state (no UI today if the initial `/trips/:id` load
+  fails).
+- **P5 — cleanup.** Delete the dead `.tabs`/`.toast` CSS (superseded by the
+  sidebar/tab-bar nav and `.toast2`), remove the alias design tokens once
+  every page is off them, `2`-suffix renames, BM copy audit, contrast pass,
+  final adversarial review.
 
 ## v0.18.0 — "Open trips & the admin dashboard" (5 Sep 2026)
 

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useT } from '../i18n';
+import { Icon } from './Icon';
 
 import { FX_WINDOWS, FxWindow } from '../../shared/fxband';
 
@@ -14,7 +15,7 @@ interface Series {
   current: { date: string; rate: number };
 }
 
-const SIGNAL_ICON = { buy: '🟢', ok: '⚪', wait: '🟠' } as const;
+const SIGNAL_VARIANT = { buy: 'success', ok: 'gray', wait: 'warning' } as const;
 
 function Sparkline({ s }: { s: Series }) {
   const W = 220, H = 48, P = 3;
@@ -57,12 +58,12 @@ export function CurrencyFields({ base, watch, onBase, onWatch }: {
   };
   return (
     <>
-      <label className="field"><span>{t.fxRefCurrency}</span>
+      <label className="fld"><span>{t.fxRefCurrency}</span>
         <select value={base} onChange={e => { onBase(e.target.value); onWatch(watch.filter(w => w !== e.target.value)); }}>
           {all.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
           {!all.some(c => c.code === base) && <option value={base}>{base}</option>}
         </select></label>
-      <div className="field full"><span>{t.fxWatchCurrencies} <span className="tiny">({t.fxMax6})</span></span>
+      <div className="fld full"><span>{t.fxWatchCurrencies} <span className="tiny">({t.fxMax6})</span></span>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           {watch.map(w => (
             <span key={w} className="chip on">{w}
@@ -120,20 +121,20 @@ export default function FxWidget({ tripId, trip, isAdmin, onChanged }: {
   return (
     <div className="card">
       <div className="row-between">
-        <h3>💱 {t.fxTitle}</h3>
+        <h3><Icon name="swap" size={16} /> {t.fxTitle}</h3>
         <span className="row" style={{ gap: 6 }}>
           {watch.length > 0 && (
-            <span className="row seg">
+            <span className="seg">
               {WINDOWS.map(w => (
-                <button key={w} className={`btn btn-sm ${win === w ? '' : 'btn-ghost'}`}
+                <button key={w} className={win === w ? 'on' : ''}
                   onClick={() => pickWin(w)}>{w.toUpperCase()}</button>
               ))}
             </span>
           )}
           {isAdmin && (
-            <button className="btn btn-ghost btn-sm" title={t.fxEditCurrencies}
+            <button className="btn ghost sm" title={t.fxEditCurrencies}
               onClick={() => setEditor({ base: trip.base_currency ?? 'MYR', watch })}>
-              {watch.length ? '⚙️' : `⚙️ ${t.fxSetup}`}
+              {watch.length ? <Icon name="settings" size={16} /> : <><Icon name="settings" size={16} /> {t.fxSetup}</>}
             </button>
           )}
         </span>
@@ -161,11 +162,11 @@ export default function FxWidget({ tripId, trip, isAdmin, onChanged }: {
                     );
                   })()}
                   {s.signal && (
-                    <span className={`badge fx-badge fx-${s.signal}`}>
-                      {SIGNAL_ICON[s.signal]} {s.signal === 'buy' ? t.fxBuy : s.signal === 'ok' ? t.fxOk : t.fxWait}
+                    <span className={`badge ${SIGNAL_VARIANT[s.signal]}`}>
+                      <span className="d" /> {s.signal === 'buy' ? t.fxBuy : s.signal === 'ok' ? t.fxOk : t.fxWait}
                     </span>
                   )}
-                  {!s.signal && <span className="badge">{t.fxNoHistory}</span>}
+                  {!s.signal && <span className="badge gray">{t.fxNoHistory}</span>}
                 </div>
                 <Sparkline s={s} />
                 <div className="tiny muted">{t.fxVsDays(FX_WINDOWS[win])}
@@ -179,14 +180,14 @@ export default function FxWidget({ tripId, trip, isAdmin, onChanged }: {
       {editor && (
         <div className="overlay" onClick={() => setEditor(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2>💱 {t.fxEditCurrencies}</h2>
+            <h2><Icon name="swap" size={16} /> {t.fxEditCurrencies}</h2>
             <div className="form-grid">
               <CurrencyFields base={editor.base} watch={editor.watch}
                 onBase={b => setEditor({ ...editor, base: b })}
                 onWatch={w => setEditor({ ...editor, watch: w })} />
             </div>
             <div className="row" style={{ justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setEditor(null)}>{t.cancel}</button>
+              <button className="btn ghost" onClick={() => setEditor(null)}>{t.cancel}</button>
               <button className="btn" disabled={busy} onClick={save}>{t.save}</button>
             </div>
           </div>

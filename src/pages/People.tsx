@@ -5,10 +5,22 @@ import { useT } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx, Participant } from './TripShell';
 import { useToast } from '../components/Toast';
+import PageHead from '../components/PageHead';
+import { Icon } from '../components/Icon';
+import { resizeImageFile } from '../lib/image';
 
 type Invite = {
   id: number; code: string; url: string; role: 'editor' | 'viewer';
   expires_at: string | null; max_uses: number | null; used_count: number; revoked: boolean;
+};
+
+// initials for the `.avatar` chip — first letter of the first two words, or the
+// first two letters of a single-word name.
+const initials = (name: string) => {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
 };
 
 export default function People() {
@@ -76,7 +88,7 @@ export default function People() {
       );
     }
     const label = role === 'leader' ? t.roleLeader : role === 'editor' ? t.roleEditor : t.roleViewer;
-    return <span className="badge">{label}</span>;
+    return <span className="badge gray">{label}</span>;
   };
 
   const changeRole = async (pid: number, role: 'leader' | 'editor' | 'viewer') => {
@@ -154,6 +166,71 @@ export default function People() {
     }
   };
 
+  // ---- Task 3 (v0.20) — cover photo ----
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const coverCreditRaw = (trip as any).cover_credit as string | null | undefined;
+  // server stores "<title> · Wikipedia · <page url>" (empty url segment when
+  // the summary lacked one) — render the title+source as a link when a url
+  // is present, plain text otherwise. Split on the LAST ' · ' only (F6): a
+  // Wikipedia title can itself contain ' · ', which would otherwise shift
+  // the fields and turn the credit into a broken relative link.
+  const coverCredit = coverCreditRaw ? (() => {
+    const idx = coverCreditRaw.lastIndexOf(' · ');
+    const label = idx === -1 ? coverCreditRaw : coverCreditRaw.slice(0, idx);
+    const maybeUrl = idx === -1 ? '' : coverCreditRaw.slice(idx + 3);
+    const url = maybeUrl.startsWith('https://') ? maybeUrl : '';
+    return { label, url };
+  })() : null;
+
+  const uploadCover = async (file: File) => {
+    setCoverBusy(true);
+    try {
+      const blob = await resizeImageFile(file);
+      if (blob.size > 600_000) throw new Error('upload_failed'); // server limit; avoid a doomed 413 round-trip
+      const res = await fetch(`/api/trips/${tripId}/cover`, {
+        method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: blob,
+      });
+      if (res.status === 401) { location.href = '/login'; return; }
+      if (!res.ok) throw new Error('upload_failed');
+      toast(t.coverSet);
+      await reload();
+      await refresh();
+    } catch {
+      toast(t.tSaveFailed, 'error');
+    } finally {
+      setCoverBusy(false);
+    }
+  };
+
+  const autoCover = async () => {
+    setCoverBusy(true);
+    try {
+      await api.post(`/trips/${tripId}/cover/auto`);
+      toast(t.coverSet);
+      await reload();
+      await refresh();
+    } catch (e) {
+      toast(e instanceof ApiError && e.code === 'no_photo' ? t.noPhotoFound : t.tSaveFailed, 'error');
+    } finally {
+      setCoverBusy(false);
+    }
+  };
+
+  const removeCover = async () => {
+    setCoverBusy(true);
+    try {
+      await api.del(`/trips/${tripId}/cover`);
+      toast(t.coverRemoved);
+      await reload();
+      await refresh();
+    } catch {
+      toast(t.tSaveFailed, 'error');
+    } finally {
+      setCoverBusy(false);
+    }
+  };
+
   const copyInvite = async (code: string) => {
     const url = location.origin + '/join/' + code;
     await navigator.clipboard.writeText(url);
@@ -195,44 +272,54 @@ export default function People() {
   };
 
   return (
-    <div className="grid grid-2" style={{ alignItems: 'start' }}>
+    <div>
+      <PageHead crumb={trip.name} title={t.people} />
+      <div className="grid grid-2" style={{ alignItems: 'start' }}>
       <div className="card">
-        <h3>{t.visibility}</h3>
-        <p className="tiny">{t.visibilityHint}</p>
+        <div className="cardhead"><h3><Icon name="eye" /> {t.visibility}</h3></div>
+        <p className="hint">{t.visibilityHint}</p>
         {(['plan', 'documents', 'ledger', 'payments', 'assistant'] as const).map(f => (
           <label key={f} className="row" style={{ gap: 8, padding: '4px 0' }}>
             <input type="checkbox" checked={!hidden.includes(f)} onChange={() => toggleFeature(f)}
-              style={{ width: 17, height: 17, accentColor: 'var(--brand)' }} />
-            <span>{f === 'assistant' ? `💬 ${t.assistantFeature}` : (t as any)[f === 'ledger' ? 'ledger' : f]}</span>
+              style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
+            <span>{f === 'assistant' ? <><Icon name="chat" size={16} /> {t.assistantFeature}</> : (t as any)[f === 'ledger' ? 'ledger' : f]}</span>
           </label>
         ))}
-        <label className="row" style={{ gap: 8, padding: '10px 0 4px', borderTop: '1px solid var(--line)', marginTop: 8 }}>
+        <label className="row" style={{ gap: 8, padding: '10px 0 4px', borderTop: '1px solid var(--border)', marginTop: 8 }}>
           <input type="checkbox" checked={canEditPlan} onChange={toggleEditPlan}
-            style={{ width: 17, height: 17, accentColor: 'var(--brand)' }} />
-          <span>✏️ {t.memberCanEditPlan}</span>
+            style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
+          <span><Icon name="edit" size={16} /> {t.memberCanEditPlan}</span>
         </label>
       </div>
       <div className="card">
-        <h3>{t.tripMembers}</h3>
-        <p className="tiny">{t.memberHint}</p>
+        <div className="cardhead"><h3>{t.tripMembers}</h3><span className="badge gray">{members.length}</span></div>
+        <p className="hint">{t.memberHint}</p>
         <div className="chips" style={{ marginBottom: 12 }}>
           {all.map(p => (
             <span key={p.id} className={`chip ${memberIds.has(p.id) ? 'on' : ''}`} onClick={() => toggleMember(p.id)}>
-              {p.name}{p.is_infant ? ' 👶' : ''}
+              {p.name}{p.is_infant ? ` (${t.infant})` : ''}
             </span>
           ))}
         </div>
         {members.length > 0 && (
           <div style={{ marginBottom: 12 }}>
             {members.map(m => (
-              <div className="row-between" key={m.id} style={{ padding: '4px 0' }}>
-                <span>{m.name}{m.is_infant ? ' 👶' : ''}</span>
+              <div className="lrow" key={m.id}>
+                <span className="avatar">{initials(m.name)}</span>
+                <div className="l-main">
+                  <b>{m.name}</b>
+                  <small>
+                    {m.is_infant ? t.infant
+                      : m.id === user.participant_id ? t.youLbl
+                        : m.has_account ? t.hasAccountLbl : t.noAccountLbl}
+                  </small>
+                </div>
                 {canLead && (
-                  <div className="row" style={{ gap: 6 }}>
+                  <div className="l-end">
                     {roleChip(m)}
                     {!!m.has_account && m.id !== user.participant_id && (
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => transferLead(m.id, m.name)}>
-                        ⤵ {t.transferLead}
+                      <button type="button" className="btn ghost sm" title={t.transferLead} aria-label={t.transferLead} onClick={() => transferLead(m.id, m.name)}>
+                        <Icon name="flag" size={16} />
                       </button>
                     )}
                   </div>
@@ -246,76 +333,111 @@ export default function People() {
           <label className="row tiny" style={{ gap: 4 }}>
             <input type="checkbox" checked={newInfant} onChange={e => setNewInfant(e.target.checked)} />{t.infant}
           </label>
-          <button className="btn btn-sm">{t.add}</button>
+          <button className="btn sm" type="submit">{t.add}</button>
         </form>
       </div>
 
       {canLead && (
         <div className="card">
-          <h3>{t.inviteTitle}</h3>
-          {invites.filter(i => !i.revoked).map(i => (
-            <div className={`row-between invite-row${i.id === justCreated ? ' invite-row-new' : ''}`} key={i.id}
-              style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
-              <div>
-                <div className="row" style={{ gap: 6 }}>
-                  <span className="badge">{i.role === 'editor' ? t.roleEditor : t.roleViewer}</span>
-                  <span className="tiny">{t.inviteUses(i.used_count, i.max_uses ?? 0)}</span>
-                  {i.expires_at && <span className="tiny">{t.inviteExpires(new Date(i.expires_at).toLocaleDateString())}</span>}
-                </div>
-              </div>
-              <div className="row">
-                <button className="btn btn-ghost btn-sm" onClick={() => copyInvite(i.code)}>📋</button>
-                <button className="btn btn-ghost btn-sm" onClick={() => revokeInvite(i.id)}>{t.inviteRevoke} ✕</button>
-              </div>
-            </div>
-          ))}
-          <form className="row" onSubmit={createInvite} style={{ marginTop: 14 }}>
-            <label className="row tiny" style={{ gap: 4 }}>
-              <span>{t.inviteRoleLabel}</span>
-              <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'viewer' | 'editor')}>
+          <div className="cardhead">
+            <h3><Icon name="link" /> {t.inviteTitle}</h3>
+            <form className="row" style={{ gap: 8 }} onSubmit={createInvite}>
+              <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'viewer' | 'editor')} aria-label={t.inviteRoleLabel}>
                 <option value="viewer">{t.roleViewer}</option>
                 <option value="editor">{t.roleEditor}</option>
               </select>
-            </label>
-            <button className="btn btn-sm">{t.inviteCreate}</button>
-          </form>
+              <button type="submit" className="btn sm"><Icon name="plus" size={16} /> {t.inviteCreate}</button>
+            </form>
+          </div>
+          {invites.filter(i => !i.revoked).map(i => (
+            <div className={`lrow invite-row${i.id === justCreated ? ' invite-row-new' : ''}`} key={i.id}>
+              <span className="tile sm"><Icon name="link" /></span>
+              <div className="l-main">
+                <div className="invlink">{i.url}</div>
+                <small>{i.role === 'editor' ? t.roleEditor : t.roleViewer} · {t.inviteUses(i.used_count, i.max_uses ?? 0)}
+                  {i.expires_at ? ` · ${t.inviteExpires(new Date(i.expires_at).toLocaleDateString())}` : ''}</small>
+              </div>
+              <div className="l-end">
+                <button type="button" className="btn secondary sm" onClick={() => copyInvite(i.code)}><Icon name="copy" size={16} /> {t.copyLbl}</button>
+                <button type="button" className="btn ghost sm" title={t.inviteRevoke} aria-label={t.inviteRevoke} onClick={() => revokeInvite(i.id)}><Icon name="trash" size={16} /></button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
       {canLead && (
         <div className="card">
-          <h3>📝 {t.tripDetails}</h3>
+          <div className="cardhead"><h3><Icon name="edit" /> {t.tripDetails}</h3></div>
           <form onSubmit={saveTripDetails}>
-            <div className="form-grid">
-              <label className="field full"><span>{t.tripName}</span>
-                <input value={details.name} onChange={e => setDetails({ ...details, name: e.target.value })} required /></label>
-              <label className="field full"><span>{t.destination}</span>
-                <input value={details.destination} onChange={e => setDetails({ ...details, destination: e.target.value })} /></label>
-              <label className="field"><span>{t.startDate}</span>
-                <input type="date" value={details.start_date} onChange={e => setDetails({ ...details, start_date: e.target.value })} /></label>
-              <label className="field"><span>{t.endDate}</span>
-                <input type="date" value={details.end_date} onChange={e => setDetails({ ...details, end_date: e.target.value })} /></label>
+            <div className="fld">
+              <label>{t.tripName}</label>
+              <input value={details.name} onChange={e => setDetails({ ...details, name: e.target.value })} required />
             </div>
-            <p className="tiny">{t.tripDatesHint}</p>
+            <div className="fld" style={{ marginTop: 12 }}>
+              <label>{t.destination}</label>
+              <input value={details.destination} onChange={e => setDetails({ ...details, destination: e.target.value })} />
+            </div>
+            <div className="row" style={{ gap: 12, marginTop: 12 }}>
+              <div className="fld" style={{ flex: 1 }}>
+                <label>{t.startDate}</label>
+                <input type="date" value={details.start_date} onChange={e => setDetails({ ...details, start_date: e.target.value })} />
+              </div>
+              <div className="fld" style={{ flex: 1 }}>
+                <label>{t.endDate}</label>
+                <input type="date" value={details.end_date} onChange={e => setDetails({ ...details, end_date: e.target.value })} />
+              </div>
+            </div>
+            <p className="hint" style={{ marginTop: 12 }}>{t.tripDatesHint}</p>
             <div className="row" style={{ justifyContent: 'flex-end' }}>
-              <button className="btn" type="submit">{t.save}</button>
+              <button className="btn sm" type="submit">{t.save}</button>
             </div>
           </form>
+
+          <div className="cover-block">
+            <label>{t.coverPhoto}</label>
+            {coverCredit ? (
+              <p className="hint">
+                {coverCredit.url
+                  ? <a href={coverCredit.url} target="_blank" rel="noreferrer noopener">{coverCredit.label}</a>
+                  : coverCredit.label}
+              </p>
+            ) : (
+              <p className="hint">{t.noCoverYet}</p>
+            )}
+            <input ref={coverInputRef} type="file" accept="image/*" hidden
+              onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void uploadCover(f); }} />
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="btn ghost sm" disabled={coverBusy}
+                onClick={() => coverInputRef.current?.click()}>
+                <Icon name="upload" size={16} /> {t.coverUpload}
+              </button>
+              <button type="button" className="btn ghost sm" disabled={coverBusy} onClick={autoCover}>
+                <Icon name="camera" size={16} /> {t.coverAuto}
+              </button>
+              {trip.cover_key && (
+                <button type="button" className="btn ghost sm" disabled={coverBusy} onClick={removeCover}>
+                  <Icon name="trash" size={16} /> {t.coverRemove}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
       {canLead && (
         <div className="card danger-card">
-          <h3>🗑 {t.deleteTrip}</h3>
-          <p className="tiny">{t.deleteTripHint(trip.name)}</p>
-          <div className="row">
-            <input value={deleteText} onChange={e => setDeleteText(e.target.value)} placeholder={trip.name} style={{ flex: 1 }} />
-            <button type="button" className="btn btn-danger" disabled={deleteText !== trip.name} onClick={deleteTrip}>
+          <div className="cardhead"><h3 className="danger-title"><Icon name="trash" /> {t.deleteTrip}</h3></div>
+          <p className="hint">{t.deleteTripHint(trip.name)}</p>
+          <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+            <input value={deleteText} onChange={e => setDeleteText(e.target.value)} placeholder={trip.name} style={{ flex: 1, minWidth: 200 }} />
+            <button type="button" className="btn danger sm" disabled={deleteText !== trip.name} onClick={deleteTrip}>
               {t.deleteTrip}
             </button>
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

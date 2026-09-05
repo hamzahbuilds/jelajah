@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelajah refresh · Settings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui.css">
+<style>
+  .mono { font-family:ui-monospace,monospace; font-size:12px; background:var(--gray-100); border-radius:8px;
+    padding:8px 10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink-2); }
+  [data-theme="dark"] .mono { background:var(--gray-800); }
+</style>
+</head><body data-nav="account" data-page="settings" data-title="Settings" data-icon="i-settings">
+<div class="protobar">🎨 prototype v2 · mock data · <a href="index.html">cover</a> <a href="00-trips.html">trips</a> <a href="01-dashboard.html">dashboard</a> <a href="02-plan.html">plan</a> <a href="03-wallet.html">money</a> <a href="06-documents.html">docs</a> <a href="07-people.html">people</a> <a href="08-settings.html"><b>settings</b></a> <a href="04-admin.html">admin</a> <a href="09-auth.html">auth</a> <a href="05-tokens.html">system</a></div>
+
+<div class="shell">
+
+  <main class="main">
+
+    <div class="pagehead">
+      <div class="crumb">Your account</div><h1>Settings</h1>
+      <div class="sub">Shown here as a family member (Aina) — every user gets this page</div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-gift"/></svg> Your referral link</h3><span class="badge brand"><span class="d"></span>3/20 used</span></div>
+        <p class="hint">Friends who join through your link count as invited by you.</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div class="mono" style="flex:1;min-width:220px">https://jelajah.dev/join/inv_a11f…8c02</div>
+          <button class="btn secondary sm"><svg class="i sm"><use href="#i-copy"/></svg> Copy</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-key"/></svg> Access tokens</h3>
+          <div style="display:flex;gap:8px"><input placeholder="Token name" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;width:150px"><button class="btn sm"><svg class="i sm"><use href="#i-plus"/></svg> New token</button></div></div>
+        <p class="hint">Connect Claude, Codex or any MCP client to your trips. Tokens are shown once.</p>
+        <div class="lrow">
+          <span class="tile sm"><svg class="i"><use href="#i-key"/></svg></span>
+          <div class="l-main"><b>claude-desktop</b><small>created 2 Sep · last used today</small></div>
+          <div class="l-end"><span class="badge success"><span class="d"></span>Active</span><button class="btn ghost sm"><svg class="i sm"><use href="#i-trash"/></svg></button></div>
+        </div>
+        <div class="lrow">
+          <span class="tile sm"><svg class="i"><use href="#i-key"/></svg></span>
+          <div class="l-main"><b>old-phone</b><small>created 12 Aug · revoked</small></div>
+          <div class="l-end"><span class="badge gray"><span class="d"></span>Revoked</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-chat"/></svg> Connect an AI</h3></div>
+        <p class="hint">Add this MCP server to Claude Code, Claude Desktop or Codex — reads your plan, adds activities and notes if you're an editor.</p>
+        <div class="mono">https://jelajah.dev/api/mcp · Authorization: Bearer &lt;your token&gt;</div>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-moon"/></svg> Appearance</h3></div>
+        <div class="seg" id="themeseg">
+          <button data-t="" onclick="setTheme('')">Light</button>
+          <button data-t="dark" onclick="setTheme('dark')">Dark</button>
+          <button data-t="system" onclick="setTheme('system')">System</button>
+        </div>
+        <p class="hint" style="margin:10px 0 0">Follows you on this device — System matches your phone or Mac setting.</p>
+      </div>
+
+      <div class="card">
+        <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-globe"/></svg> Language</h3></div>
+        <div class="seg"><button class="on">English</button><button>Bahasa Malaysia</button></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+
+<script src="icons.js"></script>
+<script src="nav.js"></script>
+<script src="ux.js"></script>
+<script>
+  function setTheme(v){ jlSetTheme(v); sync(); }
+  function sync(){ const cur = localStorage.getItem('jl-theme') || '';
+    document.querySelectorAll('#themeseg button').forEach(b => b.classList.toggle('on', b.dataset.t === cur)); }
+  sync();
+</script>
+</body></html>

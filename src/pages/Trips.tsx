@@ -1,11 +1,59 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, fmtDate } from '../api';
-import { useT } from '../i18n';
-import { useSession } from '../App';
+import { useT, Dict } from '../i18n';
+import { useSession, Trip, TripRole } from '../App';
 import { StylePicker } from '../components/TripStyle';
 import { useToast } from '../components/Toast';
 import { CurrencyFields } from '../components/FxWidget';
+import { Icon } from '../components/Icon';
+import Modal from '../components/Modal';
+import PageHead from '../components/PageHead';
+import Empty from '../components/Empty';
+import { daysBetween, todayYmd } from '../../shared/days';
+
+function roleLabel(t: Dict, role?: TripRole) {
+  if (role === 'leader') return t.roleLeader;
+  if (role === 'editor') return t.roleEditor;
+  return t.roleViewer;
+}
+
+/** "In 86 days" / "Happening now" / "Done · Mar 2026" — never toISOString on calendar dates. */
+function tripChip(t: Dict, lang: string, tr: Trip): string | null {
+  if (!tr.start_date) return null;
+  const today = todayYmd();
+  if (today < tr.start_date) {
+    // daysBetween walks local-calendar days only (shared/days) — never a raw Date diff.
+    const n = Math.max(0, daysBetween(today, tr.start_date, 5000).length - 1);
+    const s = t.inDays(n);
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+  const end = tr.end_date || tr.start_date;
+  if (today <= end) return t.happeningNow;
+  const month = new Date(end + 'T00:00:00').toLocaleDateString(lang === 'ms' ? 'ms-MY' : 'en-MY', {
+    month: 'short', year: 'numeric',
+  });
+  return t.tripDoneOn(month);
+}
+
+/** Trip card cover: a real photo (when the trip has one) sits under the
+ * brand-gradient overlay so card text stays legible; falls back to the
+ * plain gradient+emoji look when there's no cover_key, or if the image
+ * fails to load. */
+function TripCardCover({ trip: tr, chip }: { trip: Trip; chip: string | null }) {
+  const [errored, setErrored] = useState(false);
+  const hasPhoto = !!tr.cover_key && !errored;
+  return (
+    <div className={`tc-cover${hasPhoto ? ' has-photo' : ''}`}>
+      {hasPhoto && (
+        <img className="tc-photo" src={`/api/trips/${tr.id}/cover?v=${encodeURIComponent(tr.cover_key ?? '')}`} alt={tr.name}
+          loading="lazy" onError={() => setErrored(true)} />
+      )}
+      <span className={`em${hasPhoto ? ' has-photo' : ''}`}>{tr.emoji}</span>
+      {chip && <span className="tc-chip">{chip}</span>}
+    </div>
+  );
+}
 
 export default function Trips() {
   const { t, lang } = useT();
@@ -24,50 +72,85 @@ export default function Trips() {
 
   return (
     <div>
-      <div className="row-between" style={{ margin: '20px 0 14px' }}>
-        <h1>{t.myTrips}</h1>
-        <button className="btn" onClick={() => setOpen(true)}>＋ {t.newTrip}</button>
-      </div>
-      {trips.length === 0 && <div className="card muted">{t.noTrips}</div>}
-      <div className="grid grid-2">
-        {trips.map(tr => (
-          <Link key={tr.id} to={`/trips/${tr.id}`} className="card"
-            style={{ display: 'block', borderTop: `4px solid ${(tr as any).color || 'var(--brand)'}` }}>
-            <div style={{ fontSize: '1.7rem' }}>{tr.emoji}</div>
-            <h2 style={{ margin: '4px 0' }}>{tr.name}</h2>
-            <div className="muted">{tr.destination}</div>
-            <div className="tiny">{fmtDate(tr.start_date, lang)} → {fmtDate(tr.end_date, lang)}</div>
-          </Link>
-        ))}
-      </div>
+      <PageHead crumb={t.home} title={t.myTrips} sub={t.myTripsSub}
+        actions={<button className="btn" onClick={() => setOpen(true)}><Icon name="plus" size={16} /> {t.newTrip}</button>} />
 
-      {open && (
-        <div className="overlay" onClick={() => setOpen(false)}>
-          <form className="modal" onClick={e => e.stopPropagation()} onSubmit={create}>
-            <h2>{t.newTrip}</h2>
-            <div className="form-grid">
-              <label className="field full"><span>{t.tripName}</span>
-                <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-              <label className="field full"><span>{t.destination}</span>
-                <input value={form.destination} onChange={e => setForm({ ...form, destination: e.target.value })} /></label>
-              <label className="field"><span>{t.startDate}</span>
-                <input type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} /></label>
-              <label className="field"><span>{t.endDate}</span>
-                <input type="date" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} /></label>
-              <CurrencyFields base={form.base_currency} watch={form.watch_currencies}
-                onBase={c => setForm({ ...form, base_currency: c, watch_currencies: form.watch_currencies.filter(w => w !== c) })}
-                onWatch={w => setForm({ ...form, watch_currencies: w })} />
-            </div>
-            <StylePicker emoji={form.emoji} color={form.color}
-              onEmoji={e => setForm({ ...form, emoji: e })} onColor={c => setForm({ ...form, color: c })}
-              labelIcon={t.pickEmoji} labelColor={t.tripColor} />
-            <div className="row" style={{ justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>{t.cancel}</button>
-              <button className="btn" type="submit">{t.create}</button>
-            </div>
-          </form>
+      {trips.length === 0 ? (
+        <Empty icon="folder" title={t.startFirstTrip} sub={t.startFirstTripSub}
+          action={{ label: t.newTrip, onClick: () => setOpen(true) }} />
+      ) : (
+        <div className="tripgrid">
+          {trips.map(tr => {
+            const color = (tr as any).color as string | undefined;
+            const chip = tripChip(t, lang, tr);
+            return (
+              <Link key={tr.id} to={`/trips/${tr.id}`} className="tripcard"
+                style={color ? ({ ['--cov' as any]: color, borderTop: `4px solid ${color}` }) : undefined}>
+                <TripCardCover trip={tr} chip={chip} />
+                <div className="tc-body">
+                  <h3>{tr.name}</h3>
+                  <div className="sub">
+                    {tr.destination}{tr.destination ? ' · ' : ''}{fmtDate(tr.start_date, lang)} – {fmtDate(tr.end_date, lang)}
+                  </div>
+                  <div className="tc-meta">
+                    <span />
+                    <span className={`badge ${tr.my_role === 'leader' ? 'brand' : 'gray'}`}>
+                      <span className="d" />{roleLabel(t, tr.my_role)}
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+
+          <button type="button" className="newcard" onClick={() => setOpen(true)}>
+            <span className="inner"><Icon name="plus" size={24} />{t.newTripCard}</span>
+          </button>
         </div>
       )}
+
+      <div className="card" style={{ marginTop: 24 }}>
+        <div className="cardhead">
+          <h3><span className="invite-icon"><Icon name="gift" className="icon" /></span> {t.inviteSomeone}</h3>
+          <Link to="/settings" style={{ fontSize: 13, fontWeight: 600 }}>{t.yourReferralLink} →</Link>
+        </div>
+        <p className="hint">{t.inviteSomeoneHint}</p>
+      </div>
+
+      <Modal open={open} onClose={() => setOpen(false)} icon="plane" title={t.newTrip} closeLabel={t.close}
+        footer={(
+          <>
+            <button type="button" className="btn secondary" onClick={() => setOpen(false)}>{t.cancel}</button>
+            <button className="btn" type="submit" form="new-trip-form">{t.create}</button>
+          </>
+        )}>
+        <form id="new-trip-form" onSubmit={create}>
+          <div className="fld">
+            <label>{t.tripName}</label>
+            <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
+          </div>
+          <div className="fld" style={{ marginTop: 14 }}>
+            <label>{t.destination}</label>
+            <input value={form.destination} onChange={e => setForm({ ...form, destination: e.target.value })} />
+          </div>
+          <div className="mrow" style={{ marginTop: 14 }}>
+            <div className="fld">
+              <label>{t.startDate}</label>
+              <input type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} />
+            </div>
+            <div className="fld">
+              <label>{t.endDate}</label>
+              <input type="date" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} />
+            </div>
+          </div>
+          <CurrencyFields base={form.base_currency} watch={form.watch_currencies}
+            onBase={c => setForm({ ...form, base_currency: c, watch_currencies: form.watch_currencies.filter(w => w !== c) })}
+            onWatch={w => setForm({ ...form, watch_currencies: w })} />
+          <StylePicker emoji={form.emoji} color={form.color}
+            onEmoji={e => setForm({ ...form, emoji: e })} onColor={c => setForm({ ...form, color: c })}
+            labelIcon={t.pickEmoji} labelColor={t.tripColor} />
+        </form>
+      </Modal>
     </div>
   );
 }

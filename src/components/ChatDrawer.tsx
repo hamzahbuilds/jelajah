@@ -73,7 +73,7 @@ export default function ChatDrawer({ tripId }: { tripId: number }) {
           <form className="row" onSubmit={send} style={{ marginTop: 6, flexWrap: 'nowrap' }}>
             <input value={input} onChange={e => setInput(e.target.value)} placeholder={t.chatPlaceholder}
               style={{ flex: 1 }} disabled={busy} />
-            <button className="btn btn-sm" type="submit" disabled={busy || !input.trim()}>{t.send}</button>
+            <button className="btn sm" type="submit" disabled={busy || !input.trim()}>{t.send}</button>
           </form>
         </div>
       )}

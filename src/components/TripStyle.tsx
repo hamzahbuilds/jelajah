@@ -11,7 +11,7 @@ export function StylePicker({ emoji, color, onEmoji, onColor, labelIcon, labelCo
 }) {
   return (
     <>
-      <div className="field" style={{ marginBottom: 10 }}>
+      <div className="fld" style={{ marginBottom: 10 }}>
         <span style={{ display: 'block', fontSize: '.8rem', fontWeight: 600, color: 'var(--ink-2)', marginBottom: 3 }}>{labelIcon}</span>
         <div className="row" style={{ gap: 4 }}>
           {TRIP_EMOJI.map(e => (
@@ -21,12 +21,12 @@ export function StylePicker({ emoji, color, onEmoji, onColor, labelIcon, labelCo
             style={{ width: 58, textAlign: 'center', fontSize: '1.1rem' }} aria-label={labelIcon} />
         </div>
       </div>
-      <div className="field" style={{ marginBottom: 10 }}>
+      <div className="fld" style={{ marginBottom: 10 }}>
         <span style={{ display: 'block', fontSize: '.8rem', fontWeight: 600, color: 'var(--ink-2)', marginBottom: 3 }}>{labelColor}</span>
         <div className="row" style={{ gap: 6 }}>
           {TRIP_COLORS.map(c => (
             <button type="button" key={c || 'default'} className={`color-swatch ${color === c ? 'on' : ''}`}
-              style={{ background: c || 'var(--brand)' }} onClick={() => onColor(c)} aria-label={c || 'default'} />
+              style={{ background: c || 'var(--brand-700)' }} onClick={() => onColor(c)} aria-label={c || 'default'} />
           ))}
         </div>
       </div>

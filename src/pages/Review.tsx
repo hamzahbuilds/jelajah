@@ -6,6 +6,7 @@ import { useToast } from '../components/Toast';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import ExpenseForm, { emptyDraft, ExpenseDraft } from '../components/ExpenseForm';
+import { Icon } from '../components/Icon';
 
 const norm = (s: string) => s.toUpperCase().replace(/[^A-Z]/g, '');
 
@@ -97,7 +98,7 @@ export default function Review() {
   return (
     <div>
       <h2>{t.reviewTitle}</h2>
-      {duplicate && <p className="callout warn">⚠️ {t.duplicateWarn}</p>}
+      {duplicate && <p className="callout warn"><Icon name="alert" size={16} /> {t.duplicateWarn}</p>}
       {(parsed.warnings ?? []).map((w: string, i: number) => (
         <p className="callout info" key={i}>ℹ️ {w}</p>
       ))}
@@ -121,7 +122,7 @@ export default function Review() {
                 )}
                 {parsed.paymentMethod && <tr><td className="muted">{t.paymentMethod}</td><td>{parsed.paymentMethod}</td></tr>}
                 {parsed.paymentStatus === 'pay_at_hotel' && (
-                  <tr><td className="muted">{t.paymentStatusLbl}</td><td><span className="badge warn">🏨💤 {t.payAtHotel}</span></td></tr>
+                  <tr><td className="muted">{t.paymentStatusLbl}</td><td><span className="badge warning"><Icon name="hotel" size={16} /> {t.payAtHotel}</span></td></tr>
                 )}
                 {parsed.checkInDate && (
                   <tr><td className="muted">{t.checkIn}</td><td>{parsed.checkInDate} {parsed.checkInTime ?? ''}</td></tr>
@@ -147,8 +148,8 @@ export default function Review() {
                   <div className="row-between" key={i} style={{ padding: '3px 0' }}>
                     <span style={{ fontSize: '.85rem' }}>{m.name}</span>
                     {m.participant
-                      ? <span className="badge ok">{m.participant.name} ✓</span>
-                      : <span className="badge warn">{t.notMatched}</span>}
+                      ? <span className="badge success">{m.participant.name} ✓</span>
+                      : <span className="badge warning">{t.notMatched}</span>}
                   </div>
                 ))}
               </>
@@ -159,8 +160,8 @@ export default function Review() {
         <div className="card">
           {parsed.keywords && (() => {
             const kw = parsed.keywords;
-            const group = (label: string, chips: React.ReactNode[]) => chips.length ? (
-              <div className="kw-group" key={label}>
+            const group = (label: React.ReactNode, key: string, chips: React.ReactNode[]) => chips.length ? (
+              <div className="kw-group" key={key}>
                 <span className="kw-label">{label}</span>
                 <span className="chips">{chips}</span>
               </div>
@@ -203,28 +204,28 @@ export default function Review() {
                     ))}
                   </div>
                 )}
-                {group(`📅 ${t.kwDates}`, kw.dates.slice(0, 8).map(dateChip))}
-                {group(`💰 ${t.kwAmounts}`, kw.amounts.slice(0, 8).map((a: any, i: number) => (
+                {group(<><Icon name="calendar" size={16} /> {t.kwDates}</>, 'dates', kw.dates.slice(0, 8).map(dateChip))}
+                {group(<><Icon name="coins" size={16} /> {t.kwAmounts}</>, 'amounts', kw.amounts.slice(0, 8).map((a: any, i: number) => (
                   <span key={i} className="chip" title={a.context}
                     onClick={() => push({ amount_original: a.value, currency: a.currency, ...(a.currency === 'MYR' ? { fx_rate: 1, amount_myr: a.value } : {}) })}>
                     {a.currency} {a.value.toLocaleString()}
                   </span>
                 )))}
-                {group(`🔖 ${t.kwRefs}`, kw.refs.slice(0, 5).map((r: any, i: number) => (
+                {group(<><Icon name="ticket" size={16} /> {t.kwRefs}</>, 'refs', kw.refs.slice(0, 5).map((r: any, i: number) => (
                   <span key={i} className={`chip ${(bookingNo ?? parsed.bookingNo) === r.value ? 'on' : ''}`}
                     title={r.context} onClick={() => setBookingNo(r.value)}>{r.value}</span>
                 )))}
-                {group(`✈️ ${t.kwFlights}`, kw.flights.slice(0, 6).map((f: any, i: number) => (
+                {group(<><Icon name="plane" size={16} /> {t.kwFlights}</>, 'flights', kw.flights.slice(0, 6).map((f: any, i: number) => (
                   <span key={i} className="chip" title={f.context}
                     onClick={() => push((prev: ExpenseDraft) => ({ description: prev.description ? `${prev.description} ${f.raw}` : f.raw }))}>
                     {f.flightNo ?? `${f.from}→${f.to}`}
                   </span>
                 )))}
-                {group(`👤 ${t.kwNames}`, kw.names.slice(0, 8).map(nameChip))}
-                {group(`🏪 ${t.kwVendor}`, kw.vendors.slice(0, 4).map((v: any, i: number) => (
+                {group(<><Icon name="user" size={16} /> {t.kwNames}</>, 'names', kw.names.slice(0, 8).map(nameChip))}
+                {group(<><Icon name="bag" size={16} /> {t.kwVendor}</>, 'vendor', kw.vendors.slice(0, 4).map((v: any, i: number) => (
                   <span key={i} className="chip" title={v.context} onClick={() => push({ vendor: v.raw })}>{v.raw}</span>
                 )))}
-                {group(`💳 ${t.kwPayment}`, kw.payments.slice(0, 4).map((p2: any, i: number) => (
+                {group(<><Icon name="wallet" size={16} /> {t.kwPayment}</>, 'payment', kw.payments.slice(0, 4).map((p2: any, i: number) => (
                   <span key={i} className="chip" title={p2.context}>{p2.raw}</span>
                 )))}
               </div>
@@ -232,7 +233,7 @@ export default function Review() {
           })()}
           <label className="row" style={{ marginBottom: 12, gap: 8 }}>
             <input type="checkbox" checked={createExp} onChange={e => setCreateExp(e.target.checked)}
-              style={{ width: 18, height: 18, accentColor: 'var(--brand)' }} />
+              style={{ width: 18, height: 18, accentColor: 'var(--brand-700)' }} />
             <strong>{t.createExpense}</strong>
           </label>
           {createExp ? (

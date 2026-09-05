@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelajah refresh · Design system</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui.css">
+<style>
+  .sw { display:grid; grid-template-columns:repeat(12,1fr); gap:6px; }
+  .sw i { height:44px; border-radius:8px; display:grid; place-items:end center; font-size:10px; padding-bottom:4px; color:#fff; }
+  .sw i.light { color:var(--gray-700); }
+  .trow { display:flex; align-items:baseline; gap:16px; padding:10px 0; border-bottom:1px solid var(--border); }
+  .trow:last-child { border-bottom:none; }
+  .trow code { color:var(--ink-3); font-size:12px; width:190px; flex:0 0 auto; }
+  .demo { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+</style>
+</head><body>
+<div class="protobar">🎨 prototype v2 · mock data · <a href="index.html">cover</a> <a href="00-trips.html">trips</a> <a href="01-dashboard.html">dashboard</a> <a href="02-plan.html">plan</a> <a href="03-wallet.html">money</a> <a href="06-documents.html">docs</a> <a href="07-people.html">people</a> <a href="08-settings.html">settings</a> <a href="04-admin.html">admin</a> <a href="09-auth.html">auth</a> <a href="05-tokens.html"><b>design system</b></a></div>
+
+<div class="shell" style="grid-template-columns:1fr">
+  <main class="main" style="max-width:960px;margin:0 auto">
+    <div class="pagehead">
+      <div class="crumb">UI refresh</div><h1>Design system — Untitled UI, tuned for Jelajah</h1>
+      <div class="sub">Inter · Untitled UI gray + teal scales · 8px grid · radius 8/12/16 · shadow-xs · stroke icons in featured tiles · the day rail as the signature component</div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <h3>Color — gray scale (Untitled UI)</h3>
+        <p class="hint">Backgrounds 25–100 · borders 200–300 · text 500–900</p>
+        <div class="sw">
+          <i class="light" style="background:#FCFCFD">25</i><i class="light" style="background:#F9FAFB">50</i>
+          <i class="light" style="background:#F2F4F7">100</i><i class="light" style="background:#EAECF0">200</i>
+          <i class="light" style="background:#D0D5DD">300</i><i style="background:#98A2B3">400</i>
+          <i style="background:#667085">500</i><i style="background:#475467">600</i>
+          <i style="background:#344054">700</i><i style="background:#182230">800</i>
+          <i style="background:#101828">900</i><i style="background:#0C111D">950</i>
+        </div>
+        <h3 style="margin-top:20px">Color — brand (Untitled UI teal; today's #0F766E ≈ 700)</h3>
+        <div class="sw">
+          <i class="light" style="background:#F6FEFC">25</i><i class="light" style="background:#F0FDF9">50</i>
+          <i class="light" style="background:#CCFBEF">100</i><i class="light" style="background:#99F6E0">200</i>
+          <i class="light" style="background:#5FE9D0">300</i><i class="light" style="background:#2ED3B7">400</i>
+          <i style="background:#15B79E">500</i><i style="background:#0E9384">600</i>
+          <i style="background:#107569">700</i><i style="background:#125D56">800</i>
+          <i style="background:#134E48">900</i><i style="background:#0A2926">950</i>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Typography — Inter only</h3>
+        <div class="trow"><code>display · 44/48 · 700 · -1.2px</code><span style="font-size:44px;line-height:1.05;font-weight:700;letter-spacing:-1.2px">86 days to go</span></div>
+        <div class="trow"><code>stat · 30/38 · 600 · -0.6px</code><span style="font-size:30px;line-height:38px;font-weight:600;letter-spacing:-.6px">RM 7,757</span></div>
+        <div class="trow"><code>h1 · 24/32 · 600 · -0.4px</code><span style="font-size:24px;line-height:32px;font-weight:600;letter-spacing:-.4px">Overview</span></div>
+        <div class="trow"><code>h3 · 16/24 · 600</code><span style="font-size:16px;font-weight:600">Who owes whom</span></div>
+        <div class="trow"><code>body · 14/20 · 400</code><span>Times reflow themselves when you reorder the day.</span></div>
+        <div class="trow"><code>caption · 12–13 · 500 · ink-3</code><span style="font-size:13px;color:var(--ink-3);font-weight:500">vs last 30 days · UTC buckets shown in your time</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Components</h3>
+        <p class="hint">Buttons ≥40px tall (48px on the mobile tab bar), badges are pills with a status dot, cards are radius-12 with shadow-xs.</p>
+        <div class="demo" style="margin-bottom:16px">
+          <button class="btn">＋ Add expense</button>
+          <button class="btn secondary">📊 Data ▾</button>
+          <button class="btn ghost">Cancel</button>
+          <button class="btn danger">Delete trip</button>
+        </div>
+        <div class="demo" style="margin-bottom:16px">
+          <span class="badge success"><span class="d"></span>Paid</span>
+          <span class="badge warning"><span class="d"></span>Pay at hotel</span>
+          <span class="badge error"><span class="d"></span>RM 150 due</span>
+          <span class="badge brand"><span class="d"></span>Booked</span>
+          <span class="badge gray"><span class="d"></span>Viewer</span>
+        </div>
+        <div class="demo">
+          <span class="tile"><svg class="i"><use href="#i-plane"/></svg></span><span class="tile"><svg class="i"><use href="#i-hotel"/></svg></span><span class="tile"><svg class="i"><use href="#i-swap"/></svg></span><span class="tile"><svg class="i"><use href="#i-gift"/></svg></span>
+          <span style="font-size:13px;color:var(--ink-2)">← featured-icon tiles: Lucide-style 2px stroke icons on brand-50, the Untitled UI pattern. Emoji survive only as user content (a trip picks its own badge).</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>The day rail (signature component)</h3>
+        <p class="hint">Numbered nodes = the map pins. The hotel is the day's anchor, unplaced stops show a dashed node.</p>
+        <div class="rail" style="max-width:420px">
+          <div class="rail-item"><span class="rail-node stay"><svg class="i sm"><use href="#i-hotel"/></svg></span><div class="rail-time">DAY START</div><div class="rail-title">Hotel Shinjuku Granbell</div></div>
+          <div class="rail-item"><span class="rail-node">2</span><div class="rail-time">10:30</div><div class="rail-title">teamLab Planets</div></div>
+          <div class="rail-item"><span class="rail-node mut">—</span><div class="rail-time">19:30</div><div class="rail-title">Dinner — no place pinned yet</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Layout rules</h3>
+        <ul style="margin:0;padding-left:18px;color:var(--ink-2);line-height:2">
+          <li><b>Desktop ≥1024px:</b> 264px sidebar (trip switcher, grouped nav, user footer) + content column max 1120px.</li>
+          <li><b>Mobile:</b> sticky slim top bar + 5-item bottom tab bar (Home · Plan · Money · Docs · More), 48px targets, safe-area padding.</li>
+          <li><b>Page header:</b> breadcrumb-eyebrow, h1, one-line purpose, actions right — every page, same bones.</li>
+          <li><b>8px spacing grid</b> · cards gap 20 · section gap 24.</li>
+          <li><b>Dark mode</b> ships from the token layer — try the 🌗 button.</li>
+        </ul>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="icons.js"></script>
+<script src="nav.js"></script>
+</body></html>

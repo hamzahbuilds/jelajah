@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelajah refresh · Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui.css">
+<style>
+  .daypills { display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; margin-bottom:20px; scrollbar-width:none; }
+  .daypill { flex:0 0 auto; min-width:76px; text-align:left; padding:10px 12px; border-radius:var(--r-lg);
+    border:1px solid var(--border); background:var(--surface); box-shadow:var(--shadow-xs); }
+  .daypill .dn { font-size:12px; font-weight:700; color:var(--brand-700); }
+  [data-theme="dark"] .daypill .dn { color:var(--brand-300); }
+  .daypill .dd { font-size:12px; color:var(--ink-3); white-space:nowrap; }
+  .daypill .dt { font-size:12px; font-weight:600; margin-top:2px; max-width:110px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .daypill.on { border-color:var(--brand-600); background:var(--tile); box-shadow:0 0 0 1px var(--brand-600); }
+  .mapmock { height:340px; border-radius:var(--r-md); border:1px solid var(--border); position:relative;
+    background:linear-gradient(150deg,var(--brand-50),var(--gray-100)); overflow:hidden; }
+  [data-theme="dark"] .mapmock { background:linear-gradient(150deg,rgba(21,183,158,.08),var(--gray-800)); }
+  .mappin { position:absolute; width:26px; height:26px; border-radius:13px; background:var(--brand-600);
+    color:#fff; display:grid; place-items:center; font-size:12px; font-weight:700; box-shadow:var(--shadow-md); }
+  .mappin.stay { background:var(--gray-700); }
+  .legchip { display:inline-flex; gap:6px; align-items:center; font-size:12px; color:var(--ink-2);
+    background:var(--gray-100); border-radius:999px; padding:3px 10px; }
+  [data-theme="dark"] .legchip { background:var(--gray-800); }
+  .legchip .i { width:14px; height:14px; }
+  .notes .n { display:flex; gap:10px; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:14px; }
+  .notes .n:last-child { border-bottom:none; }
+  .notes input[type=checkbox] { width:18px; height:18px; accent-color:var(--brand-600); }
+  .planwrap { display:grid; grid-template-columns:1fr 380px; gap:20px; align-items:start; }
+  @media (max-width:1023px) { .planwrap { grid-template-columns:1fr; } }
+  .rail-title .i { width:16px; height:16px; color:var(--ink-3); }
+  .rail-item .act { margin-left:auto; display:flex; gap:4px; }
+  .rail-item .act button { background:none; border:none; color:var(--ink-3); padding:6px; border-radius:6px; }
+  .rail-item .act button:hover { background:var(--gray-100); color:var(--ink); }
+  .rail-item { display:flex; flex-direction:column; }
+  .rail-head { display:flex; align-items:flex-start; }
+  .rail-head > div { min-width:0; }
+</style>
+</head><body data-nav="trip" data-page="plan" data-title="Plan" data-icon="i-calendar">
+<div class="protobar">🎨 prototype v2 · mock data · <a href="index.html">cover</a> <a href="00-trips.html">trips</a> <a href="01-dashboard.html">dashboard</a> <a href="02-plan.html"><b>plan</b></a> <a href="03-wallet.html">money</a> <a href="06-documents.html">docs</a> <a href="07-people.html">people</a> <a href="08-settings.html">settings</a> <a href="04-admin.html">admin</a> <a href="09-auth.html">auth</a> <a href="05-tokens.html">system</a></div>
+
+<div class="shell">
+
+  <main class="main">
+
+    <div class="pagehead">
+      <div class="row">
+        <div><div class="crumb">Jelajah Jepun 2026</div><h1>Plan</h1>
+          <div class="sub">9 days · Tokyo → Osaka · drag to reorder, times reflow themselves</div></div>
+        <div class="actions">
+          <button class="btn ghost sm"><svg class="i sm"><use href="#i-chart"/></svg> Data <svg class="i sm"><use href="#i-chev-d"/></svg></button>
+          <button class="btn secondary sm"><svg class="i sm"><use href="#i-spark"/></svg> Suggest</button>
+          <button class="btn sm"><svg class="i sm"><use href="#i-plus"/></svg> Add activity</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="daypills">
+      <button class="daypill"><div class="dn">D1</div><div class="dd">Sun 29 Nov</div><div class="dt">Arrival</div></button>
+      <button class="daypill on"><div class="dn">D2</div><div class="dd">Mon 30 Nov</div><div class="dt">Tokyo classics</div></button>
+      <button class="daypill"><div class="dn">D3</div><div class="dd">Tue 1 Dec</div><div class="dt">Disney day</div></button>
+      <button class="daypill"><div class="dn">D4</div><div class="dd">Wed 2 Dec</div><div class="dt">Onsen &amp; Osaka</div></button>
+      <button class="daypill"><div class="dn">D5</div><div class="dd">Thu 3 Dec</div><div class="dt">Nara day trip</div></button>
+      <button class="daypill"><div class="dn">D6</div><div class="dd">Fri 4 Dec</div><div class="dt">Dotonbori</div></button>
+      <button class="daypill"><div class="dn">D7</div><div class="dd">Sat 5 Dec</div></button>
+      <button class="daypill"><div class="dn">D8</div><div class="dd">Sun 6 Dec</div></button>
+      <button class="daypill"><div class="dn">D9</div><div class="dd">Mon 7 Dec</div><div class="dt">Fly home</div></button>
+    </div>
+
+    <div class="planwrap">
+      <div class="stack">
+        <div class="card">
+          <div class="cardhead">
+            <h3>Mon 30 Nov · Tokyo classics</h3>
+            <span class="badge brand"><span class="d"></span>Budget ¥42,000 (~RM 1,088)</span>
+          </div>
+
+          <!-- the day rail — node numbers ARE the map pin numbers -->
+          <div class="rail">
+            <div class="rail-item"><div class="rail-head">
+              <span class="rail-node stay"><svg class="i sm"><use href="#i-hotel"/></svg></span>
+              <div><div class="rail-time">08:00 · DAY START</div>
+              <div class="rail-title">Hotel Shinjuku Granbell</div>
+              <div class="rail-meta"><span>Breakfast at the konbini downstairs</span></div>
+              <div class="rail-meta" style="margin-top:6px"><span class="legchip"><svg class="i"><use href="#i-train"/></svg> 24 min · ¥210 · Marunouchi line</span></div></div>
+              <div class="act"><button><svg class="i sm"><use href="#i-grip"/></svg></button></div>
+            </div></div>
+
+            <div class="rail-item"><div class="rail-head">
+              <span class="rail-node">2</span>
+              <div><div class="rail-time">09:00 – 10:00</div>
+              <div class="rail-title">Meiji Shrine walk <svg class="i"><use href="#i-temple"/></svg></div>
+              <div class="rail-meta"><span>Everyone</span><span>Free</span><span>Harajuku</span></div>
+              <div class="rail-meta" style="margin-top:6px"><span class="legchip"><svg class="i"><use href="#i-train"/></svg> 36 min · ¥260 · Yurikamome</span></div></div>
+              <div class="act"><button><svg class="i sm"><use href="#i-edit"/></svg></button><button><svg class="i sm"><use href="#i-grip"/></svg></button></div>
+            </div></div>
+
+            <div class="rail-item"><div class="rail-head">
+              <span class="rail-node">3</span>
+              <div><div class="rail-time">10:30 – 13:10</div>
+              <div class="rail-title">teamLab Planets <svg class="i"><use href="#i-camera"/></svg> <span class="badge success"><span class="d"></span>Booked</span></div>
+              <div class="rail-meta"><span>14 pax (not Tok &amp; Opah)</span><span>RM 160/pax</span><span>Toyosu</span></div>
+              <div class="rail-meta" style="margin-top:6px"><span class="legchip"><svg class="i"><use href="#i-food"/></svg> lunch nearby — see note below</span></div></div>
+              <div class="act"><button><svg class="i sm"><use href="#i-edit"/></svg></button><button><svg class="i sm"><use href="#i-grip"/></svg></button></div>
+            </div></div>
+
+            <div class="rail-item"><div class="rail-head">
+              <span class="rail-node">4</span>
+              <div><div class="rail-time">13:30 – 14:30</div>
+              <div class="rail-title">Lunch — Gyumon Halal Yakiniku <svg class="i"><use href="#i-food"/></svg></div>
+              <div class="rail-meta"><span>Everyone</span><span>~¥2,500/pax</span><span>Shibuya</span></div>
+              <div class="rail-meta" style="margin-top:6px"><span class="legchip"><svg class="i"><use href="#i-train"/></svg> 28 min · ¥180 · Ginza line</span></div></div>
+              <div class="act"><button><svg class="i sm"><use href="#i-edit"/></svg></button><button><svg class="i sm"><use href="#i-grip"/></svg></button></div>
+            </div></div>
+
+            <div class="rail-item"><div class="rail-head">
+              <span class="rail-node">5</span>
+              <div><div class="rail-time">15:00 – 16:00</div>
+              <div class="rail-title">Nakamise shopping street <svg class="i"><use href="#i-bag"/></svg></div>
+              <div class="rail-meta"><span>Split up ok — meet at the gate 16:00</span><span>Asakusa</span></div></div>
+              <div class="act"><button><svg class="i sm"><use href="#i-edit"/></svg></button><button><svg class="i sm"><use href="#i-grip"/></svg></button></div>
+            </div></div>
+
+            <div class="rail-item"><div class="rail-head">
+              <span class="rail-node">6</span>
+              <div><div class="rail-time">16:00 – 17:30</div>
+              <div class="rail-title">Sensoji Temple <svg class="i"><use href="#i-temple"/></svg></div>
+              <div class="rail-meta"><span>Everyone</span><span>Free</span><span>Golden hour photos</span></div>
+              <div class="rail-meta" style="margin-top:6px"><span class="legchip"><svg class="i"><use href="#i-car"/></svg> 18 min · ¥2,400/cab · 4 cabs</span></div></div>
+              <div class="act"><button><svg class="i sm"><use href="#i-edit"/></svg></button><button><svg class="i sm"><use href="#i-grip"/></svg></button></div>
+            </div></div>
+
+            <div class="rail-item"><div class="rail-head">
+              <span class="rail-node mut">—</span>
+              <div><div class="rail-time">19:30</div>
+              <div class="rail-title">Dinner — Shinjuku Gyoen area <span class="badge gray">No place pinned</span></div>
+              <div class="rail-meta"><span>Note from Aina: "book the halal counter"</span></div></div>
+              <div class="act"><button><svg class="i sm"><use href="#i-edit"/></svg></button></div>
+            </div></div>
+
+            <div class="rail-item"><div class="rail-head">
+              <span class="rail-node stay"><svg class="i sm"><use href="#i-hotel"/></svg></span>
+              <div><div class="rail-time">21:30 · DAY END</div>
+              <div class="rail-title">Back at Granbell</div>
+              <div class="rail-meta"><span>Tomorrow: 07:30 leave for Disney — early night!</span></div></div>
+            </div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="card">
+          <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-pin"/></svg> Day map</h3><span class="badge gray">6 pins</span></div>
+          <div class="mapmock">
+            <span class="mappin stay" style="left:12%;top:74%"><svg class="i sm"><use href="#i-hotel"/></svg></span>
+            <span class="mappin" style="left:24%;top:52%">2</span>
+            <span class="mappin" style="left:56%;top:66%">3</span>
+            <span class="mappin" style="left:34%;top:38%">4</span>
+            <span class="mappin" style="left:66%;top:28%">5</span>
+            <span class="mappin" style="left:78%;top:16%">6</span>
+            <svg width="100%" height="100%">
+              <path class="leg-train" d="M52 258 L98 186"/>
+              <path class="leg-train" d="M98 186 L218 232"/>
+              <path class="leg-train" d="M218 232 L138 138"/>
+              <path class="leg-walk"  d="M138 138 L258 104"/>
+              <path class="leg-taxi"  d="M258 104 L302 64"/>
+            </svg>
+          </div>
+          <div class="maplegend">
+            <span class="k"><span class="sw2 train"></span>Train</span>
+            <span class="k"><span class="sw2 walk"></span>Walk</span>
+            <span class="k"><span class="sw2 taxi"></span>Taxi</span>
+          </div>
+          <p class="hint" style="margin:10px 0 0">Tap a number in the rail — the same pin opens here. Line style = how you get there.</p>
+        </div>
+        <div class="card">
+          <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-coins"/></svg> Day budget</h3><button class="btn ghost sm"><svg class="i sm"><use href="#i-edit"/></svg></button></div>
+          <table class="table">
+            <tr><td>Transport</td><td class="num">¥6,000</td></tr>
+            <tr><td>Food</td><td class="num">¥18,000</td></tr>
+            <tr><td>Attractions</td><td class="num">¥18,000</td></tr>
+          </table>
+        </div>
+        <div class="card notes">
+          <div class="cardhead"><h3><svg class="i" style="color:var(--brand-700)"><use href="#i-check"/></svg> Day notes</h3><span class="badge gray">2 of 4 done</span></div>
+          <div class="n"><input type="checkbox" checked><s style="color:var(--ink-3)">Top up Suica cards</s></div>
+          <div class="n"><input type="checkbox" checked><s style="color:var(--ink-3)">Reserve teamLab slot</s></div>
+          <div class="n"><input type="checkbox"><span>Bring the JR passes</span></div>
+          <div class="n"><input type="checkbox"><span>Cash for Nakamise (small notes)</span></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+
+<script src="icons.js"></script>
+<script src="nav.js"></script>
+<script src="ux.js"></script>
+</body></html>

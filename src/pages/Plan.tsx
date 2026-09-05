@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, fmtMYR, fmtDate } from '../api';
 import { useT } from '../i18n';
@@ -14,6 +14,9 @@ import { transformGrid, WizardMapping, ACTIVITY_CATEGORIES, ACTIVITY_CAT_ICON, A
 import { geocode, nearestStations, walkMinutes, Station } from '../geo';
 import { Suggestion } from '../../shared/assistant';
 import { useToast } from '../components/Toast';
+import { Icon, type IconName } from '../components/Icon';
+import Menu from '../components/Menu';
+import Modal from '../components/Modal';
 
 const normName = (s: string) => s.toUpperCase().replace(/[^A-Z]/g, '');
 
@@ -24,7 +27,11 @@ function downloadCsv(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-const KIND_ICON: Record<string, string> = { flight: '✈️', checkin: '🔑', checkout: '🧳' };
+const KIND_ICON: Record<string, IconName> = { flight: 'plane', checkin: 'key', checkout: 'bag' };
+// v0.19 rail transit chip: mode → Icon name, UI layer only (shared/fares' MODE_ICON
+// emoji map is untouched). No 1:1 icon for "walk" in the icon set, so that mode keeps
+// the MODE_ICON emoji instead of forcing an unrelated glyph onto it.
+const RAIL_MODE_ICON: Partial<Record<Mode, IconName>> = { train: 'train', intercity: 'train', taxi: 'car' };
 
 interface ChainPt { ref: string; name: string; lat: number; lng: number; station?: Station | null }
 export interface Leg {
@@ -99,6 +106,9 @@ export default function Plan() {
   const [preview, setPreview] = useState<{ rows: any[]; badRows: Array<{ row: number; error: string }> } | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [dataMenu, setDataMenu] = useState(false);
+  const [dataMenuAnchor, setDataMenuAnchor] = useState<HTMLButtonElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [focusPin, setFocusPin] = useState<number | null>(null);
   const [titleEdit, setTitleEdit] = useState<string | null>(null);
   const [undoSnap, setUndoSnap] = useState<Array<{ id: number; start_time: string | null; end_time: string | null; sort: number }> | null>(null);
@@ -275,6 +285,20 @@ export default function Plan() {
   // from (the accommodation), then each located activity in plan order
   const pinNos = pinNumbers(chain);
   const pins: Pin[] = chain.map((p, i) => ({ lat: p.lat, lng: p.lng, label: `${i + 1}. ${p.name}` }));
+  // v0.19 day-map route lines — each leg already knows its endpoints + chosen mode
+  // (buildLegs above); a route is just that straight segment, styled by mode in
+  // LeafletMap (train/intercity teal, walk dotted gray, taxi dashed amber).
+  const routes = legs.map(leg => ({
+    points: [[leg.from.lat, leg.from.lng], [leg.to.lat, leg.to.lng]] as [number, number][],
+    mode: leg.chosen,
+  }));
+  // v0.19 rail: a transit chip between two consecutive rendered rows, display-only —
+  // keyed by the FROM ref so a row can look up "is there a leg leaving me, and does
+  // it land on the very next row?" (chain is start → located activities → end, so a
+  // leg only has a home in the list when both its ends are rendered rows in a row —
+  // an unlocated activity or auto-event in between correctly gets no chip)
+  const legByFromRef = new Map(legs.map(l => [l.from.ref, l]));
+  const refOf = (it: PlanItem) => (it.activity?.lat != null ? actRef(it.activity.id) : null);
 
   // ---- CSV template export / import ----
   const exportCsv = () => {
@@ -396,9 +420,14 @@ export default function Plan() {
   const allDaySelected = dayActIds.length > 0 && dayActIds.every(id2 => selIds.has(id2));
   const selectAllDay = () =>
     setSelIds(prev => { const n = new Set(prev); allDaySelected ? dayActIds.forEach(id2 => n.delete(id2)) : dayActIds.forEach(id2 => n.add(id2)); return n; });
-  const bulkDelete = async () => {
+  // v0.19: bulk delete now confirms via the shared destructive Modal instead of
+  // window.confirm — bulkDelete opens it, doBulkDelete runs after the danger
+  // button is pressed. Same request/optimistic-update logic as before.
+  const bulkDelete = () => { if (selIds.size) setConfirmBulkDelete(true); };
+  const doBulkDelete = async () => {
     const ids = [...selIds];
-    if (!ids.length || !window.confirm(t.confirmBulkDelete(ids.length))) return;
+    setConfirmBulkDelete(false);
+    if (!ids.length) return;
     removeActivitiesLocal(ids);
     setSelIds(new Set());
     setSelMode(false);
@@ -452,48 +481,34 @@ export default function Plan() {
   return (
     <div>
       <div className="row-between" style={{ marginBottom: 12 }}>
-        <div className="row seg">
+        <div className="seg">
           {(['day', 'week', 'month'] as const).map(v => (
-            <button key={v} className={`btn btn-sm ${view === v ? '' : 'btn-ghost'}`} onClick={() => setView(v)}>
+            <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
               {v === 'day' ? t.dayView : v === 'week' ? t.weekView : t.monthView}
             </button>
           ))}
         </div>
         <div className="row">
           {canLead && (
-            <div className="datamenu-wrap">
-              <button className="btn btn-ghost btn-sm" aria-haspopup="true" aria-expanded={dataMenu}
-                onClick={() => setDataMenu(v => !v)}>📊 {t.dataMenu} ▾</button>
-              {dataMenu && (
-                <>
-                  <div className="datamenu-scrim" onClick={() => setDataMenu(false)} />
-                  <div className="datamenu" role="menu">
-                    <button className="datamenu-row" role="menuitem" onClick={() => { setDataMenu(false); exportCsv(); }}>
-                      <span className="dm-t">⬇️ {t.exportCsv}</span>
-                      <span className="dm-d">{t.exportCsvHelp}</span>
-                    </button>
-                    <label className="datamenu-row" role="menuitem">
-                      <span className="dm-t">⬆️ {t.importCsv}</span>
-                      <span className="dm-d">{t.importCsvHelp}</span>
-                      <input type="file" accept=".csv,text/csv" hidden
-                        onChange={e => { setDataMenu(false); onImportFile(e.target.files?.[0] ?? null); e.target.value = ''; }} />
-                    </label>
-                    <button className="datamenu-row" role="menuitem" onClick={() => { setDataMenu(false); setWizardOpen(true); }}>
-                      <span className="dm-t">🪄 {t.mapColumns}</span>
-                      <span className="dm-d">{t.mapColumnsHelp}</span>
-                    </button>
-                    <button className="datamenu-row" role="menuitem" onClick={() => { setDataMenu(false); blankTemplate(); }}>
-                      <span className="dm-t">📄 {t.blankTemplate}</span>
-                      <span className="dm-d">{t.blankTemplateHelp}</span>
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            <>
+              <button ref={setDataMenuAnchor} className="btn ghost sm" aria-haspopup="true" aria-expanded={dataMenu}
+                onClick={() => setDataMenu(v => !v)}><Icon name="chart" size={16} /> {t.dataMenu} <Icon name="chev-d" size={16} /></button>
+              {/* v0.19: the Import CSV item opens this hidden input via ref (Menu items
+                  are plain buttons, not label-wrapped inputs) — e2e now targets it by id. */}
+              <input ref={importInputRef} id="plan-import-csv-input" type="file" accept=".csv,text/csv" hidden
+                onChange={e => { onImportFile(e.target.files?.[0] ?? null); e.target.value = ''; }} />
+              <Menu open={dataMenu} anchor={dataMenuAnchor} onClose={() => setDataMenu(false)}
+                items={[
+                  { icon: 'download', label: t.exportCsv, sub: t.exportCsvHelp, onPick: exportCsv },
+                  { icon: 'upload', label: t.importCsv, sub: t.importCsvHelp, onPick: () => importInputRef.current?.click() },
+                  { icon: 'spark', label: t.mapColumns, sub: t.mapColumnsHelp, onPick: () => setWizardOpen(true) },
+                  { icon: 'file', label: t.blankTemplate, sub: t.blankTemplateHelp, onPick: blankTemplate },
+                ]} />
+            </>
           )}
           {canEdit && (
             <>
-              <button className="btn btn-ghost btn-sm" onClick={() => setSuggestOpen(true)}>✨ {t.suggestAi}</button>
+              <button className="btn ghost sm" onClick={() => setSuggestOpen(true)}>✨ {t.suggestAi}</button>
               <button className="btn" onClick={() => setModal(emptyActivity(selDay || days[0] || today))}>＋ {t.addActivity}</button>
             </>
           )}
@@ -501,51 +516,47 @@ export default function Plan() {
       </div>
 
       {preview && (
-        <div className="overlay" onClick={() => setPreview(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="row-between">
-              <h2>{t.importPreview}</h2>
-              <button className="icon" onClick={() => setPreview(null)}>✕</button>
-            </div>
-            <p className="tiny">{t.importHint}</p>
-            {preview.badRows.length > 0 && (
-              <div className="callout warn">
-                <strong>{t.rowErrors}:</strong>
-                {preview.badRows.slice(0, 8).map((b, i) => <div key={i} className="tiny">Row {b.row}: {b.error}</div>)}
-              </div>
-            )}
-            <div className="tablewrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
-              <table>
-                <thead><tr><th></th><th>{t.date}</th><th>{t.timeLabel}</th><th>{t.activityTitle}</th><th>{t.participants}</th><th>📍</th></tr></thead>
-                <tbody>
-                  {preview.rows.map((r, i) => (
-                    <tr key={i}>
-                      <td><span className={`badge ${r.id ? '' : 'ok'}`}>{r.id ? `${t.updateRow} #${r.id}` : t.newRow}</span></td>
-                      <td style={{ whiteSpace: 'nowrap' }}>{r.day}</td>
-                      <td>{r.start_time ?? ''}</td>
-                      <td>{r.title}<div className="tiny">{r.location_name ?? ''}</div></td>
-                      <td>{r.participant_ids.length === members.length ? t.everyone : r.participant_ids.length}</td>
-                      <td>{r.lat != null ? '✓' : ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
-              <button className="btn btn-ghost" onClick={() => setPreview(null)}>{t.cancel}</button>
+        <Modal open={!!preview} onClose={() => setPreview(null)} icon="upload" title={t.importPreview}
+          sub={t.importHint} closeLabel={t.close}
+          footer={(
+            <>
+              <button type="button" className="btn secondary" onClick={() => setPreview(null)}>{t.cancel}</button>
               <button className="btn" disabled={importBusy || preview.rows.length === 0} onClick={applyImport}>
                 {t.applyImport} ({preview.rows.length})
               </button>
+            </>
+          )}>
+          {preview.badRows.length > 0 && (
+            <div className="callout warn">
+              <strong>{t.rowErrors}:</strong>
+              {preview.badRows.slice(0, 8).map((b, i) => <div key={i} className="tiny">Row {b.row}: {b.error}</div>)}
             </div>
+          )}
+          <div className="tablewrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
+            <table>
+              <thead><tr><th></th><th>{t.date}</th><th>{t.timeLabel}</th><th>{t.activityTitle}</th><th>{t.participants}</th><th><Icon name="pin" size={16} /></th></tr></thead>
+              <tbody>
+                {preview.rows.map((r, i) => (
+                  <tr key={i}>
+                    <td><span className={`badge ${r.id ? 'gray' : 'success'}`}>{r.id ? `${t.updateRow} #${r.id}` : t.newRow}</span></td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{r.day}</td>
+                    <td>{r.start_time ?? ''}</td>
+                    <td>{r.title}<div className="tiny">{r.location_name ?? ''}</div></td>
+                    <td>{r.participant_ids.length === members.length ? t.everyone : r.participant_ids.length}</td>
+                    <td>{r.lat != null ? '✓' : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
+        </Modal>
       )}
 
       {view === 'day' && (
         <>
-          <div className="daychips">
+          <div className="daypills">
             {days.map(d => (
-              <button key={d} className={`daychip ${d === selDay ? 'on' : ''}`} onClick={() => setSelDay(d)}
+              <button key={d} className={`daypill ${d === selDay ? 'on' : ''}`} onClick={() => setSelDay(d)}
                 title={dayTitleOf(d) ?? undefined}>
                 <span className="dn">D{dayNo(d)}</span>
                 <span className="dd">{new Date(d + 'T00:00:00').toLocaleDateString(lang === 'ms' ? 'ms-MY' : 'en-MY', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
@@ -553,7 +564,8 @@ export default function Plan() {
               </button>
             ))}
           </div>
-          <div className="grid grid-2" style={{ alignItems: 'start' }}>
+          <div className="plan-cols">
+            <div>
             <div className="card">
               <div className="row-between">
                 <h3 style={{ minWidth: 0 }}>
@@ -570,29 +582,31 @@ export default function Plan() {
                     </span>
                   ) : (
                     <form className="daytitle" onSubmit={e => { e.preventDefault(); saveDayTitle(titleEdit); }}>
-                      <input autoFocus value={titleEdit} maxLength={80} placeholder={t.dayTitlePlaceholder}
-                        onChange={e => setTitleEdit(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Escape') setTitleEdit(null); }} />
-                      <button className="btn btn-sm" type="submit">{t.save}</button>
-                      <button className="btn btn-ghost btn-sm" type="button" onClick={() => setTitleEdit(null)}>{t.cancel}</button>
+                      <span className="fld" style={{ margin: 0 }}>
+                        <input autoFocus value={titleEdit} maxLength={80} placeholder={t.dayTitlePlaceholder}
+                          onChange={e => setTitleEdit(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Escape') setTitleEdit(null); }} />
+                      </span>
+                      <button className="btn sm" type="submit">{t.save}</button>
+                      <button className="btn secondary sm" type="button" onClick={() => setTitleEdit(null)}>{t.cancel}</button>
                     </form>
                   )}
                 </h3>
                 <span className="row" style={{ gap: 6 }}>
                   {(budget || canLead) && (
-                    <button className="badge" style={{ border: 'none', cursor: canLead ? 'pointer' : 'default' }}
+                    <button className="badge brand" style={{ border: 'none', cursor: canLead ? 'pointer' : 'default' }}
                       title={budget ? `🚆${budget.transport ?? 0} 🏨${budget.accommodation ?? 0} 🍜${budget.food ?? 0} 🎟️${budget.attractions ?? 0} 📦${budget.misc ?? 0}` : t.editBudget}
                       onClick={() => canLead && setBudgetModal(true)}>
-                      💰 {budget ? `¥${(budget.total ?? 0).toLocaleString()}${budget.myr_estimate ? ` (~${fmtMYR(budget.myr_estimate)})` : ''}` : t.dayBudget}
+                      <Icon name="coins" size={16} /> {budget ? `¥${(budget.total ?? 0).toLocaleString()}${budget.myr_estimate ? ` (~${fmtMYR(budget.myr_estimate)})` : ''}` : t.dayBudget}
                     </button>
                   )}
                   {undoSnap && (
-                    <button className="btn btn-ghost btn-sm" onClick={undoReorder}>↩️ {t.undoReflow}</button>
+                    <button className="btn ghost sm" onClick={undoReorder}><Icon name="swap" size={16} /> {t.undoReflow}</button>
                   )}
                   {canEdit && dayActs.length > 0 && (
-                    <button className={`btn btn-sm ${selMode ? '' : 'btn-ghost'}`}
+                    <button className={`btn sm ${selMode ? '' : 'ghost'}`}
                       onClick={() => { setSelMode(!selMode); setSelIds(new Set()); }}>
-                      ☑️ {selMode ? t.cancel : t.selectBtn}
+                      <Icon name="check" size={16} /> {selMode ? t.cancel : t.selectBtn}
                     </button>
                   )}
                 </span>
@@ -602,114 +616,122 @@ export default function Plan() {
                   <label className="row tiny" style={{ gap: 6 }}>
                     <input type="checkbox" checked={allDaySelected} onChange={selectAllDay} /> {t.selectAll}
                   </label>
-                  <button className="btn btn-sm btn-danger" disabled={selIds.size === 0} onClick={bulkDelete}>
-                    🗑️ {t.deleteSelectedN(selIds.size)}
+                  <button className="btn danger sm" disabled={selIds.size === 0} onClick={bulkDelete}>
+                    <Icon name="trash" size={16} /> {t.deleteSelectedN(selIds.size)}
                   </button>
                 </div>
               )}
               {items.length === 0 && <p className="muted">{t.noEvents}</p>}
-              {items.map(i => (
-                <div className={`plan-item ${i.activity?.done ? 'done' : ''} ${dragId === i.activity?.id ? 'dragging' : ''}`} key={i.key}
-                  draggable={canEdit && !!i.activity}
-                  onDragStart={() => i.activity && setDragId(i.activity.id)}
-                  onDragEnd={() => setDragId(null)}
-                  onDragOver={e => { if (i.activity) e.preventDefault(); }}
-                  onDrop={() => i.activity && dropOn(i.activity.id)}>
-                  {selMode && i.activity && (
-                    <input type="checkbox" className="sel-box" checked={selIds.has(i.activity.id)}
-                      onChange={() => toggleSel(i.activity.id)} />
-                  )}
-                  <div className="pi-time">{i.time ?? '—'}{i.end_time ? `–${i.end_time}` : ''}</div>
-                  <div className="pi-ic">
-                    {(() => {
-                      const no = i.activity ? pinNos.get(actRef(i.activity.id)) : undefined;
-                      if (no) return (
-                        <button className="pinno" title={t.showOnMap(no)}
-                          onClick={() => setFocusPin(no - 1)}>{no}</button>
-                      );
-                      // no coordinates → no pin on the map; say so instead of faking one
-                      if (i.activity) return <span className="pinno none" title={t.noPinYet}>—</span>;
-                      return <span>{KIND_ICON[i.kind ?? ''] ?? '•'}</span>;
-                    })()}
-                  </div>
-                  <div className="pi-body">
-                    <div className="pi-title">
-                      {i.activity && <span className="pi-cat">{ACTIVITY_CAT_ICON[(i.activity?.category as ActivityCategory) ?? 'other'] ?? '📍'} </span>}
-                      {i.title}
-                    </div>
-                    {i.subtitle && <div className="tiny">{i.subtitle}</div>}
-                    {i.auto && (i as any).participant_ids?.length > 0 && (i as any).participant_ids.length < members.length && (
-                      <div className="tiny">👥 {participantsLabel((i as any).participant_ids)}</div>
-                    )}
-                    {i.activity && (
-                      <div className="tiny">
-                        {i.activity.participant_ids.length > 0 && <>👥 {participantsLabel(i.activity.participant_ids)} · </>}
-                        {i.activity.est_cost_myr ? <>{fmtMYR(i.activity.est_cost_myr)} · </> : null}
-                        {i.activity.notes ?? ''}
+              <div className="rail">
+                {items.map((i, idx) => {
+                  // display-only transit chip between this row and the next, sourced
+                  // from the same `legs` the transport card below renders — only shown
+                  // when both ends are chain-adjacent rendered rows (see legByFromRef above)
+                  const ref = refOf(i);
+                  const leg = ref ? legByFromRef.get(ref) : undefined;
+                  const nextRef = idx + 1 < items.length ? refOf(items[idx + 1]) : null;
+                  const chip = leg && nextRef && leg.to.ref === nextRef ? leg : null;
+                  const railIcon = chip ? RAIL_MODE_ICON[chip.chosen] : undefined;
+                  return (
+                    <div key={i.key}>
+                      <div className={`plan-item stop ${i.activity?.done ? 'done' : ''} ${dragId === i.activity?.id ? 'dragging' : ''} ${i.activity && selIds.has(i.activity.id) ? 'selected' : ''}`}
+                        draggable={canEdit && !!i.activity}
+                        onDragStart={() => i.activity && setDragId(i.activity.id)}
+                        onDragEnd={() => setDragId(null)}
+                        onDragOver={e => { if (i.activity) e.preventDefault(); }}
+                        onDrop={() => i.activity && dropOn(i.activity.id)}>
+                        {selMode && i.activity && (
+                          <input type="checkbox" className="sel-box" checked={selIds.has(i.activity.id)}
+                            onChange={() => toggleSel(i.activity.id)} />
+                        )}
+                        <div className="pi-time">{i.time ?? '—'}{i.end_time ? `–${i.end_time}` : ''}</div>
+                        <div className="pi-ic">
+                          {(() => {
+                            const no = i.activity ? pinNos.get(actRef(i.activity.id)) : undefined;
+                            if (no) return (
+                              <button className="pinno" title={t.showOnMap(no)}
+                                onClick={() => setFocusPin(no - 1)}>{no}</button>
+                            );
+                            // no coordinates → no pin on the map; say so instead of faking one
+                            if (i.activity) return <span className="pinno none" title={t.noPinYet}>—</span>;
+                            // auto events (flight/check-in/out) never have a map pin either — same neutral dot
+                            const kicon = KIND_ICON[i.kind ?? ''];
+                            return <span className="pinno none">{kicon ? <Icon name={kicon} size={16} /> : '•'}</span>;
+                          })()}
+                          {idx < items.length - 1 && <span className="stop-line" />}
+                        </div>
+                        <div className="pi-body">
+                          <div className="pi-title">
+                            {i.activity && <span className="pi-cat">{ACTIVITY_CAT_ICON[(i.activity?.category as ActivityCategory) ?? 'other'] ?? <Icon name="pin" size={16} />} </span>}
+                            {i.title}
+                          </div>
+                          {i.subtitle && <div className="tiny">{i.subtitle}</div>}
+                          {i.auto && (i as any).participant_ids?.length > 0 && (i as any).participant_ids.length < members.length && (
+                            <div className="tiny"><Icon name="users" size={16} /> {participantsLabel((i as any).participant_ids)}</div>
+                          )}
+                          {i.activity && (
+                            <div className="tiny">
+                              {i.activity.participant_ids.length > 0 && <><Icon name="users" size={16} /> {participantsLabel(i.activity.participant_ids)} · </>}
+                              {i.activity.est_cost_myr ? <>{fmtMYR(i.activity.est_cost_myr)} · </> : null}
+                              {i.activity.notes ?? ''}
+                            </div>
+                          )}
+                          {i.activity?.lat != null && (
+                            <a className="tiny" target="_blank" rel="noreferrer"
+                              href={`https://www.google.com/maps/dir/?api=1&destination=${i.activity.lat},${i.activity.lng}&travelmode=transit`}>
+                              🗺️ {t.directions}
+                            </a>
+                          )}
+                        </div>
+                        {canEdit && i.activity && (
+                          <div className="row" style={{ gap: 2, flexWrap: 'nowrap' }}>
+                            <span className="row" style={{ flexDirection: 'column', gap: 0 }}>
+                              <button className="icon" style={{ padding: '0 4px', lineHeight: 1 }} title={t.moveUp}
+                                onClick={() => moveActivity(i.activity.id, -1)}>
+                                <span style={{ display: 'inline-flex', transform: 'rotate(-90deg)' }}><Icon name="chev-r" size={16} /></span>
+                              </button>
+                              <button className="icon" style={{ padding: '0 4px', lineHeight: 1 }} title={t.moveDown}
+                                onClick={() => moveActivity(i.activity.id, 1)}>
+                                <span style={{ display: 'inline-flex', transform: 'rotate(90deg)' }}><Icon name="chev-r" size={16} /></span>
+                              </button>
+                            </span>
+                            <input type="checkbox" checked={!!i.activity.done} title={t.doneLabel}
+                              onChange={e => toggleDone(i.activity, e.target.checked)} />
+                            <button className="icon" onClick={() => setModal({ ...i.activity, est_cost_myr: i.activity.est_cost_myr ?? '' })}>
+                              <Icon name="edit" size={16} />
+                            </button>
+                            <button className="icon" onClick={() => {
+                              if (!window.confirm(t.confirmDelete)) return;
+                              const aid = i.activity.id;
+                              removeActivitiesLocal([aid]);
+                              toast(t.tActivityDeleted);
+                              api.del(`/activities/${aid}`).catch(() => { toast(t.tSaveFailed, 'error'); load(); });
+                            }}><Icon name="trash" size={16} /></button>
+                            <span className="icon drag-handle"><Icon name="grip" size={16} /></span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                    {i.activity?.lat != null && (
-                      <a className="tiny" target="_blank" rel="noreferrer"
-                        href={`https://www.google.com/maps/dir/?api=1&destination=${i.activity.lat},${i.activity.lng}&travelmode=transit`}>
-                        🗺️ {t.directions}
-                      </a>
-                    )}
-                  </div>
-                  {canEdit && i.activity && (
-                    <div className="row" style={{ gap: 2, flexWrap: 'nowrap' }}>
-                      <span className="row" style={{ flexDirection: 'column', gap: 0 }}>
-                        <button className="icon" style={{ padding: '0 4px', lineHeight: 1 }} title={t.moveUp}
-                          onClick={() => moveActivity(i.activity.id, -1)}>▲</button>
-                        <button className="icon" style={{ padding: '0 4px', lineHeight: 1 }} title={t.moveDown}
-                          onClick={() => moveActivity(i.activity.id, 1)}>▼</button>
-                      </span>
-                      <input type="checkbox" checked={!!i.activity.done} title={t.doneLabel}
-                        onChange={e => toggleDone(i.activity, e.target.checked)} />
-                      <button className="icon" onClick={() => setModal({ ...i.activity, est_cost_myr: i.activity.est_cost_myr ?? '' })}>✏️</button>
-                      <button className="icon" onClick={() => {
-                        if (!window.confirm(t.confirmDelete)) return;
-                        const aid = i.activity.id;
-                        removeActivitiesLocal([aid]);
-                        toast(t.tActivityDeleted);
-                        api.del(`/activities/${aid}`).catch(() => { toast(t.tSaveFailed, 'error'); load(); });
-                      }}>🗑️</button>
+                      {chip && (
+                        <div className="tchip-row"
+                          onDragOver={e => { if (items[idx + 1].activity) e.preventDefault(); }}
+                          onDrop={() => items[idx + 1].activity && dropOn(items[idx + 1].activity.id)}>
+                          <span className="tchip">
+                            {railIcon ? <Icon name={railIcon} size={16} /> : MODE_ICON[chip.chosen]}
+                            {' '}{t.minsLabel(chip.minutes)}
+                            {chip.fareJpy === 0 ? ` · ${t.freeLabel}` : ` · ¥${chip.fareJpy.toLocaleString()}`}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))}
-              {(dayNotesList.length > 0 || canEdit) && (
-                <div className="daynotes">
-                  <div className="tiny" style={{ fontWeight: 700, margin: '12px 0 4px' }}>🗒️ {t.dayNotes}</div>
-                  {dayNotesList.map((n: any) => (
-                    <div className={`note-row ${n.is_check && n.done ? 'done' : ''}`} key={n.id}>
-                      {n.is_check
-                        ? <input type="checkbox" checked={!!n.done} disabled={!canEdit}
-                            onChange={e => toggleNote(n, e.target.checked)} />
-                        : <span className="note-dot">•</span>}
-                      <span className="note-text">{n.content}</span>
-                      {canEdit && <button className="icon" title={t.delete} onClick={() => deleteNote(n)}>✕</button>}
-                    </div>
-                  ))}
-                  {canEdit && (
-                    <form className="row" style={{ flexWrap: 'nowrap', marginTop: 6 }}
-                      onSubmit={e => { e.preventDefault(); addNote(); }}>
-                      <input value={noteText} onChange={e => setNoteText(e.target.value)}
-                        placeholder={t.notePlaceholder} style={{ flex: 1, minWidth: 0 }} />
-                      <label className="row tiny" style={{ gap: 4, whiteSpace: 'nowrap' }}>
-                        <input type="checkbox" checked={noteCheck} onChange={e => setNoteCheck(e.target.checked)} />
-                        ☑️ {t.checklistLabel}
-                      </label>
-                      <button className="btn btn-sm" disabled={!noteText.trim()}>{t.add}</button>
-                    </form>
-                  )}
-                </div>
-              )}
+                  );
+                })}
+              </div>
             </div>
             <div className="card">
               <div className="row-between">
-                <h3>🧭 {t.directions}</h3>
+                <h3><Icon name="pin" size={16} /> {t.directions}</h3>
                 {canLead && (
-                  <button className="btn btn-ghost btn-sm" onClick={() => setSeModal('start')}>{t.editStartEnd}</button>
+                  <button className="btn ghost sm" onClick={() => setSeModal('start')}>{t.editStartEnd}</button>
                 )}
               </div>
               <p className="tiny">
@@ -727,12 +749,12 @@ export default function Plan() {
                     <span className="leg-names">{leg.from.name} → {leg.to.name}</span>
                     <a target="_blank" rel="noreferrer" className="tiny"
                       href={`https://www.google.com/maps/dir/?api=1&origin=${leg.from.lat},${leg.from.lng}&destination=${leg.to.lat},${leg.to.lng}&travelmode=transit`}>
-                      🗺️
+                      <Icon name="pin" size={16} />
                     </a>
                   </div>
                   <div className="row" style={{ gap: 6 }}>
-                    <span className="badge brand">{MODE_ICON[leg.chosen]} {t.minsLabel(leg.minutes)}</span>
-                    <span className="badge">
+                    <span className="badge brand">{RAIL_MODE_ICON[leg.chosen] ? <Icon name={RAIL_MODE_ICON[leg.chosen]!} size={16} /> : MODE_ICON[leg.chosen]} {t.minsLabel(leg.minutes)}</span>
+                    <span className="badge gray">
                       {leg.fareJpy === 0 ? t.freeLabel : <>
                         {leg.overridden ? '' : `${t.estBadge} `}¥{leg.fareJpy.toLocaleString()}
                         {jpyRate ? ` (~${fmtMYR(leg.fareJpy * jpyRate)})` : ''}
@@ -749,22 +771,97 @@ export default function Plan() {
                   <div className="row" style={{ gap: 4, marginTop: 3 }}>
                     {canLead && (['walk', 'train', 'taxi'] as Mode[]).map(m => (
                       <button key={m} className={`chip ${leg.chosen === m ? 'on' : ''}`} style={{ padding: '2px 8px' }}
-                        onClick={() => setLegOverride(leg, m)}>{MODE_ICON[m]}</button>
+                        onClick={() => setLegOverride(leg, m)}>{RAIL_MODE_ICON[m] ? <Icon name={RAIL_MODE_ICON[m]!} size={16} /> : MODE_ICON[m]}</button>
                     ))}
                     {canLead && leg.overridden && (
                       <button className="icon" title="reset" onClick={() => setLegOverride(leg, null)}>↺</button>
                     )}
                     {canLead && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => logFare(leg, 'shared')}>💰 {t.toShared}</button>
+                      <button className="btn ghost sm" onClick={() => logFare(leg, 'shared')}><Icon name="coins" size={16} /> {t.toShared}</button>
                     )}
-                    <button className="btn btn-ghost btn-sm" onClick={() => logFare(leg, 'private')}>👤 {t.toPrivate}</button>
+                    <button className="btn ghost sm" onClick={() => logFare(leg, 'private')}><Icon name="user" size={16} /> {t.toPrivate}</button>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="card">
-              <LeafletMap pins={pins} line height={340} focus={focusPin} />
-              <p className="tiny" style={{ marginTop: 6 }}>{pins.length} 📍</p>
+            </div>
+            <div>
+              <div className="card">
+                <div className="cardhead">
+                  <h3><Icon name="pin" size={16} /> {t.dayMap}</h3>
+                  <span className="badge gray">{t.pinsCount(pins.length)}</span>
+                </div>
+                <LeafletMap pins={pins} routes={routes} height={340} focus={focusPin} />
+                <div className="maplegend">
+                  <span className="k"><span className="sw2 train" />{t.legTrain}</span>
+                  <span className="k"><span className="sw2 walk" />{t.legWalk}</span>
+                  <span className="k"><span className="sw2 taxi" />{t.legTaxi}</span>
+                </div>
+                <p className="hint" style={{ margin: '10px 0 0' }}>{t.dayMapHint}</p>
+              </div>
+              <div className="card">
+                <div className="cardhead">
+                  <h3><Icon name="coins" size={16} /> {t.dayBudget}</h3>
+                  {canLead && (
+                    <button className="btn ghost sm" title={t.editBudget} onClick={() => setBudgetModal(true)}>
+                      <Icon name="edit" size={16} />
+                    </button>
+                  )}
+                </div>
+                {budget ? (
+                  <div className="budgetrows">
+                    {([
+                      ['transport', budget.transport], ['accommodation', budget.accommodation],
+                      ['food', budget.food], ['entrance', budget.attractions], ['other', budget.misc],
+                    ] as Array<[string, number]>).filter(([, v]) => v).map(([k, v]) => (
+                      <div className="budgetrow" key={k}>
+                        <span>{(t as any)[k]}</span>
+                        <span className="num">¥{v.toLocaleString()}</span>
+                      </div>
+                    ))}
+                    <div className="budgetrow total">
+                      <span>{t.total}</span>
+                      <span className="num">
+                        ¥{(budget.total ?? 0).toLocaleString()}
+                        {budget.myr_estimate ? ` (~${fmtMYR(budget.myr_estimate)})` : ''}
+                      </span>
+                    </div>
+                  </div>
+                ) : <p className="muted tiny">—</p>}
+              </div>
+              <div className="card notes">
+                <div className="cardhead">
+                  <h3><Icon name="check" size={16} /> {t.dayNotes}</h3>
+                </div>
+                {(dayNotesList.length > 0 || canEdit) && (
+                  <div className="daynotes">
+                    {dayNotesList.map((n: any) => (
+                      <div className={`note-row ${n.is_check && n.done ? 'done' : ''}`} key={n.id}>
+                        {n.is_check
+                          ? <input type="checkbox" checked={!!n.done} disabled={!canEdit}
+                              onChange={e => toggleNote(n, e.target.checked)} />
+                          : <span className="note-dot">•</span>}
+                        <span className="note-text">{n.content}</span>
+                        {canEdit && <button className="icon" title={t.delete} onClick={() => deleteNote(n)}>✕</button>}
+                      </div>
+                    ))}
+                    {canEdit && (
+                      <form className="row" style={{ flexWrap: 'nowrap', marginTop: 6 }}
+                        onSubmit={e => { e.preventDefault(); addNote(); }}>
+                        <span className="fld" style={{ flex: 1, minWidth: 0, margin: 0 }}>
+                          <input value={noteText} onChange={e => setNoteText(e.target.value)}
+                            placeholder={t.notePlaceholder} />
+                        </span>
+                        <label className="row tiny" style={{ gap: 4, whiteSpace: 'nowrap' }}>
+                          <input type="checkbox" checked={noteCheck} onChange={e => setNoteCheck(e.target.checked)} />
+                          ☑️ {t.checklistLabel}
+                        </label>
+                        <button className="btn sm" disabled={!noteText.trim()}>{t.add}</button>
+                      </form>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </>
@@ -776,7 +873,7 @@ export default function Plan() {
             <div key={d} className={`weekcell ${d === selDay ? 'on' : ''}`} onClick={() => { setSelDay(d); setView('day'); }}>
               <div className="wc-head">D{dayNo(d)} · {new Date(d + 'T00:00:00').toLocaleDateString(lang === 'ms' ? 'ms-MY' : 'en-MY', { weekday: 'short', day: 'numeric' })}</div>
               {(itemsByDay.get(d) ?? []).slice(0, 4).map(i => (
-                <div key={i.key} className="wc-item">{i.time ? `${i.time} ` : ''}{i.auto ? KIND_ICON[i.kind ?? ''] : '📍'} {i.title}</div>
+                <div key={i.key} className="wc-item">{i.time ? `${i.time} ` : ''}{i.auto && KIND_ICON[i.kind ?? ''] ? <Icon name={KIND_ICON[i.kind ?? '']} size={16} /> : <Icon name="pin" size={16} />} {i.title}</div>
               ))}
               {(itemsByDay.get(d) ?? []).length > 4 && <div className="tiny">+{(itemsByDay.get(d) ?? []).length - 4}</div>}
               {(itemsByDay.get(d) ?? []).length === 0 && <div className="tiny">—</div>}
@@ -811,6 +908,16 @@ export default function Plan() {
         <SuggestModal tripId={tripId} trip={trip} day={selDay} canEdit={canEdit}
           onClose={() => setSuggestOpen(false)} onAdded={() => load()} />
       )}
+      {confirmBulkDelete && (
+        <Modal open={confirmBulkDelete} onClose={() => setConfirmBulkDelete(false)} icon="trash"
+          title={t.deleteSelectedN(selIds.size)} sub={t.deleteNoUndo} closeLabel={t.close}
+          footer={(
+            <>
+              <button type="button" className="btn secondary" onClick={() => setConfirmBulkDelete(false)}>{t.cancel}</button>
+              <button type="button" className="btn danger" onClick={doBulkDelete}>{t.delete}</button>
+            </>
+          )} />
+      )}
     </div>
   );
 }
@@ -837,9 +944,9 @@ function MonthView({ days, selDay, itemsByDay, onPick }: {
   return (
     <div className="card">
       <div className="row-between" style={{ marginBottom: 8 }}>
-        <button className="btn btn-ghost btn-sm" onClick={() => shift(-1)}>←</button>
+        <button className="btn ghost sm" onClick={() => shift(-1)}>←</button>
         <strong>{first.toLocaleDateString(lang === 'ms' ? 'ms-MY' : 'en-MY', { month: 'long', year: 'numeric' })}</strong>
-        <button className="btn btn-ghost btn-sm" onClick={() => shift(1)}>→</button>
+        <button className="btn ghost sm" onClick={() => shift(1)}>→</button>
       </div>
       <div className="cal-grid">
         {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <div key={i} className="cal-dow">{d}</div>)}
@@ -850,7 +957,7 @@ function MonthView({ days, selDay, itemsByDay, onPick }: {
             {d && <>
               <div className="cal-num">{Number(d.slice(8))}</div>
               {(itemsByDay.get(d) ?? []).slice(0, 2).map(it => (
-                <div key={it.key} className="cal-item">{it.auto ? KIND_ICON[it.kind ?? ''] : '📍'} {it.title}</div>
+                <div key={it.key} className="cal-item">{it.auto && KIND_ICON[it.kind ?? ''] ? <Icon name={KIND_ICON[it.kind ?? '']} size={16} /> : <Icon name="pin" size={16} />} {it.title}</div>
               ))}
               {(itemsByDay.get(d) ?? []).length > 2 && <div className="tiny">+{(itemsByDay.get(d) ?? []).length - 2}</div>}
             </>}
@@ -919,25 +1026,38 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
   };
 
   return (
-    <div className="overlay" onClick={onClose}>
-      <form className="modal" onClick={e => e.stopPropagation()} onSubmit={submit}>
-        <div className="row-between">
-          <h2>{d.id ? t.editActivity : t.addActivity}</h2>
-          <button type="button" className="icon" onClick={onClose}>✕</button>
+    <Modal open onClose={onClose} icon="edit" title={d.id ? t.editActivity : t.addActivity} closeLabel={t.close}
+      footer={(
+        <>
+          <button type="button" className="btn secondary" onClick={onClose}>{t.cancel}</button>
+          <button type="submit" form="activity-form" className="btn" disabled={busy}>{t.save}</button>
+        </>
+      )}>
+      <form id="activity-form" onSubmit={submit}>
+        <div className="fld">
+          <label>{t.activityTitle}</label>
+          <input value={d.title} onChange={e => set({ title: e.target.value })} required />
         </div>
-        <div className="form-grid">
-          <label className="field full"><span>{t.activityTitle}</span>
-            <input value={d.title} onChange={e => set({ title: e.target.value })} required /></label>
-          <label className="field"><span>{t.date}</span>
-            <input type="date" value={d.day} onChange={e => set({ day: e.target.value })} required /></label>
-          <label className="field"><span>{t.timeLabel} / {t.endTimeLabel}</span>
+        <div className="mrow">
+          <div className="fld">
+            <label>{t.date}</label>
+            <input type="date" value={d.day} onChange={e => set({ day: e.target.value })} required />
+          </div>
+          <div className="fld">
+            <label>{t.timeLabel} / {t.endTimeLabel}</label>
             <div className="row" style={{ flexWrap: 'nowrap' }}>
               <input type="time" value={d.start_time ?? ''} onChange={e => set({ start_time: e.target.value })} />
               <input type="time" value={d.end_time ?? ''} onChange={e => set({ end_time: e.target.value })} />
-            </div></label>
-          <label className="field"><span>{t.estCost}</span>
-            <input type="number" step="0.01" min="0" value={d.est_cost_myr ?? ''} onChange={e => set({ est_cost_myr: e.target.value })} /></label>
-          <label className="field"><span>{t.activityCategory}</span>
+            </div>
+          </div>
+        </div>
+        <div className="mrow">
+          <div className="fld">
+            <label>{t.estCost}</label>
+            <input type="number" step="0.01" min="0" value={d.est_cost_myr ?? ''} onChange={e => set({ est_cost_myr: e.target.value })} />
+          </div>
+          <div className="fld">
+            <label>{t.activityCategory}</label>
             <select value={d.category ?? ''} onChange={e => set({ category: e.target.value || null })}>
               <option value="">—</option>
               {ACTIVITY_CATEGORIES.map(cval => (
@@ -945,24 +1065,27 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
                   {ACTIVITY_CAT_ICON[cval]} {(t as any)[`cat${cval.charAt(0).toUpperCase()}${cval.slice(1)}`]}
                 </option>
               ))}
-            </select></label>
-          <label className="field full"><span>{t.notes}</span>
-            <input value={d.notes ?? ''} onChange={e => set({ notes: e.target.value })} /></label>
+            </select>
+          </div>
+        </div>
+        <div className="fld">
+          <label>{t.notes}</label>
+          <input value={d.notes ?? ''} onChange={e => set({ notes: e.target.value })} />
         </div>
 
         <div style={{ margin: '4px 0 12px' }}>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <input value={q} onChange={e => setQ(e.target.value)} placeholder={t.searchPlace}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); search(); } }} />
-            <button type="button" className="btn btn-ghost btn-sm" onClick={search}>{t.searchBtn}</button>
+            <button type="button" className="btn ghost sm" onClick={search}>{t.searchBtn}</button>
           </div>
           {results.map((r: any, i) => (
             <div key={i} className="search-result" onClick={() => {
               set({ location_name: r.name.split(',').slice(0, 2).join(','), lat: r.lat, lng: r.lng });
               setResults([]);
-            }}>📍 {r.name}</div>
+            }}><Icon name="pin" size={16} /> {r.name}</div>
           ))}
-          {d.location_name && <p className="tiny" style={{ margin: '6px 0' }}>📍 {d.location_name}</p>}
+          {d.location_name && <p className="tiny" style={{ margin: '6px 0' }}><Icon name="pin" size={16} /> {d.location_name}</p>}
           {(() => {
             try {
               const sts: Station[] = d.stations_json ? JSON.parse(d.stations_json) : [];
@@ -994,9 +1117,9 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
           <div className="row-between">
             <span style={{ fontWeight: 600, fontSize: '.85rem', color: 'var(--ink-2)' }}>{t.participants}</span>
             <span className="row">
-              <button type="button" className="btn btn-ghost btn-sm"
+              <button type="button" className="btn ghost sm"
                 onClick={() => set({ participant_ids: members.map((m: any) => m.id) })}>{t.everyone}</button>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => set({ participant_ids: [] })}>{t.clearAll}</button>
+              <button type="button" className="btn ghost sm" onClick={() => set({ participant_ids: [] })}>{t.clearAll}</button>
             </span>
           </div>
           {groups.length > 0 && (
@@ -1005,7 +1128,7 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
               {groups.map((g: any) => (
                 <button type="button" key={g.id} className="chip"
                   onClick={() => set({ participant_ids: [...new Set([...d.participant_ids, ...g.member_ids])] })}>
-                  👥 {g.name}
+                  <Icon name="users" size={16} /> {g.name}
                 </button>
               ))}
             </div>
@@ -1018,18 +1141,13 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
             ))}
           </div>
           {d.participant_ids.length > 1 && (
-            <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 6 }} onClick={saveGroup}>
+            <button type="button" className="btn ghost sm" style={{ marginTop: 6 }} onClick={saveGroup}>
               💾 {t.saveGroup}
             </button>
           )}
         </div>
-
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn btn-ghost" onClick={onClose}>{t.cancel}</button>
-          <button className="btn" disabled={busy}>{t.save}</button>
-        </div>
       </form>
-    </div>
+    </Modal>
   );
 }
 
@@ -1052,15 +1170,15 @@ function PlacePicker({ value, onChange }: {
       <div className="row" style={{ flexWrap: 'nowrap' }}>
         <input value={q} onChange={e => setQ(e.target.value)} placeholder={t.searchPlace}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); search(); } }} />
-        <button type="button" className="btn btn-ghost btn-sm" onClick={search}>{t.searchBtn}</button>
+        <button type="button" className="btn ghost sm" onClick={search}>{t.searchBtn}</button>
       </div>
       {results.map((r, i) => (
         <div key={i} className="search-result" onClick={() => {
           onChange({ name: r.display_name.split(',').slice(0, 2).join(','), lat: Number(r.lat), lng: Number(r.lon) });
           setResults([]);
-        }}>📍 {r.display_name}</div>
+        }}><Icon name="pin" size={16} /> {r.display_name}</div>
       ))}
-      {value && <p className="tiny" style={{ margin: '4px 0' }}>📍 {value.name}</p>}
+      {value && <p className="tiny" style={{ margin: '4px 0' }}><Icon name="pin" size={16} /> {value.name}</p>}
       <div style={{ marginTop: 6 }}>
         <LeafletMap pins={[]} picked={value ? { lat: value.lat, lng: value.lng } : null}
           onPick={(lat, lng) => onChange({ name: value?.name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`, lat, lng })}
@@ -1109,45 +1227,41 @@ function StartEndModal({ tripId, day, ds, stays, onClose, onSaved }: {
         </label>
       </div>
       {val !== null ? <PlacePicker value={val} onChange={setVal} />
-        : <button type="button" className="btn btn-ghost btn-sm"
+        : <button type="button" className="btn ghost sm"
             onClick={() => setVal({ name: '', lat: 35.68, lng: 139.76 })}>✏️ {t.edit}</button>}
     </div>
   );
 
   return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="row-between">
-          <h2>{t.editStartEnd} · {day}</h2>
-          <button className="icon" onClick={onClose}>✕</button>
-        </div>
-        <div className="row" style={{ marginBottom: 10 }}>
-          <label className="row tiny" style={{ gap: 5 }}>
-            <input type="radio" checked={scope === 'day'} onChange={() => setScope('day')} /> {t.thisDayOnly}
-          </label>
-          <label className="row tiny" style={{ gap: 5 }}>
-            <input type="radio" checked={scope === '*'} onChange={() => setScope('*')} /> {t.wholeTrip}
-          </label>
-        </div>
-        {side(t.dayStart, start, setStart)}
-        {side(t.dayEnd, end, setEnd)}
-        {unpinned.length > 0 && (
-          <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, marginBottom: 10 }}>
-            <strong style={{ fontSize: '.88rem' }}>📌 {t.setStayPin}</strong>
-            <select style={{ margin: '6px 0' }} value={pinStay?.expense_id ?? ''}
-              onChange={e => setPinStay(unpinned.find(s => s.expense_id === Number(e.target.value)) ?? null)}>
-              <option value="">—</option>
-              {unpinned.map(s => <option key={s.expense_id} value={s.expense_id}>{s.description}</option>)}
-            </select>
-            {pinStay && <PlacePicker value={pinLoc} onChange={setPinLoc} />}
-          </div>
-        )}
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button className="btn btn-ghost" onClick={onClose}>{t.cancel}</button>
+    <Modal open onClose={onClose} icon="hotel" title={`${t.editStartEnd} · ${day}`} closeLabel={t.close}
+      footer={(
+        <>
+          <button type="button" className="btn secondary" onClick={onClose}>{t.cancel}</button>
           <button className="btn" disabled={busy} onClick={save}>{t.save}</button>
-        </div>
+        </>
+      )}>
+      <div className="row" style={{ marginBottom: 10 }}>
+        <label className="row tiny" style={{ gap: 5 }}>
+          <input type="radio" checked={scope === 'day'} onChange={() => setScope('day')} /> {t.thisDayOnly}
+        </label>
+        <label className="row tiny" style={{ gap: 5 }}>
+          <input type="radio" checked={scope === '*'} onChange={() => setScope('*')} /> {t.wholeTrip}
+        </label>
       </div>
-    </div>
+      {side(t.dayStart, start, setStart)}
+      {side(t.dayEnd, end, setEnd)}
+      {unpinned.length > 0 && (
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginBottom: 10 }}>
+          <strong style={{ fontSize: '.88rem' }}>📌 {t.setStayPin}</strong>
+          <select style={{ margin: '6px 0' }} value={pinStay?.expense_id ?? ''}
+            onChange={e => setPinStay(unpinned.find(s => s.expense_id === Number(e.target.value)) ?? null)}>
+            <option value="">—</option>
+            {unpinned.map(s => <option key={s.expense_id} value={s.expense_id}>{s.description}</option>)}
+          </select>
+          {pinStay && <PlacePicker value={pinLoc} onChange={setPinLoc} />}
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -1172,29 +1286,25 @@ function BudgetModal({ tripId, day, budget, jpyRate, onClose, onSaved }: {
     });
     onSaved();
   };
-  const fields: Array<[string, string]> = [
-    ['transport', '🚆'], ['accommodation', '🏨'], ['food', '🍜'], ['attractions', '🎟️'], ['misc', '📦'],
+  const fields: Array<[string, IconName]> = [
+    ['transport', 'train'], ['accommodation', 'hotel'], ['food', 'food'], ['attractions', 'ticket'], ['misc', 'bag'],
   ];
   return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-        <div className="row-between">
-          <h2>{t.dayBudget} · {day}</h2>
-          <button className="icon" onClick={onClose}>✕</button>
-        </div>
-        {fields.map(([k, ic]) => (
-          <label className="field" key={k}>
-            <span>{ic} {(t as any)[k === 'transport' ? 'transport' : k === 'accommodation' ? 'accommodation' : k === 'food' ? 'food' : k === 'attractions' ? 'entrance' : 'other']} (¥)</span>
-            <input type="number" min="0" value={b[k]} onChange={e => setB({ ...b, [k]: e.target.value })} />
-          </label>
-        ))}
-        <p className="muted">Σ ¥{total.toLocaleString()}{jpyRate && total ? ` (~${fmtMYR(total * jpyRate)})` : ''}</p>
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button className="btn btn-ghost" onClick={onClose}>{t.cancel}</button>
+    <Modal open onClose={onClose} icon="coins" title={`${t.dayBudget} · ${day}`} closeLabel={t.close}
+      footer={(
+        <>
+          <button type="button" className="btn secondary" onClick={onClose}>{t.cancel}</button>
           <button className="btn" onClick={save}>{t.save}</button>
+        </>
+      )}>
+      {fields.map(([k, ic]) => (
+        <div className="fld" key={k}>
+          <label><Icon name={ic} size={16} /> {(t as any)[k === 'transport' ? 'transport' : k === 'accommodation' ? 'accommodation' : k === 'food' ? 'food' : k === 'attractions' ? 'entrance' : 'other']} (¥)</label>
+          <input type="number" min="0" value={b[k]} onChange={e => setB({ ...b, [k]: e.target.value })} />
         </div>
-      </div>
-    </div>
+      ))}
+      <p className="muted">Σ ¥{total.toLocaleString()}{jpyRate && total ? ` (~${fmtMYR(total * jpyRate)})` : ''}</p>
+    </Modal>
   );
 }
 
@@ -1308,13 +1418,15 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
   const located = result ? result.activities.filter((a: any) => geo.has(cleanTitle(a.title))).length : 0;
 
   return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="row-between">
-          <h2>🪄 {t.wizardTitle}</h2>
-          <button className="icon" onClick={onClose}>✕</button>
-        </div>
-        <p className="tiny">{t.wizardHint}</p>
+    <Modal open onClose={onClose} icon="spark" title={t.wizardTitle} sub={t.wizardHint} closeLabel={t.close}
+      footer={result ? (
+        <>
+          <button type="button" className="btn secondary" onClick={onClose}>{t.cancel}</button>
+          <button className="btn" disabled={busy || !result.activities.length} onClick={apply}>
+            {t.applyImport} ({result.activities.length})
+          </button>
+        </>
+      ) : undefined}>
         {!grid ? (
           <label className="dropzone" style={{ display: 'block' }}>
             📥 CSV
@@ -1323,14 +1435,14 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
         ) : (
           <>
             <div className="form-grid">
-              <label className="field"><span>{t.fieldDate}</span>{colSelect(map2.date, v => setMap2({ ...map2, date: v }))}</label>
-              <label className="field"><span>{t.fieldTime}</span>{colSelect(map2.time, v => setMap2({ ...map2, time: v }))}</label>
-              <label className="field"><span>{t.fieldTitle}</span>{colSelect(map2.title, v => setMap2({ ...map2, title: v }))}</label>
-              <label className="field"><span>{t.fieldNotes}</span>{colSelect(map2.notes[0] ?? -1, v => setMap2({ ...map2, notes: v >= 0 ? [v] : [] }))}</label>
-              <label className="field"><span>{t.fieldCategory}</span>{colSelect(map2.category, v => setMap2({ ...map2, category: v }))}</label>
-              <label className="field"><span>{t.fieldPrice}</span>{colSelect(map2.price, v => setMap2({ ...map2, price: v }))}</label>
-              <label className="field"><span>{t.fieldOvernight}</span>{colSelect(map2.overnight, v => setMap2({ ...map2, overnight: v }))}</label>
-              <label className="field"><span>{t.fieldBudgets} (🚆/🏨/🍜/🎟️/📦/Σ)</span>
+              <label className="fld"><span>{t.fieldDate}</span>{colSelect(map2.date, v => setMap2({ ...map2, date: v }))}</label>
+              <label className="fld"><span>{t.fieldTime}</span>{colSelect(map2.time, v => setMap2({ ...map2, time: v }))}</label>
+              <label className="fld"><span>{t.fieldTitle}</span>{colSelect(map2.title, v => setMap2({ ...map2, title: v }))}</label>
+              <label className="fld"><span>{t.fieldNotes}</span>{colSelect(map2.notes[0] ?? -1, v => setMap2({ ...map2, notes: v >= 0 ? [v] : [] }))}</label>
+              <label className="fld"><span>{t.fieldCategory}</span>{colSelect(map2.category, v => setMap2({ ...map2, category: v }))}</label>
+              <label className="fld"><span>{t.fieldPrice}</span>{colSelect(map2.price, v => setMap2({ ...map2, price: v }))}</label>
+              <label className="fld"><span>{t.fieldOvernight}</span>{colSelect(map2.overnight, v => setMap2({ ...map2, overnight: v }))}</label>
+              <label className="fld"><span>{t.fieldBudgets} (🚆/🏨/🍜/🎟️/📦/Σ)</span>
                 <div className="row" style={{ gap: 3, flexWrap: 'wrap' }}>
                   {colSelect(map2.bTransport, v => setMap2({ ...map2, bTransport: v }))}
                   {colSelect(map2.bAccom, v => setMap2({ ...map2, bAccom: v }))}
@@ -1342,22 +1454,22 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
               </label>
             </div>
             <div className="row" style={{ margin: '8px 0' }}>
-              <button className="btn btn-ghost btn-sm" disabled={map2.title < 0} onClick={transform}>👁️ {t.importPreview}</button>
+              <button className="btn ghost sm" disabled={map2.title < 0} onClick={transform}>👁️ {t.importPreview}</button>
               {result && (
-                <button className="btn btn-ghost btn-sm" onClick={findLocations} disabled={!!geoProg && geoProg[0] < geoProg[1]}>
-                  📍 {geoProg && geoProg[0] < geoProg[1] ? t.geocoding(geoProg[0], geoProg[1]) : t.geocodeNow}
+                <button className="btn ghost sm" onClick={findLocations} disabled={!!geoProg && geoProg[0] < geoProg[1]}>
+                  <Icon name="pin" size={16} /> {geoProg && geoProg[0] < geoProg[1] ? t.geocoding(geoProg[0], geoProg[1]) : t.geocodeNow}
                 </button>
               )}
             </div>
             {result && (
               <>
                 <p className="tiny">
-                  {t.activityCount(result.activities.length)} · 💰 {result.budgets.length} · 📍 {located}
-                  {result.skipped.length ? ` · ⚠️ ${result.skipped.length}` : ''}
+                  {t.activityCount(result.activities.length)} · <Icon name="coins" size={16} /> {result.budgets.length} · <Icon name="pin" size={16} /> {located}
+                  {result.skipped.length ? <> · <Icon name="alert" size={16} /> {result.skipped.length}</> : ''}
                 </p>
                 <div className="tablewrap" style={{ maxHeight: 240, overflowY: 'auto' }}>
                   <table>
-                    <thead><tr><th>{t.date}</th><th>{t.timeLabel}</th><th>{t.activityTitle}</th><th>📍</th></tr></thead>
+                    <thead><tr><th>{t.date}</th><th>{t.timeLabel}</th><th>{t.activityTitle}</th><th><Icon name="pin" size={16} /></th></tr></thead>
                     <tbody>
                       {result.activities.slice(0, 80).map((a: any, i: number) => (
                         <tr key={i}>
@@ -1374,18 +1486,11 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
                   <input type="checkbox" checked={saveProf} onChange={e => setSaveProf(e.target.checked)} />
                   {t.saveProfile}
                 </label>
-                <div className="row" style={{ justifyContent: 'flex-end' }}>
-                  <button className="btn btn-ghost" onClick={onClose}>{t.cancel}</button>
-                  <button className="btn" disabled={busy || !result.activities.length} onClick={apply}>
-                    {t.applyImport} ({result.activities.length})
-                  </button>
-                </div>
               </>
             )}
           </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1462,18 +1567,13 @@ function SuggestModal({ tripId, trip, day, canEdit, onClose, onAdded }: {
   };
 
   return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="row-between">
-          <h2>✨ {t.suggestAi}</h2>
-          <button className="icon" onClick={onClose}>✕</button>
-        </div>
+    <Modal open onClose={onClose} icon="spark" title={t.suggestAi} closeLabel={t.close}>
         <form className="row" onSubmit={ask} style={{ flexWrap: 'nowrap', marginBottom: 8 }}>
           <input value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={t.suggestPlaceholder} style={{ flex: 1 }} />
-          <button className="btn btn-sm" type="submit" disabled={busy || !prompt.trim()}>{busy ? '…' : t.suggestGo}</button>
+          <button className="btn sm" type="submit" disabled={busy || !prompt.trim()}>{busy ? '…' : t.suggestGo}</button>
         </form>
         <div className="row tiny" style={{ gap: 4 }}>
-          <span className={`chip ${scope === 'day' ? 'on' : ''}`} onClick={() => setScope('day')}>📅 {day}</span>
+          <span className={`chip ${scope === 'day' ? 'on' : ''}`} onClick={() => setScope('day')}><Icon name="calendar" size={16} /> {day}</span>
           <span className={`chip ${scope === 'trip' ? 'on' : ''}`} onClick={() => setScope('trip')}>🧳 {trip.name}</span>
         </div>
         {busy && <p className="muted" style={{ marginTop: 10 }}>🤖 {t.suggesting}</p>}
@@ -1482,9 +1582,9 @@ function SuggestModal({ tripId, trip, day, canEdit, onClose, onAdded }: {
         {suggestions && suggestions.length > 0 && (
           <>
             <div className="row-between" style={{ marginTop: 10 }}>
-              <span className="tiny">⚠️ {t.aiDisclaimer}</span>
+              <span className="tiny"><Icon name="alert" size={16} /> {t.aiDisclaimer}</span>
               {canEdit && (
-                <button className="btn btn-ghost btn-sm" onClick={addAll} disabled={adding !== null}>
+                <button className="btn ghost sm" onClick={addAll} disabled={adding !== null}>
                   ＋ {t.addAll} ({suggestions.length})
                 </button>
               )}
@@ -1493,12 +1593,12 @@ function SuggestModal({ tripId, trip, day, canEdit, onClose, onAdded }: {
               <div key={i} className={`suggest-card ${added.has(i) ? 'added' : ''}`}>
                 <div className="sc-time">{s.day.slice(5)}<br />{s.start_time ?? '—'}</div>
                 <div className="sc-body">
-                  <div className="sc-title">{ACTIVITY_CAT_ICON[(s.category as ActivityCategory) ?? 'sightseeing'] ?? '📍'} {s.title}</div>
+                  <div className="sc-title">{ACTIVITY_CAT_ICON[(s.category as ActivityCategory) ?? 'sightseeing'] ?? <Icon name="pin" size={16} />} {s.title}</div>
                   {s.why && <div className="tiny">{s.why}</div>}
-                  {s.place && <div className="tiny">📍 {s.place}</div>}
+                  {s.place && <div className="tiny"><Icon name="pin" size={16} /> {s.place}</div>}
                 </div>
                 {canEdit && (
-                  <button className="btn btn-sm" disabled={added.has(i) || adding !== null}
+                  <button className="btn sm" disabled={added.has(i) || adding !== null}
                     onClick={() => addOne(s, i)}>
                     {added.has(i) ? `✓ ${t.addedLbl}` : adding === i ? '…' : `＋ ${t.add}`}
                   </button>
@@ -1507,7 +1607,6 @@ function SuggestModal({ tripId, trip, day, canEdit, onClose, onAdded }: {
             ))}
           </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
