@@ -286,7 +286,8 @@ img, iframe, .preview { max-width: 100%; }
   .hero { padding: 16px; }
   .hero .big { font-size: 1.5rem; }
   h1 { font-size: 1.25rem; }
-  .topbar-inner { padding: 8px 10px; gap: 8px; }
+  .topbar-inner { padding: 8px 10px; gap: 6px 8px; flex-wrap: wrap; }
+  .topbar-inner .spacer { flex-basis: 100%; height: 0; }
   .modal { padding: 14px; border-radius: 10px; }
   .overlay { padding: 2vh 6px; }
   .plan-item .pi-time { flex-basis: 58px; font-size: .75rem; }
@@ -502,3 +503,6 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
 .fx-delta { font-size: .78rem; font-weight: 600; }
 .fx-delta.up { color: #15803d; }
 .fx-delta.down { color: #b91c1c; }
+
+/* v0.17 invite panel */
+.invite-row-new { background: #ccfbf1; border-radius: 8px; padding-left: 6px; padding-right: 6px; }

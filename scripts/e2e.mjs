@@ -157,7 +157,7 @@ await page.click('button:has-text("Month")');
 await page.waitForSelector('.cal-grid');
 await shot('13-plan-month');
 
-// 13. hide Ledger+Payments from members, create a member account, verify
+// 13. hide Ledger+Payments from members; Accounts card moved off People onto /admin (v0.17 Addendum 2)
 await page.click('nav.tabs a:has-text("People")');
 await page.waitForSelector('text=Member visibility');
 await page.uncheck(`label:has-text("Ledger") input`);
@@ -165,14 +165,22 @@ await page.waitForTimeout(300);
 await page.uncheck(`label:has-text("Payments") input`);
 await page.waitForTimeout(300);
 await shot('14-visibility');
-// create member linked to Hairuni
-await page.fill('form input[type=email]', 'hairuni@family.local');
-await page.fill('form .form-grid input >> nth=0', 'Hairuni');
-await page.selectOption('form .form-grid select >> nth=1', { label: 'Hairuni Binti Hassim' });
-await page.click('form button:has-text("Create account")');
+if (await page.$('h3:has-text("Accounts")')) await fail('Accounts card should not appear on the People page any more (moved to /admin)');
+console.log('People page Accounts-absence ok');
+
+// create member linked to Hairuni, now via the Admin panel's Accounts card
+await page.goto(`${BASE}/admin`);
+await page.waitForSelector('h3:has-text("Accounts")');
+const acctCard = '.card:has(h3:has-text("Accounts"))';
+await page.fill(`${acctCard} form input[type=email]`, 'hairuni@family.local');
+await page.fill(`${acctCard} form .form-grid input >> nth=0`, 'Hairuni');
+await page.selectOption(`${acctCard} form .form-grid select >> nth=1`, { label: 'Hairuni Binti Hassim' });
+await page.click(`${acctCard} form button:has-text("Create account")`);
 await page.waitForSelector('.callout.info');
 const temp = (await page.textContent('.callout.info strong')).trim();
-console.log('member created, temp pw obtained');
+console.log('member created via /admin, temp pw obtained');
+await page.goto(`${BASE}/trips/1`);
+await page.waitForSelector('.hero');
 
 // member session in a fresh context
 const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -801,8 +809,8 @@ await page.waitForSelector('.toast:has-text("Payment recorded")');
 console.log('toast ok (payment recorded)');
 await shot('31-toast');
 
-// 34. AI settings page + presets + test connection against the mock
-await page.goto(`${BASE}/settings`);
+// 34. AI settings + presets + test connection against the mock (v0.17 Addendum 2: card moved to /admin)
+await page.goto(`${BASE}/admin`);
 await page.waitForSelector('h3:has-text("AI provider")');
 await page.fill('input[placeholder="https://…/v1"]', 'http://127.0.0.1:9797');
 await page.fill('input[placeholder="sk-…"]', 'test-key');
@@ -904,6 +912,8 @@ await p5.screenshot({ path: `${OUT}/35-member-edit.png`, fullPage: true });
 // 38. my-spend peer tagging + settlement (as member Hairuni)
 await p5.goto(`${BASE}/trips/1/myspend`);
 await p5.waitForSelector('text=Add spending');
+if (await p5.$('input[placeholder="Token name"]')) await fail('TokenCard should not appear on My spend any more (moved to /settings)');
+console.log('MySpend TokenCard-absence ok');
 // let the form's initial (JPY-default) fx-rate fetch settle before switching currency below —
 // pre-existing MySpend.tsx race (unrelated to this fix wave, reproduces on main before any A1
 // change too): its rate effect has no fetch-in-flight guard, so an in-flight JPY rate lookup can
@@ -1031,7 +1041,7 @@ if ((await readNotes()).some(n => n.id === noteId)) await fail('MCP delete_note 
 console.log('MCP notes + day title ok (add, read, tick, itinerary readback, delete)');
 
 // 40. role ladder: viewer → editor → viewer (API 403/200, button visibility, MCP), last-leader guard, /me migration proof
-await p5.goto(`${BASE}/trips/1/myspend`);
+await p5.goto(`${BASE}/settings`); // TokenCard moved here from My spend (v0.17 Addendum 2)
 await p5.waitForSelector('input[placeholder="Token name"]');
 await p5.fill('input[placeholder="Token name"]', 'e2e-member');
 await p5.click('button:has-text("New token")');
@@ -1191,6 +1201,138 @@ console.log('MCP revoke ok (token dead)');
 await shot('37-mcp-tokens');
 await ctx5.close();
 
+/* ================================================================== */
+/* v0.17 — invites, join & referrals (spec §Registration + Addendum 1) */
+/* ================================================================== */
+
+// 41. trip invite flow: leader creates an editor invite on People, a fresh incognito
+// context registers through /join/<code>, lands in trip 1 as editor
+await page.goto(`${BASE}/trips/1/people`);
+await page.waitForSelector('text=Invite links');
+const inviteCard = '.card:has(h3:has-text("Invite links"))';
+await page.selectOption(`${inviteCard} select`, 'editor');
+await page.click(`${inviteCard} button:has-text("New invite link")`);
+await page.waitForTimeout(300);
+const tripInvitesNow = await page.evaluate(() => fetch('/api/trips/1/invites').then(r => r.json()));
+const tripInvite = tripInvitesNow.find(i => i.role === 'editor' && !i.revoked);
+if (!tripInvite) await fail('trip editor invite not created');
+console.log('trip invite created ok (People UI)');
+
+const ctx6 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const p6 = await ctx6.newPage();
+p6.setDefaultTimeout(25000);
+await blockExternal(p6);
+await p6.goto(`${BASE}/join/${tripInvite.code}`);
+await p6.waitForSelector('h2:has-text("Jelajah Jepun 2026")');
+await p6.fill('.login-card form input >> nth=0', 'Join Test');
+await p6.fill('.login-card input[type=email]', 'join@test.local');
+await p6.fill('.login-card input[type=password]', 'join-test-pw-1');
+await p6.click('.login-card button:has-text("Create account & join")');
+await p6.waitForURL(/\/trips\/1/);
+await p6.waitForSelector('.hero');
+const joinMe = await p6.evaluate(() => fetch('/api/me').then(r => r.json()));
+const joinTrip = (joinMe.trips ?? []).find(t => t.id === 1);
+if (joinTrip?.my_role !== 'editor') await fail(`joiner my_role should be editor, got ${joinTrip?.my_role}`);
+const joinActSt = await p6.evaluate(() => fetch('/api/trips/1/activities', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ title: 'Join Test activity', day: '2026-12-02' }),
+}).then(r => r.status));
+if (joinActSt !== 200) await fail(`joiner (editor) activity POST should succeed, got ${joinActSt}`);
+const joinExpSt = await p6.evaluate(() => fetch('/api/trips/1/expenses', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ category: 'other', description: 'sneaky join expense', expense_date: '2026-12-06', amount_myr: 1 }),
+}).then(r => r.status));
+if (joinExpSt !== 403) await fail(`joiner (editor) expense POST should be 403, got ${joinExpSt}`);
+console.log('trip invite flow ok (join → editor role, activity ok, expense 403)');
+
+// 42. role chips: People members table shows Leader/Editor, never "Admin" (Addendum-2 rename)
+await page.goto(`${BASE}/trips/1/people`);
+await page.waitForSelector('text=Trip members');
+const membersCard = '.card:has(h3:has-text("Trip members"))';
+await page.waitForSelector(`${membersCard}:has-text("Join Test")`);
+const membersCardText = await page.textContent(membersCard);
+if (membersCardText.includes('Admin')) await fail('People members card should never show "Admin" (renamed to Leader/Editor/Viewer)');
+if (!membersCardText.includes('Leader')) await fail('People members card missing the Leader chip');
+if (!membersCardText.includes('Editor')) await fail('People members card missing the Editor chip for the new joiner');
+console.log('role chips ok (Leader/Editor shown, "Admin" string absent)');
+
+// 43. referral attribution: joiner's Settings shows a referral link, a second incognito
+// context registers through it with no trip, admin confirms referred_by via /api/users
+await p6.goto(`${BASE}/settings`);
+await p6.waitForSelector('text=Your referral link');
+const referralCard = '.card:has(h3:has-text("Your referral link"))';
+const referralLinkText = (await p6.textContent(`${referralCard} pre`)).trim();
+if (!/^https?:\/\//.test(referralLinkText)) {
+  await fail(`referral link shown to joiner must be an absolute URL, got "${referralLinkText}"`);
+}
+const joinReferral = await p6.evaluate(() => fetch('/api/invites/referral').then(r => r.json()));
+if (!joinReferral.code) await fail('joiner referral code missing');
+
+const ctx7 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const p7 = await ctx7.newPage();
+p7.setDefaultTimeout(25000);
+await blockExternal(p7);
+await p7.goto(`${BASE}/join/${joinReferral.code}`);
+await p7.waitForSelector('h2:has-text("Join Jelajah")');
+await p7.fill('.login-card form input >> nth=0', 'Referral Test');
+await p7.fill('.login-card input[type=email]', 'referral@test.local');
+await p7.fill('.login-card input[type=password]', 'referral-test-pw-1');
+await p7.click('.login-card button:has-text("Create account & join")');
+await p7.waitForURL(`${BASE}/`);
+
+const usersList = await page.evaluate(() => fetch('/api/users').then(r => r.json()));
+const referralUser = usersList.find(u => u.email === 'referral@test.local');
+const joinUser = usersList.find(u => u.email === 'join@test.local');
+if (!referralUser || !joinUser || referralUser.referred_by !== joinUser.id) {
+  await fail(`referral attribution wrong: referred_by=${referralUser?.referred_by} expected joiner id ${joinUser?.id}`);
+}
+console.log('referral attribution ok (GET /api/users referred_by)');
+
+// 44. isolation: the referral-only user has zero trips, no trip access, and /admin bounces them home
+const p7Me = await p7.evaluate(() => fetch('/api/me').then(r => r.json()));
+if ((p7Me.trips ?? []).length !== 0) await fail(`referral-only user should have zero trips, got ${(p7Me.trips ?? []).length}`);
+const p7PlanSt = await p7.evaluate(() => fetch('/api/trips/1/plan').then(r => r.status));
+if (p7PlanSt !== 403) await fail(`referral-only user's trip access should be 403, got ${p7PlanSt}`);
+await p7.goto(`${BASE}/admin`);
+await p7.waitForURL(`${BASE}/`);
+console.log('isolation ok (zero trips, plan 403, /admin redirects home)');
+await ctx6.close();
+await ctx7.close();
+
+// 45. invite lifecycle: revoked → invalid page; used → used_count incremented; max_uses:1 exhausts (2nd registration 404)
+const revokeInv = await page.evaluate(() => fetch('/api/trips/1/invites', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ role: 'viewer' }),
+}).then(r => r.json()));
+await page.evaluate(id => fetch(`/api/invites/${id}`, { method: 'DELETE' }), revokeInv.id);
+const ctx8 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const p8 = await ctx8.newPage();
+p8.setDefaultTimeout(25000);
+await blockExternal(p8);
+await p8.goto(`${BASE}/join/${revokeInv.code}`);
+await p8.waitForSelector('text=This invite link is not valid any more');
+await ctx8.close();
+
+const tripInvitesAfter = await page.evaluate(() => fetch('/api/trips/1/invites').then(r => r.json()));
+const usedInvite = tripInvitesAfter.find(i => i.id === tripInvite.id);
+if (!usedInvite || usedInvite.used_count !== 1) await fail(`trip invite used_count should be 1 after the join, got ${usedInvite?.used_count}`);
+
+const onceInv = await page.evaluate(() => fetch('/api/trips/1/invites', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ role: 'viewer', max_uses: 1 }),
+}).then(r => r.json()));
+const reg1 = await fetch(`${BASE}/api/join/${onceInv.code}`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ name: 'Exhaust One', email: 'exhaust1@test.local', password: 'exhaust-test-pw-1' }),
+});
+if (reg1.status !== 200) await fail(`first registration on a max_uses:1 invite should succeed, got ${reg1.status}`);
+const reg2 = await fetch(`${BASE}/api/join/${onceInv.code}`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ name: 'Exhaust Two', email: 'exhaust2@test.local', password: 'exhaust-test-pw-2' }),
+});
+if (reg2.status !== 404) await fail(`second registration on an exhausted max_uses:1 invite should 404, got ${reg2.status}`);
+console.log('invite lifecycle ok (revoked → invalid page, used_count incremented, max_uses:1 exhausts)');
+
 // 40. multi-file upload → ✈️ progress + summary toast, dropzone disabled mid-batch
 await page.goto(`${BASE}/trips/1/documents`);
 await page.waitForSelector('.dropzone');
@@ -1220,4 +1362,4 @@ await shot('27-mobile-plan');
 console.log('mobile 360px ok (no horizontal scroll)');
 
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.16)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.17)');

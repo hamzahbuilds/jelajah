@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { api } from './api';
 import { I18nProvider, useT, Lang } from './i18n';
 import Login from './pages/Login';
+import Join from './pages/Join';
 import Trips from './pages/Trips';
 import TripShell from './pages/TripShell';
 import Dashboard from './pages/Dashboard';
@@ -14,6 +15,7 @@ import Ledger from './pages/Ledger';
 import Payments from './pages/Payments';
 import People from './pages/People';
 import Settings from './pages/Settings';
+import Admin from './pages/Admin';
 import { ToastProvider } from './components/Toast';
 
 export type TripRole = 'leader' | 'editor' | 'viewer';
@@ -63,6 +65,7 @@ function Shell() {
           <Routes>
             <Route path="/" element={<Trips />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/admin" element={<Admin />} />
             <Route path="/trips/:tripId" element={<TripShell />}>
               <Route index element={<Dashboard />} />
               <Route path="plan" element={<Plan />} />
@@ -92,7 +95,10 @@ function Chrome({ children }: { children: React.ReactNode }) {
         <div className="topbar-inner">
           <a className="logo" href="/">🧭 {t.appName}</a>
           <div className="spacer" />
-          {user.role === 'admin' && <a href="/settings" style={{ color: '#fff', textDecoration: 'none', fontSize: '.85rem' }}>⚙️ {t.settings}</a>}
+          <a href="/settings" style={{ color: '#fff', textDecoration: 'none', fontSize: '.85rem' }}>⚙️ {t.settings}</a>
+          {user.role === 'admin' && (
+            <a href="/admin" style={{ color: '#fff', textDecoration: 'none', fontSize: '.85rem' }}>🛂 {t.adminTitle}</a>
+          )}
           <select value={lang} onChange={e => changeLang(e.target.value as Lang)} aria-label={t.language}>
             <option value="en">EN</option>
             <option value="ms">BM</option>
@@ -133,6 +139,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<I18nProvider><Login /></I18nProvider>} />
+      <Route path="/join/:code" element={<I18nProvider><Join /></I18nProvider>} />
       <Route path="*" element={<Shell />} />
     </Routes>
   );

@@ -5,7 +5,6 @@ import { useT } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import { useToast } from '../components/Toast';
-import TokenCard from '../components/TokenCard';
 
 const CATS = ['food', 'shopping', 'transport', 'entrance', 'other'] as const;
 const CAT_ICON: Record<string, string> = { food: '🍜', shopping: '🛍️', transport: '🚇', entrance: '🎟️', other: '📌' };
@@ -253,9 +252,6 @@ export default function MySpend() {
             </div>
           )}
 
-          <div className="card">
-            <TokenCard />
-          </div>
         </div>
       </div>
     </div>

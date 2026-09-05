@@ -9,6 +9,7 @@ import { parseSuggestions, freeSlots, suggestSystemPrompt, chatSystemPrompt, bui
 import { SCHEMA, UPGRADES, JAPAN_TRIP } from './lib/schema';
 import { migratedRole, TripRole, atLeast } from './lib/roles';
 import { FX_WINDOWS, FxWindow, analyzeRates } from '../shared/fxband';
+import { checkInvite, newInviteCode } from '../shared/invites';
 
 type Vars = { user: SessionUser };
 const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
@@ -38,6 +39,15 @@ async function audit(env: Env, userId: number | null, action: string, entity?: s
     await env.DB.prepare('INSERT INTO audit_log (user_id, action, entity, entity_id) VALUES (?,?,?,?)')
       .bind(userId, action, entity ?? null, entityId ?? null).run();
   } catch { /* audit is best-effort */ }
+}
+
+async function trackUsage(env: Env, userId: number, feature: string): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO usage_daily (day, user_id, feature, count) VALUES (date('now'), ?, ?, 1)
+       ON CONFLICT(day, user_id, feature) DO UPDATE SET count = count + 1`
+    ).bind(userId, feature).run();
+  } catch { /* tracking is best-effort */ }
 }
 
 async function getSettingJSON<T>(env: Env, key: string): Promise<T | null> {
@@ -147,6 +157,7 @@ app.post('/auth/login', async c => {
   }
   const token = await createSession(c.env, u.id);
   await audit(c.env, u.id, 'login');
+  await trackUsage(c.env, u.id, 'login');
   c.header('Set-Cookie', sessionCookie(token));
   return c.json({ ok: true });
 });
@@ -161,7 +172,10 @@ app.post('/auth/logout', async c => {
 /* ------------- auth middleware ------------- */
 
 app.use('*', async (c, next) => {
-  if (c.req.path === '/api/auth/login' || c.req.path === '/api/health' || c.req.path.startsWith('/api/setup')) return next();
+  if (c.req.path === '/api/auth/login' || c.req.path === '/api/health'
+    || c.req.path.startsWith('/api/setup')
+    || (c.req.path.startsWith('/api/join/') && c.req.method === 'GET')
+    || (c.req.path.startsWith('/api/join/') && c.req.method === 'POST' && !c.req.path.endsWith('/accept'))) return next();
   if (c.req.path.startsWith('/api/mcp')) return next(); // MCP authenticates with its own token (header or path)
   const user = await getSessionUser(c.env, getCookie(c, 'sid'));
   if (!user) return bad(c, 'unauthorized', 401);
@@ -243,16 +257,40 @@ app.patch('/me', async c => {
   return c.json({ ok: true });
 });
 
-/* ---------------- users & participants (admin) ---------------- */
+/* ---------------- users & participants ---------------- */
 
-// Global participant directory: admin-only — members only ever see the
-// member list of trips they belong to (via GET /trips/:id).
-app.get('/participants', requireAdmin, async c => {
-  const rows = await c.env.DB.prepare('SELECT * FROM participants ORDER BY name').all();
+/** Does this user lead at least one trip? Platform admin trivially does. */
+async function leadsAnyTrip(env: Env, user: SessionUser): Promise<boolean> {
+  if (user.role === 'admin') return true;
+  if (!user.participant_id) return false;
+  const row = await env.DB.prepare(
+    "SELECT 1 FROM trip_members WHERE participant_id = ? AND role = 'leader'",
+  ).bind(user.participant_id).first();
+  return !!row;
+}
+
+// Global participant directory: platform admin sees every participant;
+// a trip leader sees participants of the trips they lead. Members without
+// a led trip never reach this — the member list they need comes from
+// GET /trips/:id instead.
+app.get('/participants', async c => {
+  const user: SessionUser = c.get('user');
+  if (user.role === 'admin') {
+    const rows = await c.env.DB.prepare('SELECT * FROM participants ORDER BY name').all();
+    return c.json(rows.results);
+  }
+  if (!(await leadsAnyTrip(c.env, user))) return bad(c, 'forbidden', 403);
+  const rows = await c.env.DB.prepare(
+    `SELECT DISTINCT p.* FROM participants p JOIN trip_members m ON m.participant_id = p.id
+     WHERE m.trip_id IN (SELECT trip_id FROM trip_members WHERE participant_id = ? AND role = 'leader')
+     ORDER BY p.name`,
+  ).bind(user.participant_id).all();
   return c.json(rows.results);
 });
 
-app.post('/participants', requireAdmin, async c => {
+app.post('/participants', async c => {
+  const user: SessionUser = c.get('user');
+  if (!(await leadsAnyTrip(c.env, user))) return bad(c, 'forbidden', 403);
   const { name, is_infant } = await c.req.json<any>();
   if (!name?.trim()) return bad(c, 'name_required');
   const r = await c.env.DB.prepare('INSERT INTO participants (name, is_infant) VALUES (?,?)')
@@ -260,16 +298,25 @@ app.post('/participants', requireAdmin, async c => {
   return c.json({ id: r.meta.last_row_id });
 });
 
-app.patch('/participants/:id', requireAdmin, async c => {
+app.patch('/participants/:id', async c => {
+  const user: SessionUser = c.get('user');
+  const pid = Number(c.req.param('id'));
+  if (user.role !== 'admin') {
+    const row = await c.env.DB.prepare(
+      `SELECT 1 FROM trip_members tm JOIN trip_members lm ON lm.trip_id = tm.trip_id
+       WHERE tm.participant_id = ? AND lm.participant_id = ? AND lm.role = 'leader'`,
+    ).bind(pid, user.participant_id).first();
+    if (!row) return bad(c, 'forbidden', 403);
+  }
   const { name, is_infant } = await c.req.json<any>();
   await c.env.DB.prepare('UPDATE participants SET name = COALESCE(?, name), is_infant = COALESCE(?, is_infant) WHERE id = ?')
-    .bind(name ?? null, is_infant ?? null, Number(c.req.param('id'))).run();
+    .bind(name ?? null, is_infant ?? null, pid).run();
   return c.json({ ok: true });
 });
 
 app.get('/users', requireAdmin, async c => {
   const rows = await c.env.DB.prepare(
-    'SELECT id, email, name, role, lang, participant_id, disabled, must_change_password, created_at FROM users ORDER BY name',
+    'SELECT id, email, name, role, lang, participant_id, disabled, must_change_password, created_at, referred_by FROM users ORDER BY name',
   ).all();
   return c.json(rows.results);
 });
@@ -333,7 +380,7 @@ app.get('/trips/:id', async c => {
   const user = c.get('user');
   const my_role = user.role === 'admin' ? 'leader' : await tripRole(c.env, user, id);
   const members = await c.env.DB.prepare(
-    `SELECT p.* FROM participants p JOIN trip_members m ON m.participant_id = p.id WHERE m.trip_id = ? ORDER BY p.name`,
+    `SELECT p.*, m.role AS trip_role FROM participants p JOIN trip_members m ON m.participant_id = p.id WHERE m.trip_id = ? ORDER BY p.name`,
   ).bind(id).all();
   return c.json({ trip: { ...trip, my_role }, members: members.results });
 });
@@ -452,6 +499,7 @@ app.post('/trips/:id/documents', requireLeader, async c => {
     JSON.stringify(meta), c.get('user').id,
   ).run();
   await audit(c.env, c.get('user').id, 'document_upload', 'document', Number(r.meta.last_row_id));
+  await trackUsage(c.env, c.get('user').id, 'doc_upload');
   return c.json({ id: r.meta.last_row_id, duplicate });
 });
 
@@ -589,6 +637,7 @@ app.post('/trips/:id/expenses', requireLeader, async c => {
   if (err) return bad(c, err);
   const eid = await insertExpense(c.env, id, null, p);
   await audit(c.env, c.get('user').id, 'expense_create', 'expense', eid);
+  await trackUsage(c.env, c.get('user').id, 'expense_add');
   return c.json({ id: eid });
 });
 
@@ -658,6 +707,7 @@ app.post('/trips/:id/payments', requireLeader, async c => {
      VALUES (?,?,?,?,?,?,?,?)`,
   ).bind(id, from_participant_id, to_participant_id, amount_myr, pay_date, note ?? null, expense_id ?? null, c.get('user').id).run();
   await audit(c.env, c.get('user').id, 'payment_create', 'payment', Number(r.meta.last_row_id));
+  await trackUsage(c.env, c.get('user').id, 'payment_add');
   return c.json({ id: r.meta.last_row_id });
 });
 
@@ -890,6 +940,7 @@ app.get('/trips/:id/plan', async c => {
   const dayBudgets = await c.env.DB.prepare('SELECT * FROM day_budgets WHERE trip_id = ? ORDER BY day').bind(id).all();
   const dayNotes = await c.env.DB.prepare('SELECT * FROM day_notes WHERE trip_id = ? ORDER BY day, sort, id').bind(id).all();
 
+  await trackUsage(c.env, c.get('user').id, 'plan_view');
   return c.json({
     dayBudgets: dayBudgets.results,
     dayNotes: dayNotes.results,
@@ -1043,6 +1094,7 @@ app.post('/trips/:id/myspend', async c => {
   if (Array.isArray(b.participant_ids) && b.participant_ids.length) {
     await savePersonalShares(c.env, pid, b.amount_myr ?? b.amount_original, b.participant_ids.map(Number), b.include_self !== false);
   }
+  await trackUsage(c.env, c.get('user').id, 'myspend_add');
   return c.json({ id: pid });
 });
 
@@ -1545,6 +1597,7 @@ app.get('/trips/:id/fxseries', async c => {
   const points = (rows.results as any[]).map(r => ({ date: r.rate_date, rate: r.rate }));
   if (!points.length) return bad(c, 'fx_unavailable', 502);
   const { band, signal } = analyzeRates(points.map(p => p.rate));
+  await trackUsage(c.env, c.get('user').id, 'fx_view');
   return c.json({ base: trip.base_currency, quote, window, points, band, signal, current: points[points.length - 1] });
 });
 
@@ -1572,6 +1625,207 @@ app.patch('/trips/:id/currencies', requireLeader, async c => {
   await c.env.DB.prepare('UPDATE trips SET base_currency = ?, watch_currencies = ? WHERE id = ?')
     .bind(base, JSON.stringify(watch), id).run();
   return c.json({ ok: true, base_currency: base, watch_currencies: watch });
+});
+
+/* ================================================================== */
+/* v0.17 — invites, join & referrals (spec §Registration + Addendum 1) */
+/* ================================================================== */
+
+const inviteUrl = (code: string) => `/join/${code}`;
+const makeCode = () => newInviteCode(crypto.getRandomValues(new Uint8Array(16)));
+const inviteRow = (i: any) => ({
+  id: i.id, code: i.code, url: inviteUrl(i.code), kind: i.kind, role: i.role,
+  expires_at: i.expires_at, max_uses: i.max_uses, used_count: i.used_count,
+  revoked: !!i.revoked, created_at: i.created_at,
+});
+
+app.post('/trips/:id/invites', requireLeader, async c => {
+  const tripId = Number(c.req.param('id'));
+  const b = await c.req.json<any>().catch(() => ({}));
+  const role = b.role === 'editor' ? 'editor' : 'viewer';
+  const days = Math.min(Math.max(Number(b.expires_days) || 14, 1), 90);
+  const maxUses = Math.min(Math.max(Number(b.max_uses) || 10, 1), 50);
+  const expires = new Date(Date.now() + days * 86400000).toISOString();
+  const code = makeCode();
+  const user: SessionUser = c.get('user');
+  const r = await c.env.DB.prepare(
+    `INSERT INTO invites (code, kind, trip_id, role, created_by, expires_at, max_uses) VALUES (?,?,?,?,?,?,?)`,
+  ).bind(code, 'trip', tripId, role, user.id, expires, maxUses).run();
+  await audit(c.env, user.id, 'invite_create', 'trip', tripId);
+  return c.json({ id: Number(r.meta.last_row_id), code, url: inviteUrl(code), role, expires_at: expires, max_uses: maxUses });
+});
+
+app.get('/trips/:id/invites', requireLeader, async c => {
+  const rows = await c.env.DB.prepare(
+    "SELECT * FROM invites WHERE kind = 'trip' AND trip_id = ? ORDER BY revoked, id DESC",
+  ).bind(Number(c.req.param('id'))).all();
+  return c.json((rows.results as any[]).map(inviteRow));
+});
+
+app.post('/invites/platform', requireAdmin, async c => {
+  const b = await c.req.json<any>().catch(() => ({}));
+  const days = Math.min(Math.max(Number(b.expires_days) || 14, 1), 90);
+  const maxUses = Math.min(Math.max(Number(b.max_uses) || 5, 1), 50);
+  const expires = new Date(Date.now() + days * 86400000).toISOString();
+  const code = makeCode();
+  const user: SessionUser = c.get('user');
+  const r = await c.env.DB.prepare(
+    `INSERT INTO invites (code, kind, created_by, expires_at, max_uses) VALUES (?,?,?,?,?)`,
+  ).bind(code, 'platform', user.id, expires, maxUses).run();
+  await audit(c.env, user.id, 'invite_create', 'platform', Number(r.meta.last_row_id));
+  return c.json({ id: Number(r.meta.last_row_id), code, url: inviteUrl(code), expires_at: expires, max_uses: maxUses });
+});
+
+app.get('/invites/platform', requireAdmin, async c => {
+  const rows = await c.env.DB.prepare(
+    `SELECT i.*, u.name AS created_by_name FROM invites i JOIN users u ON u.id = i.created_by
+     WHERE i.kind IN ('platform','referral') ORDER BY i.revoked, i.id DESC`).all();
+  return c.json((rows.results as any[]).map(i => ({ ...inviteRow(i), created_by_name: i.created_by_name })));
+});
+
+const referralsEnabled = async (env: Env) =>
+  (await getSettingJSON<{ enabled: boolean }>(env, 'referrals_enabled'))?.enabled ?? true;
+
+app.get('/invites/referral', async c => {
+  const user: SessionUser = c.get('user');
+  let row = await c.env.DB.prepare(
+    "SELECT * FROM invites WHERE kind = 'referral' AND created_by = ? AND revoked = 0").bind(user.id).first<any>();
+  if (!row) {
+    const code = makeCode();
+    await c.env.DB.prepare(
+      `INSERT INTO invites (code, kind, created_by, expires_at, max_uses) VALUES (?,'referral',?,NULL,20)`,
+    ).bind(code, user.id).run();
+    row = await c.env.DB.prepare('SELECT * FROM invites WHERE code = ?').bind(code).first<any>();
+  }
+  return c.json({ ...inviteRow(row), enabled: await referralsEnabled(c.env) });
+});
+
+app.delete('/invites/:id', async c => {
+  const user: SessionUser = c.get('user');
+  const inv = await c.env.DB.prepare('SELECT * FROM invites WHERE id = ?').bind(Number(c.req.param('id'))).first<any>();
+  if (!inv) return bad(c, 'not_found', 404);
+  const isIssuer = inv.created_by === user.id;
+  const isTripLeader = inv.kind === 'trip' && inv.trip_id != null && await needRole(c, inv.trip_id, 'leader');
+  if (!isIssuer && !isTripLeader && user.role !== 'admin') return bad(c, 'forbidden', 403);
+  await c.env.DB.prepare('UPDATE invites SET revoked = 1 WHERE id = ?').bind(inv.id).run();
+  await audit(c.env, user.id, 'invite_revoke', 'invite', inv.id);
+  return c.json({ ok: true });
+});
+
+app.get('/settings/referrals', requireAdmin, async c => c.json({ enabled: await referralsEnabled(c.env) }));
+app.put('/settings/referrals', requireAdmin, async c => {
+  const b = await c.req.json<any>();
+  await setSettingJSON(c.env, 'referrals_enabled', { enabled: !!b.enabled });
+  return c.json({ ok: true, enabled: !!b.enabled });
+});
+
+/** KV counter: max N join attempts per IP per hour. FILES doubles as the store. */
+async function joinRateLimited(c: any): Promise<boolean> {
+  try {
+    const ip = c.req.header('CF-Connecting-IP') ?? 'local';
+    const key = `rl:join:${ip}:${new Date().toISOString().slice(0, 13)}`; // per-hour bucket
+    const store = c.env.FILES;
+    if (!isKV(store)) return false; // R2-bound: skip limiting
+    const n = Number((await store.get(key)) ?? 0) + 1;
+    await store.put(key, String(n), { expirationTtl: 7200 });
+    return n > 20;
+  } catch { return false; } // limiter must never take the door down
+}
+
+async function loadInvite(env: Env, code: string): Promise<any | null> {
+  if (!/^inv_[0-9a-f]{32}$/.test(code)) return null;
+  const inv = await env.DB.prepare('SELECT * FROM invites WHERE code = ?').bind(code).first<any>();
+  if (!inv) return null;
+  if (checkInvite(inv, new Date().toISOString()) !== 'ok') return null;
+  if (inv.kind === 'referral' && !(await referralsEnabled(env))) return null;
+  const issuer = await env.DB.prepare('SELECT disabled FROM users WHERE id = ?').bind(inv.created_by).first<any>();
+  if (!issuer || issuer.disabled) return null; // a disabled account's links die with it
+  return inv;
+}
+
+app.get('/join/:code', async c => {
+  const inv = await loadInvite(c.env, c.req.param('code'));
+  if (!inv) return c.json({ valid: false }, 404);
+  const inviter = await c.env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(inv.created_by).first<any>();
+  if (inv.kind === 'trip') {
+    const trip = await c.env.DB.prepare('SELECT name FROM trips WHERE id = ?').bind(inv.trip_id).first<any>();
+    return c.json({ valid: true, kind: inv.kind, trip_name: trip?.name ?? null, inviter_name: inviter?.name ?? null, role: inv.role });
+  }
+  return c.json({ valid: true, kind: inv.kind, inviter_name: inviter?.name ?? null });
+});
+
+app.post('/join/:code', async c => {
+  const inv = await loadInvite(c.env, c.req.param('code'));
+  if (!inv) return c.json({ valid: false }, 404);
+  if (await joinRateLimited(c)) return bad(c, 'rate_limited', 429);
+
+  const body = await c.req.json<any>().catch(() => ({}));
+  const name = String(body.name ?? '').trim().slice(0, 80);
+  const email = String(body.email ?? '').trim().toLowerCase();
+  const password = String(body.password ?? '');
+  if (!name || !email) return bad(c, 'missing_fields');
+
+  const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first<any>();
+  if (existing) return bad(c, 'email_taken');
+  if (password.length < 8) return bad(c, 'weak_password');
+
+  const inc = await c.env.DB.prepare(
+    'UPDATE invites SET used_count = used_count + 1 WHERE id = ? AND used_count < max_uses',
+  ).bind(inv.id).run();
+  if (!inc.meta.changes) return c.json({ valid: false }, 404);
+
+  const lang = body.lang === 'ms' ? 'ms' : 'en';
+  const { hash, salt } = await hashPassword(password);
+  const r = await c.env.DB.prepare(
+    `INSERT INTO users (email, name, password_hash, salt, lang, referred_by, referral_invite_id, must_change_password)
+     VALUES (?,?,?,?,?,?,?,0)`,
+  ).bind(email, name, hash, salt, lang, inv.created_by, inv.id).run();
+  const userId = Number(r.meta.last_row_id);
+
+  let tripId: number | undefined;
+  if (inv.kind === 'trip') {
+    const p = await c.env.DB.prepare('INSERT INTO participants (name) VALUES (?)').bind(name).run();
+    const participantId = Number(p.meta.last_row_id);
+    await c.env.DB.prepare('UPDATE users SET participant_id = ? WHERE id = ?').bind(participantId, userId).run();
+    await c.env.DB.prepare('INSERT OR IGNORE INTO trip_members (trip_id, participant_id, role) VALUES (?,?,?)')
+      .bind(inv.trip_id, participantId, inv.role).run();
+    tripId = inv.trip_id;
+  }
+
+  const token = await createSession(c.env, userId);
+  await audit(c.env, userId, 'join_register', 'invite', inv.id);
+  await trackUsage(c.env, userId, 'join_register');
+  c.header('Set-Cookie', sessionCookie(token));
+  return c.json({ ok: true, ...(tripId != null ? { trip_id: tripId } : {}) });
+});
+
+app.post('/join/:code/accept', async c => {
+  const inv = await loadInvite(c.env, c.req.param('code'));
+  if (!inv) return c.json({ valid: false }, 404);
+  const user: SessionUser = c.get('user');
+  if (inv.kind !== 'trip') return c.json({ ok: true });
+
+  let participantId = user.participant_id;
+  if (!participantId) {
+    const p = await c.env.DB.prepare('INSERT INTO participants (name) VALUES (?)').bind(user.name).run();
+    participantId = Number(p.meta.last_row_id);
+    await c.env.DB.prepare('UPDATE users SET participant_id = ? WHERE id = ?').bind(participantId, user.id).run();
+  }
+
+  const existingMember = await c.env.DB.prepare(
+    'SELECT 1 FROM trip_members WHERE trip_id = ? AND participant_id = ?',
+  ).bind(inv.trip_id, participantId).first();
+  if (existingMember) return c.json({ ok: true, already: true });
+
+  const inc = await c.env.DB.prepare(
+    'UPDATE invites SET used_count = used_count + 1 WHERE id = ? AND used_count < max_uses',
+  ).bind(inv.id).run();
+  if (!inc.meta.changes) return c.json({ valid: false }, 404);
+
+  await c.env.DB.prepare('INSERT OR IGNORE INTO trip_members (trip_id, participant_id, role) VALUES (?,?,?)')
+    .bind(inv.trip_id, participantId, inv.role).run();
+  await audit(c.env, user.id, 'join_accept', 'invite', inv.id);
+  return c.json({ ok: true });
 });
 
 /* ================================================================== */
@@ -1826,6 +2080,7 @@ app.post('/trips/:id/assistant/suggest', async c => {
       { role: 'system', content: suggestSystemPrompt() },
       { role: 'user', content: `${ctx}\n\nFREE SLOTS:\n${slotLines.join('\n')}\n\nREQUEST: ${String(prompt).slice(0, 500)}${day ? ` (focus on day ${day})` : ''}` },
     ]);
+    await trackUsage(c.env, c.get('user').id, 'ai_suggest');
     return c.json({ suggestions: parseSuggestions(text, validDays) });
   } catch (e: any) { return aiFail(c, e); }
 });
@@ -1847,6 +2102,7 @@ app.post('/trips/:id/assistant/chat', async c => {
       { role: 'system', content: `${chatSystemPrompt(lang)}\n\nTRIP CONTEXT:\n${ctx}` },
       ...msgs,
     ], 900);
+    await trackUsage(c.env, c.get('user').id, 'ai_chat');
     return c.json({ reply });
   } catch (e: any) { return aiFail(c, e); }
 });
@@ -2267,6 +2523,7 @@ async function mcpHttp(c: any, rawToken: string | null): Promise<Response> {
 
   const user = await mcpUser(c.env, rawToken ? `Bearer ${rawToken}` : c.req.header('authorization'));
   if (!user) return c.json({ error: 'invalid_token' }, 401, cors);
+  await trackUsage(c.env, user.id, 'mcp_call');
 
   let body: any;
   try { body = await c.req.json(); } catch {

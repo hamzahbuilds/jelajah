@@ -5,23 +5,29 @@ import { useT } from '../i18n';
 import { TripCtx, Participant } from './TripShell';
 import { useToast } from '../components/Toast';
 
+type Invite = {
+  id: number; code: string; url: string; role: 'editor' | 'viewer';
+  expires_at: string | null; max_uses: number | null; used_count: number; revoked: boolean;
+};
+
 export default function People() {
   const { t } = useT();
   const { toast } = useToast();
   const { trip, tripId, members, reload } = useOutletContext<TripCtx>();
   const [canEditPlan, setCanEditPlan] = useState<boolean>(!!(trip as any).member_can_edit_plan);
   const [all, setAll] = useState<Participant[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
   const [newName, setNewName] = useState('');
   const [newInfant, setNewInfant] = useState(false);
-  const [uform, setUform] = useState({ name: '', email: '', password: '', role: 'member', participant_id: 0 });
-  const [showTemp, setShowTemp] = useState<string | null>(null);
+
+  const [invites, setInvites] = useState<Invite[]>([]);
+  const [inviteRole, setInviteRole] = useState<'viewer' | 'editor'>('viewer');
+  const [justCreated, setJustCreated] = useState<number | null>(null);
 
   const load = async () => {
     setAll(await api.get('/participants'));
-    setUsers(await api.get('/users'));
   };
-  useEffect(() => { load(); }, []);
+  const loadInvites = async () => setInvites(await api.get(`/trips/${tripId}/invites`));
+  useEffect(() => { load(); loadInvites(); }, []);
 
   // v0.13: optimistic membership — the chip flips instantly, the PUT runs in
   // the background, and the context resyncs when the server confirms.
@@ -54,27 +60,30 @@ export default function People() {
     await Promise.all([load(), reload()]);
   };
 
-  const genPassword = () => Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6);
+  const roleChip = (p: Participant) => {
+    const role = (p as any).trip_role as 'leader' | 'editor' | 'viewer' | undefined;
+    if (!role) return null;
+    const label = role === 'leader' ? t.roleLeader : role === 'editor' ? t.roleEditor : t.roleViewer;
+    return <span className="badge">{label}</span>;
+  };
 
-  const addUser = async (e: React.FormEvent) => {
+  const copyInvite = async (code: string) => {
+    const url = location.origin + '/join/' + code;
+    await navigator.clipboard.writeText(url);
+    toast(t.inviteCopied);
+  };
+
+  const createInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    const password = uform.password || genPassword();
-    await api.post('/users', { ...uform, password, participant_id: uform.participant_id || null });
-    setShowTemp(password);
-    setUform({ name: '', email: '', password: '', role: 'member', participant_id: 0 });
-    toast(t.tAccountCreated);
-    await load();
+    const r = await api.post(`/trips/${tripId}/invites`, { role: inviteRole });
+    await loadInvites();
+    setJustCreated(r.id);
+    await copyInvite(r.code);
   };
 
-  const resetPw = async (u: any) => {
-    const pw = genPassword();
-    await api.patch(`/users/${u.id}`, { resetPassword: pw });
-    setShowTemp(pw);
-  };
-
-  const toggleDisabled = async (u: any) => {
-    await api.patch(`/users/${u.id}`, { disabled: !u.disabled });
-    await load();
+  const revokeInvite = async (id: number) => {
+    await api.del(`/invites/${id}`);
+    await loadInvites();
   };
 
   const [hidden, setHidden] = useState<string[]>(() => {
@@ -126,6 +135,16 @@ export default function People() {
             </span>
           ))}
         </div>
+        {members.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            {members.map(m => (
+              <div className="row-between" key={m.id} style={{ padding: '4px 0' }}>
+                <span>{m.name}{m.is_infant ? ' 👶' : ''}</span>
+                {roleChip(m)}
+              </div>
+            ))}
+          </div>
+        )}
         <form className="row" onSubmit={addParticipant}>
           <input value={newName} onChange={e => setNewName(e.target.value)} placeholder={t.addParticipant} style={{ flex: 1 }} />
           <label className="row tiny" style={{ gap: 4 }}>
@@ -136,48 +155,32 @@ export default function People() {
       </div>
 
       <div className="card">
-        <h3>{t.usersTitle}</h3>
-        {showTemp && (
-          <p className="callout info">
-            {t.tempPassword}: <strong style={{ fontFamily: 'monospace' }}>{showTemp}</strong>
-            <button className="icon" onClick={() => setShowTemp(null)}>✕</button>
-          </p>
-        )}
-        {users.map(u => (
-          <div className="row-between" key={u.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+        <h3>{t.inviteTitle}</h3>
+        {invites.filter(i => !i.revoked).map(i => (
+          <div className={`row-between invite-row${i.id === justCreated ? ' invite-row-new' : ''}`} key={i.id}
+            style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
             <div>
-              <div><strong>{u.name}</strong> <span className="badge">{u.role === 'admin' ? t.admin : t.member}</span>
-                {u.disabled ? <span className="badge warn">{t.disabled}</span> : null}</div>
-              <div className="tiny">{u.email}{u.participant_id ? ` · ${all.find(p => p.id === u.participant_id)?.name ?? ''}` : ''}</div>
+              <div className="row" style={{ gap: 6 }}>
+                <span className="badge">{i.role === 'editor' ? t.roleEditor : t.roleViewer}</span>
+                <span className="tiny">{t.inviteUses(i.used_count, i.max_uses ?? 0)}</span>
+                {i.expires_at && <span className="tiny">{t.inviteExpires(new Date(i.expires_at).toLocaleDateString())}</span>}
+              </div>
             </div>
             <div className="row">
-              <button className="btn btn-ghost btn-sm" onClick={() => resetPw(u)}>{t.resetPassword}</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => toggleDisabled(u)}>
-                {u.disabled ? t.enable : t.disable}
-              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => copyInvite(i.code)}>📋</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => revokeInvite(i.id)}>{t.inviteRevoke} ✕</button>
             </div>
           </div>
         ))}
-        <form onSubmit={addUser} style={{ marginTop: 14 }}>
-          <h3 style={{ fontSize: '.9rem' }}>{t.addUser}</h3>
-          <div className="form-grid">
-            <label className="field"><span>{t.name}</span>
-              <input required value={uform.name} onChange={e => setUform({ ...uform, name: e.target.value })} /></label>
-            <label className="field"><span>{t.email}</span>
-              <input type="email" required value={uform.email} onChange={e => setUform({ ...uform, email: e.target.value })} /></label>
-            <label className="field"><span>{t.role}</span>
-              <select value={uform.role} onChange={e => setUform({ ...uform, role: e.target.value })}>
-                <option value="member">{t.member}</option>
-                <option value="admin">{t.admin}</option>
-              </select></label>
-            <label className="field"><span>{t.linkedParticipant}</span>
-              <select value={uform.participant_id} onChange={e => setUform({ ...uform, participant_id: Number(e.target.value) })}>
-                <option value={0}>{t.none}</option>
-                {all.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select></label>
-          </div>
-          <button className="btn btn-sm">{t.addUser}</button>
-          <span className="tiny" style={{ marginLeft: 8 }}>({t.tempPassword} ✨)</span>
+        <form className="row" onSubmit={createInvite} style={{ marginTop: 14 }}>
+          <label className="row tiny" style={{ gap: 4 }}>
+            <span>{t.inviteRoleLabel}</span>
+            <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'viewer' | 'editor')}>
+              <option value="viewer">{t.roleViewer}</option>
+              <option value="editor">{t.roleEditor}</option>
+            </select>
+          </label>
+          <button className="btn btn-sm">{t.inviteCreate}</button>
         </form>
       </div>
     </div>

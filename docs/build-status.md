@@ -1,6 +1,125 @@
 # Jelajah — Build Status
 
-Updated: 5 Sep 2026 (v0.16)
+Updated: 5 Sep 2026 (v0.17 — released)
+
+## v0.17.0 — "Invites, join & referrals" (5 Sep 2026)
+
+Phase A2 of multitenancy (spec `docs/06-spec-v0.16-multitenant.md` + Addenda
+2/3): trip invite links, public self-registration through `/join/:code`,
+personal referral links, the Addendum-2 UI split, and live usage
+instrumentation, on top of A1's per-trip roles.
+
+What shipped (Tasks 1–8, this phase):
+- **Invites table + three kinds.** `invites` (code, kind `trip`/`platform`/
+  `referral`, trip_id, role, created_by, expires_at, max_uses, used_count,
+  revoked) backs trip invite links (leader-created, `viewer`/`editor`,
+  `POST/GET /trips/:id/invites`), platform invites (`requireAdmin`,
+  `/invites/platform`) and one stable referral link per user
+  (`GET /invites/referral`, upserted). `checkInvite()` (`shared/invites.ts`)
+  is the single pure status function (`ok`/`expired`/`revoked`/`exhausted`)
+  used by both the UI-facing GET and the registration POST, so a disabled
+  issuer's links die with the issuer, a revoked/expired/exhausted code always
+  404s, and no invite state leaks except `trip_name`/`inviter_name` for a
+  *valid* code (invalid codes leak nothing).
+- **Public join flow.** `GET/POST /api/join/:code` (session-exempt in the
+  auth middleware for GET and non-`/accept` POST only) plus the `/join/:code`
+  React page (`src/pages/Join.tsx`): registers `{name, email, password}`,
+  creates the account with `referred_by`/`referral_invite_id` set from the
+  invite, and for a `trip` invite creates a participant + `trip_members` row
+  at the invite's role in one insert sequence. A logged-in user
+  hitting a valid link instead sees an "accept" button
+  (`POST /join/:code/accept`) that joins without creating a second account.
+  A hand-rolled KV-backed rate limiter (`joinRateLimited`, 20/IP/hour, fails
+  open on any KV error) guards the POST — **not e2e-tested** (KV timing is
+  not reliably reproducible against a `wrangler dev --local` KV binding in a
+  scripted run; deferred to manual/staging verification).
+- **Referrals switch.** `app_settings.referrals_enabled` (default true),
+  toggled from `/admin`; a referral code that resolves to a disabled switch
+  behaves as an invalid invite.
+- **Addendum-2 UI split.** `/admin` (`src/pages/Admin.tsx`, platform-admin
+  only, else `<Navigate to="/">`) is a new page holding four cards: AI
+  provider (moved off `/settings`), Accounts (moved off the trip People page
+  — create/reset-password/enable-disable), Platform invites, and the
+  Referrals on/off switch. `/settings` (`src/pages/Settings.tsx`) is now for
+  *every* user — the referral-link card plus the MCP help/API-token card
+  (`TokenCard`, moved off My spend). The trip People page keeps visibility
+  toggles, the member roster with `Leader`/`Editor`/`Viewer` chips (the
+  Addendum-2 rename — "Admin" no longer appears anywhere in trip-scoped UI),
+  and its own new Invite-links card (`role` picker + revoke).
+- **Usage instrumentation (Addendum 3).** `usage_daily` + `trackUsage()`
+  fired from 11 call sites (login, join_register, expense_add, myspend_add,
+  payment_add, doc_upload, ai_chat, ai_suggest, mcp_call, plan_view,
+  fx_view) with no UI by design — counts are read by SQL, not a dashboard.
+
+Task 9 (e2e, docs, release) found a regression in Task 7's topbar change that
+briefly blocked a clean full-suite pass; fixed — see below.
+
+**Deferred to A3/B** (unchanged from the spec): role editing/transfer UI
+beyond the existing role PATCH, trip creation by non-admin accounts, a
+referral-report view on `/admin`.
+
+### Topbar 360px overflow, fixed (found by Task 9 e2e)
+
+`scripts/e2e.mjs`'s existing 360px responsive check (`hasHScroll`, unchanged
+by Task 9) now fails: `.topbar-inner` (`src/App.tsx`, `Chrome()`) is a
+non-wrapping flex row (`display:flex` and no `flex-wrap`/`overflow-x` in
+either the base rule or the `@media (max-width:620px)` block in
+`src/styles.css`) and Task 7 added a fifth item — the `🛂 Admin` link, shown
+only when `user.role === 'admin'` — without any narrow-viewport handling.
+Measured live: at a 360px viewport, `.topbar-inner` has
+`scrollWidth = 376` against `clientWidth = 360` (16px of forced horizontal
+scroll); the `Admin` link alone measures ~40px wide at `left:146/right:186`.
+Before Task 7's topbar link this same row (logo, Settings, EN/BM select,
+name, logout) fit; after it, an admin session on a phone-width screen gets a
+horizontally-scrolling page header. Non-admin sessions are unaffected (the
+link doesn't render for them).
+
+**Fix (topbar 360px round):** `src/styles.css`'s `@media (max-width: 620px)`
+block now sets `.topbar-inner { flex-wrap: wrap; gap: 6px 8px; }` and gives
+`.topbar-inner .spacer { flex-basis: 100%; height: 0; }`, so under 620px the
+logo occupies its own first line and Settings/Admin/language-select/name/
+logout wrap onto a second line together — no item is hidden or shrunk, the
+Admin link stays reachable and fully labelled at every width, and the e2e
+`hasHScroll` assertion is untouched. Re-verified: `.topbar-inner` no longer
+overflows at 360px with an admin session (Settings + Admin + name + Log out,
+the widest case), and the full e2e run now reaches
+`E2E PASSED (Phase 1 + 2 + v0.6-v0.17)`.
+
+**Everything else verified green:** 101 unit tests (was 93; +8
+`invites.test.ts`: `checkInvite` × 4 statuses, `newInviteCode` format) and
+every other e2e step passes, including all of Task 9's new coverage —
+repaired moved-UI steps (AI settings + test-connection now drives `/admin`;
+the member MCP-token step now drives `/settings`; People add-account now
+drives `/admin`'s Accounts card; TokenCard confirmed absent from My spend;
+the Accounts card confirmed absent from People) and the new v0.17 journeys
+(trip invite → `/join/:code` registration → editor role, activity add ok,
+expense 403; People role chips show `Leader`/`Editor` and never `Admin`;
+referral registration attributed via `GET /api/users`'s `referred_by`; the
+referral-only account proven isolated — zero trips, `/trips/1/plan` 403,
+`/admin` redirects home; invite lifecycle — revoked invite shows the invalid
+page, a used trip invite's `used_count` increments, a `max_uses:1` invite
+404s on its second registration), and now the 360px mobile check as well
+(`mobile 360px ok (no horizontal scroll)`). The usage-instrumentation proof
+(`SELECT feature, COUNT(*) FROM usage_daily GROUP BY feature`) shows rows for
+every feature exercised in this run, including the required `expense_add`,
+`login`, `mcp_call`, and `plan_view`. With the topbar fix above, the full
+suite reaches `E2E PASSED (Phase 1 + 2 + v0.6-v0.17)` — `package.json`'s
+`0.17.0` version bump stands and **v0.17.0 is released**.
+
+**Post-release fix wave (final review):** the referral card's copied/rendered
+link on `/settings` (and the platform/trip invite links on `/admin` and
+People) now prepend `location.origin`, since `GET /invites/referral` returns
+a relative `/join/inv_…` path — the joiner was previously shown/copying a
+bare path instead of a usable URL; `scripts/e2e.mjs` now asserts the rendered
+referral link starts with `http`. Also for sub-project B: `usage_daily`'s
+day buckets are UTC calendar days by design (the server has no per-user
+timezone), so a dashboard rendering them must present each bucket in the
+viewer's local timezone rather than assume UTC == local day boundaries.
+
+**Owner post-deploy check:** open `/admin` (AI config + accounts present),
+open Settings as a family member (tokens + referral link there), create an
+invite on the Japan trip in a private window, register a throwaway as
+viewer, then revoke the invite and disable the throwaway from `/admin`.
 
 ## v0.16.0 — "Per-trip roles" (5 Sep 2026)
 Phase A1 of multitenancy (spec `docs/06-spec-v0.16-multitenant.md`): every trip

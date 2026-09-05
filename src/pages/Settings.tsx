@@ -1,63 +1,21 @@
-// v0.12 admin Settings: AI provider (OpenAI-compatible, free presets) + MCP help.
+// v0.13 personal Settings: MCP help + access tokens + referral link, for every user.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useT } from '../i18n';
-import { useSession } from '../App';
 import { useToast } from '../components/Toast';
 import TokenCard from '../components/TokenCard';
 
-// Model names retire (Google pulled gemini-2.0-flash from the free tier in
-// June 2026) — the field stays editable so a preset going stale is a one-line
-// fix in the UI, not a redeploy. Gemini traffic is routed to Google's NATIVE
-// API server-side (any googleapis base URL), because the new AQ.-format keys
-// break on the OpenAI-compat layer.
-const PRESETS = [
-  { name: 'Gemini (free)', base_url: 'https://generativelanguage.googleapis.com', model: 'gemini-2.5-flash' },
-  { name: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1', model: 'google/gemini-2.0-flash-exp:free' },
-  { name: 'Groq', base_url: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
-];
-
 export default function Settings() {
   const { t } = useT();
-  const { user } = useSession();
   const { toast } = useToast();
-  const [form, setForm] = useState({ base_url: '', model: '', api_key: '' });
-  const [keyHint, setKeyHint] = useState('');
-  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [referral, setReferral] = useState<{ code: string; url: string; used_count: number; max_uses: number; enabled: boolean } | null>(null);
 
-  const load = async () => {
-    const s = await api.get('/settings/ai');
-    setKeyHint(s.key_hint);
-    // never clobber values the admin has already typed (slow-network race)
-    setForm(f => (f.base_url || f.model || f.api_key ? f : { base_url: s.base_url, model: s.model, api_key: '' }));
-  };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { api.get('/invites/referral').then(setReferral).catch(() => setReferral(null)); }, []);
 
-  if (user.role !== 'admin') return <div className="card muted" style={{ marginTop: 20 }}>—</div>;
-
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await api.put('/settings/ai', { base_url: form.base_url, model: form.model, api_key: form.api_key || undefined });
-    toast(t.tSaved);
-    setTestMsg(null);
-    setForm(f => ({ ...f, api_key: '' }));
-    const s = await api.get('/settings/ai');
-    setKeyHint(s.key_hint);
-  };
-
-  const test = async () => {
-    setBusy(true);
-    setTestMsg(null);
-    try {
-      const r = await api.post('/settings/ai/test', {});
-      setTestMsg({ ok: true, text: t.connectionOk(r.reply?.trim() || 'OK') });
-    } catch (e: any) {
-      const code = e?.code ?? e?.body?.error ?? '';
-      const base = code === 'ai_rate_limited' ? t.aiResting : code === 'ai_not_configured' ? t.aiNotConfigured : code === 'ai_unreachable' ? t.aiUnreachable : t.aiError;
-      const detail = e?.body?.detail; // e.g. Gemini's "model not found" for a retired model name
-      setTestMsg({ ok: false, text: detail ? `${base}\n${detail}` : base });
-    } finally { setBusy(false); }
+  const copyReferral = async () => {
+    if (!referral) return;
+    await navigator.clipboard.writeText(location.origin + referral.url);
+    toast(t.inviteCopied);
   };
 
   return (
@@ -65,34 +23,18 @@ export default function Settings() {
       <h1 style={{ margin: '20px 0 14px' }}>⚙️ {t.settings}</h1>
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <h3>🤖 {t.aiProvider}</h3>
-        <div className="row" style={{ marginBottom: 10 }}>
-          <span className="tiny" style={{ fontWeight: 700 }}>{t.aiPresets}:</span>
-          {PRESETS.map(p => (
-            <span key={p.name} className={`chip ${form.base_url === p.base_url ? 'on' : ''}`}
-              onClick={() => setForm(f => ({ ...f, base_url: p.base_url, model: p.model }))}>{p.name}</span>
-          ))}
-        </div>
-        <p className="tiny">{t.aiKeyHint}</p>
-        <form onSubmit={save}>
-          <div className="form-grid">
-            <label className="field full"><span>{t.baseUrl}</span>
-              <input value={form.base_url} onChange={e => setForm({ ...form, base_url: e.target.value })}
-                placeholder="https://…/v1" required /></label>
-            <label className="field"><span>{t.modelName}</span>
-              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} required /></label>
-            <label className="field"><span>{t.apiKey} {keyHint && <em className="tiny">({keyHint} — {t.keepKey})</em>}</span>
-              <input type="password" value={form.api_key} onChange={e => setForm({ ...form, api_key: e.target.value })}
-                placeholder={keyHint ? '••••••••' : 'sk-…'} autoComplete="off" /></label>
-          </div>
-          <div className="row">
-            <button className="btn" type="submit">{t.save}</button>
-            <button className="btn btn-ghost" type="button" onClick={test} disabled={busy}>
-              {busy ? '…' : `🔌 ${t.testConnection}`}
-            </button>
-          </div>
-        </form>
-        {testMsg && <p className={`callout ${testMsg.ok ? 'info' : 'warn'}`} style={{ marginTop: 10 }}>{testMsg.text}</p>}
+        <h3>🎁 {t.referralTitle}</h3>
+        {referral && !referral.enabled && <p className="tiny">{t.referralDisabled}</p>}
+        {referral && referral.enabled && (
+          <>
+            <p className="tiny">{t.referralHint}</p>
+            <div className="row" style={{ flexWrap: 'nowrap' }}>
+              <pre className="mcp-url" style={{ flex: 1 }}>{location.origin + referral.url}</pre>
+              <button className="btn btn-ghost btn-sm" onClick={copyReferral}>📋</button>
+            </div>
+            <span className="tiny">{t.inviteUses(referral.used_count, referral.max_uses)}</span>
+          </>
+        )}
       </div>
 
       <div className="card">

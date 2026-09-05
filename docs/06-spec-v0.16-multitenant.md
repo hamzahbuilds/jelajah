@@ -81,11 +81,11 @@ New table:
 CREATE TABLE invites (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code TEXT NOT NULL UNIQUE,            -- 'inv_' + 128-bit random hex
-  kind TEXT NOT NULL CHECK (kind IN ('platform','trip')),
-  trip_id INTEGER REFERENCES trips(id), -- NULL for platform invites
+  kind TEXT NOT NULL CHECK (kind IN ('platform','trip','referral')),
+  trip_id INTEGER REFERENCES trips(id), -- NULL for platform/referral invites
   role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('editor','viewer')),
   created_by INTEGER NOT NULL REFERENCES users(id),
-  expires_at TEXT NOT NULL,             -- default now + 14 days
+  expires_at TEXT,                      -- default now + 14 days; NULL = never (referral codes)
   max_uses INTEGER NOT NULL DEFAULT 10,
   used_count INTEGER NOT NULL DEFAULT 0,
   revoked INTEGER NOT NULL DEFAULT 0,
@@ -236,3 +236,34 @@ Riding on the invite machinery — an invite already knows who created it:
   invites also attribute `referred_by` (the leader), so family joins count.
 - Phasing: schema + capture in **A2** (registration is A2); personal-code UI
   in **A2**; report in **B**. Nothing lands in A1.
+
+## Addendum 2 (5 Sep 2026, owner request): admin panel & settings split
+
+- **New `/admin` page, platform-admin only** (nav link visible only to the
+  platform admin): platform invites, the referrals kill-switch, global user
+  accounts management (moves OUT of the People page), and the AI provider
+  configuration (moves OUT of Settings). This is the seed of sub-project B's
+  dashboard — B's metrics land on this same page.
+- **Settings becomes every user's personal page** (nav link for all):
+  MCP access tokens + connection help (moved out of the trip's My-spend
+  page — tokens were always per-user, now they live at user level), and the
+  personal referral link.
+- **Trip context never says "Admin".** The People page becomes trip-only:
+  travellers, members with their per-trip role chips (Leader/Editor/Viewer —
+  the platform admin appears as *Leader* there), visibility toggles, and
+  trip invite links. Platform identity shows only in /admin.
+
+## Addendum 3 (5 Sep 2026, owner request): usage instrumentation in A2
+
+Sub-project B's dashboard needs history, and metrics only count from the day
+their instrumentation ships. A2 therefore lays the pipes, no UI:
+
+- `usage_daily(day, user_id, feature, count)` — one row per user per feature
+  per day, upserted with `count + 1`.
+- Tracked features (one-line hooks): `login`, `join_register`, `plan_view`,
+  `expense_add`, `payment_add`, `doc_upload`, `ai_chat`, `ai_suggest`,
+  `mcp_call`, `myspend_add`, `fx_view`.
+- Logins also get an `audit` entry.
+- B renders: referral report (from `referred_by`), signups trend (from
+  `users.created_at`), active users / "sessions spent" as active-days
+  (from `usage_daily`), feature usage (from `usage_daily`).

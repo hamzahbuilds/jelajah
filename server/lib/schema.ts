@@ -16,6 +16,8 @@ export const SCHEMA: string[] = [
     role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin','member')),
     lang TEXT NOT NULL DEFAULT 'en' CHECK (lang IN ('en','ms')),
     participant_id INTEGER REFERENCES participants(id),
+    referred_by INTEGER REFERENCES users(id),
+    referral_invite_id INTEGER REFERENCES invites(id),
     disabled INTEGER NOT NULL DEFAULT 0,
     must_change_password INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -247,7 +249,28 @@ export const SCHEMA: string[] = [
     sort INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS invites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,            -- 'inv_' + 128-bit random hex
+    kind TEXT NOT NULL CHECK (kind IN ('platform','trip','referral')),
+    trip_id INTEGER REFERENCES trips(id), -- NULL unless kind='trip'
+    role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('editor','viewer')),
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    expires_at TEXT,                      -- NULL = never (referral codes)
+    max_uses INTEGER NOT NULL DEFAULT 10,
+    used_count INTEGER NOT NULL DEFAULT 0,
+    revoked INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS usage_daily (
+    day TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    feature TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, user_id, feature)
+  )`,
   `CREATE INDEX IF NOT EXISTS idx_day_notes ON day_notes(trip_id, day)`,
+  `CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code)`,
   `CREATE INDEX IF NOT EXISTS idx_personal_user ON personal_expenses(trip_id, user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_activities_trip ON activities(trip_id, day)`,
   `CREATE INDEX IF NOT EXISTS idx_documents_trip ON documents(trip_id)`,
@@ -274,9 +297,11 @@ export const UPGRADES: string[] = [
   `ALTER TABLE day_settings ADD COLUMN title TEXT`,
   `ALTER TABLE trips ADD COLUMN watch_currencies TEXT NOT NULL DEFAULT '[]'`,
   `ALTER TABLE trip_members ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'`,
+  `ALTER TABLE users ADD COLUMN referred_by INTEGER REFERENCES users(id)`,
+  `ALTER TABLE users ADD COLUMN referral_invite_id INTEGER REFERENCES invites(id)`,
   ...SCHEMA.filter(s =>
-    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes)\b/.test(s)
-    || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes/.test(s)),
+    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily)\b/.test(s)
+    || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code/.test(s)),
 ];
 
 // Optional first-run seed: the Japan Nov/Dec 2026 trip with its 16 travellers,

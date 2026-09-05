@@ -17,6 +17,16 @@ const en = {
   setupGo: 'Create & start',
   language: 'Language', changePassword: 'Change password', newPassword: 'New password (min 8 chars)',
   mustChange: 'Please set a new password to replace the temporary one.',
+  // join / invite
+  joinTitle: 'Join Jelajah', joinTripTitle: (trip: string) => `Join “${trip}”`,
+  joinInvitedBy: (name: string) => `Invited by ${name}`,
+  joinInvalid: 'This invite link is not valid any more. Ask for a new one.',
+  joinHaveAccount: 'I already have an account', joinNewAccount: 'Create my account',
+  joinName: 'Your name', joinEmail: 'Email', joinPassword: 'Password (min 8 characters)',
+  joinRegister: 'Create account & join', joinAccept: 'Join trip', joinDone: 'You are in!',
+  joinLoginFirst: 'Log in, then open the invite link again.',
+  loginInviteHint: 'Have an invite link? Open it to join.',
+  emailTaken: 'That email already has an account — log in instead.',
   // trips
   myTrips: 'My trips', newTrip: 'New trip', tripName: 'Trip name',
   destination: 'Destination', startDate: 'Start date', endDate: 'End date', create: 'Create',
@@ -91,6 +101,10 @@ const en = {
   aiError: 'The AI provider returned an error — check Settings → Test connection.',
   aiUnreachable: 'Could not reach the AI provider.',
   keepKey: 'leave blank to keep the saved key',
+  // v0.13 — personal referral link
+  referralTitle: 'Your referral link',
+  referralHint: 'Friends who join through your link count as invited by you.',
+  referralDisabled: 'Referrals are currently switched off.',
   // v0.12 — MCP / tokens
   mcpTitle: 'Connect your own AI (MCP)',
   mcpHelp: 'Claude, Codex and other MCP clients can read your trips and plan itineraries through this app’s MCP endpoint. Create a token, then point your client at:',
@@ -237,6 +251,16 @@ const en = {
   linkedParticipant: 'Linked participant', active: 'Active',
   disable: 'Disable', enable: 'Enable', tripMembers: 'Trip members',
   memberHint: 'Tick everyone travelling on this trip.',
+  // v0.17 — trip invite links
+  inviteTitle: 'Invite links', inviteCreate: 'New invite link',
+  inviteRoleLabel: 'Joins as', inviteCopied: 'Link copied',
+  inviteRevoke: 'Revoke',
+  inviteUses: (u: number, m: number) => `${u}/${m} used`,
+  inviteExpires: (d: string) => `until ${d}`,
+  // v0.17 — /admin panel
+  adminTitle: 'Admin', accountsTitle: 'Accounts',
+  platformInvites: 'Platform invites',
+  referralsEnabled: 'Allow personal referral links',
 };
 
 const ms: typeof en = {
@@ -254,6 +278,16 @@ const ms: typeof en = {
   setupGo: 'Cipta & mula',
   language: 'Bahasa', changePassword: 'Tukar kata laluan', newPassword: 'Kata laluan baharu (min 8 aksara)',
   mustChange: 'Sila tetapkan kata laluan baharu menggantikan yang sementara.',
+  // join / invite
+  joinTitle: 'Sertai Jelajah', joinTripTitle: (trip: string) => `Sertai "${trip}"`,
+  joinInvitedBy: (name: string) => `Dijemput oleh ${name}`,
+  joinInvalid: 'Pautan jemputan ini dah tak sah. Minta pautan baharu.',
+  joinHaveAccount: 'Saya dah ada akaun', joinNewAccount: 'Cipta akaun saya',
+  joinName: 'Nama anda', joinEmail: 'E-mel', joinPassword: 'Kata laluan (min 8 aksara)',
+  joinRegister: 'Cipta akaun & sertai', joinAccept: 'Sertai perjalanan', joinDone: 'Anda dah masuk!',
+  joinLoginFirst: 'Log masuk dulu, lepas tu buka pautan jemputan ni semula.',
+  loginInviteHint: 'Ada pautan jemputan? Buka untuk sertai.',
+  emailTaken: 'E-mel tu dah ada akaun — log masuk sahaja.',
   myTrips: 'Perjalanan saya', newTrip: 'Perjalanan baharu', tripName: 'Nama perjalanan',
   destination: 'Destinasi', startDate: 'Tarikh mula', endDate: 'Tarikh tamat', create: 'Cipta',
   noTrips: 'Tiada perjalanan lagi.',
@@ -319,6 +353,10 @@ const ms: typeof en = {
   aiError: 'Penyedia AI mengembalikan ralat — semak Tetapan → Uji sambungan.',
   aiUnreachable: 'Tidak dapat menghubungi penyedia AI.',
   keepKey: 'biar kosong untuk kekalkan kunci tersimpan',
+  // v0.13 — pautan rujukan peribadi
+  referralTitle: 'Pautan rujukan anda',
+  referralHint: 'Rakan yang menyertai melalui pautan anda dikira dijemput oleh anda.',
+  referralDisabled: 'Rujukan sedang dimatikan buat masa ini.',
   // v0.12 — MCP / token
   mcpTitle: 'Sambungkan AI anda sendiri (MCP)',
   mcpHelp: 'Claude, Codex dan klien MCP lain boleh membaca perjalanan anda dan merancang itinerari melalui endpoint MCP aplikasi ini. Cipta token, kemudian halakan klien anda ke:',
@@ -458,6 +496,16 @@ const ms: typeof en = {
   linkedParticipant: 'Peserta berkaitan', active: 'Aktif',
   disable: 'Nyahaktif', enable: 'Aktifkan', tripMembers: 'Ahli perjalanan',
   memberHint: 'Tandakan semua yang menyertai perjalanan ini.',
+  // v0.17 — pautan jemputan perjalanan
+  inviteTitle: 'Pautan jemputan', inviteCreate: 'Pautan jemputan baharu',
+  inviteRoleLabel: 'Sertai sebagai', inviteCopied: 'Pautan disalin',
+  inviteRevoke: 'Batalkan',
+  inviteUses: (u: number, m: number) => `${u}/${m} digunakan`,
+  inviteExpires: (d: string) => `sehingga ${d}`,
+  // v0.17 — panel /admin
+  adminTitle: 'Admin', accountsTitle: 'Akaun',
+  platformInvites: 'Jemputan platform',
+  referralsEnabled: 'Benarkan pautan rujukan peribadi',
 };
 
 export type Dict = typeof en;
