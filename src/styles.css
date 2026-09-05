@@ -68,6 +68,7 @@ p { margin: .3rem 0; }
   border-radius: var(--radius); box-shadow: var(--shadow);
   padding: 16px; margin-bottom: 16px;
 }
+.danger-card { border: 1px solid #fecaca; }
 .grid { display: grid; gap: 16px; }
 @media (min-width: 760px) {
   .grid-2 { grid-template-columns: 1fr 1fr; }
@@ -84,6 +85,12 @@ p { margin: .3rem 0; }
 .stat .label { font-size: .78rem; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
 .stat .value { font-size: 1.45rem; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .stat .sub { font-size: .8rem; color: var(--ink-3); }
+
+/* admin dashboard trend badge + signups chart */
+.trend { font-size: .8rem; font-weight: 600; }
+.trend.up { color: #15803d; }
+.trend.down { color: #b91c1c; }
+.dash-chart { display: block; max-width: 100%; }
 
 /* hero countdown */
 .hero {

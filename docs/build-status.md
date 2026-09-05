@@ -1,6 +1,215 @@
 # Jelajah — Build Status
 
-Updated: 5 Sep 2026 (v0.17 — released)
+Updated: 5 Sep 2026 (v0.18 — released)
+
+## v0.18.0 — "Open trips & the admin dashboard" (5 Sep 2026)
+
+Phase A3 of multitenancy (spec `docs/06-spec-v0.16-multitenant.md` +
+Addenda 4/4a), on top of A2's invites/join/referrals: any signed-in user can
+now start their own trip and lead it, trip leadership and roles are fully
+editable (and transferable) from the People UI, a leader can delete a trip
+outright, and `/admin` gained a real operational dashboard.
+
+What shipped (Tasks 1–7, this phase):
+- **Open trip creation, creator auto-leader.** `POST /trips` no longer
+  requires the platform-admin role — any signed-in user can create a trip
+  from the Trips page. The creator is auto-attached as a participant (their
+  first trip auto-creates one named after their account, reusing it on every
+  later trip) and inserted into `trip_members` as `leader` in the same
+  request, so a brand-new account can create a trip and start leading it
+  with zero extra setup. `trip_create` is audited.
+- **Role editing UI.** People's Trip members card now renders a real
+  `<select>` (Leader/Editor/Viewer) for every member who has a login
+  account, calling the existing `PATCH /trips/:id/members/:pid/role`
+  directly — no more editing roles by hand through the API.
+- **Atomic leadership transfer.** "Make leader & step down" on a member's
+  row (`POST /trips/:id/transfer`, leader-only, confirm-gated) atomically
+  makes the target the sole new leader and steps the caller down to editor
+  in one batched write — never a window with two leaders or, worse, zero.
+  Guarded the same way role edits are: the caller must be a genuine
+  `trip_members` row on that trip (the platform-admin bypass that lets an
+  admin *view* any trip does not, on its own, make them a mover on a trip
+  they never joined — see the e2e note below).
+- **Trip deletion, with cascade.** The People page's new danger card deletes
+  a trip once its exact name is typed in to confirm
+  (`DELETE /trips/:id`, leader-only). The cascade removes every dependent
+  row across activities/activity_participants, groups/group_members, day
+  settings/budgets/notes, checklist items, leg overrides, import profiles,
+  personal expenses/shares, due dates, payments, expense shares, expenses,
+  documents, trip-scoped invites, trip_members, and the trip row itself —
+  cross-checked against the live schema, including the document files
+  themselves (`filesDelete()` against the KV/R2-agnostic `FILES` binding for
+  every `documents.r2_key` before the DB rows go).
+- **Trip details card (Addendum 4a).** Leaders can rename a trip, change its
+  destination, and edit its start/end dates from a People card — shortening
+  the dates never deletes anything: a day that still has an activity keeps
+  its D-chip on Plan even if it now falls outside the (shortened) trip
+  range, because `Plan.tsx`'s day list has always been a union of the date
+  range *and* every day that actually has an activity/auto-event, not the
+  range alone.
+- **Admin dashboard (`/admin`, Task 4/5).** Four stat cards (30-day
+  signups, 7-day active users with a vs-previous-7-days trend arrow, total
+  trips, 30-day MCP calls), a 30-day signups bar chart, a feature-usage bar
+  list (by `usage_daily.feature`, humanized per key — logins, uploads,
+  expense/payment adds, plan views, FX views, registrations, AI
+  suggestions/chat, MCP calls), a referral leaderboard (referrer name,
+  count, since-date), and a recent-activity feed off `audit_log`. All UTC
+  day buckets (`lastNDaysUtc`/`fillDays` in `shared/metrics.ts`) render in
+  the browser's local calendar, same fix class as v0.14's day-arithmetic
+  bug — never re-derive a calendar day by round-tripping through UTC.
+  `GET /admin/stats` and `GET /admin/referrals` are `requireAdmin`-gated
+  like every other admin-only endpoint.
+- **BM pass.** Every new A3/dashboard string shipped with an EN+BM pair from
+  day one (`transferLead`, `transferConfirm`, `lastLeaderMsg`, `deleteTrip`,
+  `deleteTripHint`, `tTripDeleted`, `tLeadershipMoved`, `tripDetails`,
+  `tripDatesHint`, `badDateRange`, `tTripUpdated`, the `mDashboard`/
+  `mSignups30`/`mActive7`/`mVsPrev7`/`mTrips`/`mMcp30`/`mFeatureUsage`/
+  `mReferrals`/`mNoReferrals`/`mActivity`/`mReferredBy`/`mReferredCount`/
+  `mSince` dashboard labels, and the 10 `f*` feature-usage labels). Also
+  reworded several existing v0.17 BM strings for consistency (curly-quote
+  style in `joinTitle`/`deleteTripHint`, "sudah" instead of "dah" in
+  `joinInvalid`/`joinHaveAccount`/`joinDone`, a fuller `joinLoginFirst`/
+  `emailTaken`), and renamed `adminTitle`'s BM value from the borrowed
+  "Admin" to "Pentadbir" so the platform-admin heading never collides with
+  the Leader/Editor/Viewer trip-role rename from v0.17.
+- **E2E precision fix.** The v0.17 "role chips" e2e assertion grepped the
+  *entire* Trip members card's text for the substring `"Admin"` to guard the
+  Leader/Editor/Viewer rename. Once open trip creation (this phase) lets a
+  trip creator legitimately become a participant named after their account
+  — and the seeded platform admin's account is literally named "Admin" —
+  that whole-card text grep started false-positiving on the admin's own
+  *participant name* appearing in the card's global participant-chip picker
+  (a name, not a role). Confirmed as correct app behavior, not a bug:
+  amended the assertion (`scripts/e2e.mjs`) to check only the actual role
+  chip/badge and role-`<select>` elements inside the card for an exact
+  match on the platform labels `"Admin"`/`"Member"`, never a whole-card text
+  scan — same intent, immune to participant-name collisions. A member's
+  *name* may be anything; only a role chip may never read a platform label.
+
+Tests: 108 unit (unchanged from v0.17 — this phase is app + e2e only, no new
+pure-logic modules) and the full e2e suite green
+(`E2E PASSED (Phase 1 + 2 + v0.6-v0.18)`), with seven new steps extending
+the A2 invite-flow block: any-account trip creation (zero-trip referral
+user creates and leads their own trip via the UI, trip 1 stays invisible to
+them), role editing through the People `<select>` (editor → viewer →
+editor, verified via the target account's own `/api/me` each time), atomic
+leadership transfer through the UI with its `confirm()` dialog (verified
+via `GET /api/trips/:id`'s raw per-member roles, restored and re-verified),
+the admin dashboard (all four cards, the chart, the feature list, the
+referral leaderboard, the activity feed), the trip-dates round trip
+(extend → +1 D-chip → restore → shrink past an activity-bearing day → chip
+survives → restore again, exact original dates both times), a BM smoke
+check via the topbar language switch, and trip deletion via the danger
+card (with trip 1 confirmed untouched afterward). One deviation from the
+literal spec text, approved by the controller: the BM smoke check verifies
+a live-grepped ms string on an authenticated page (the trips list heading)
+rather than on `/join/:code`, since that route's `<I18nProvider>` has no
+`initial` prop and always renders English regardless of the logged-in
+user's saved language — pre-existing v0.17 behavior, out of this phase's
+scope to change.
+
+**Fix wave (final whole-change review, 5 Sep 2026).** The A3 whole-change
+review found one Critical and several Important issues after Tasks 1–7 had
+each passed their own review; all were fixed in one pass and re-verified
+with the full e2e ritual:
+- **Cross-tenant members-PUT scoping (Critical).** `PUT /trips/:id/members`
+  accepted arbitrary `participant_ids`, letting a leader graft any
+  participant in the system onto their own trip regardless of tenant. Added
+  a guard that rejects (`unknown_participant`, 403) any
+  incoming id before any mutation runs, unless it is already a member of
+  *this* trip, the caller is platform admin, or the participant is visible
+  to the caller under the same leader-scoping rule `GET /participants`
+  already used (member of some trip the caller leads). That rule's SQL
+  fragment (`LED_TRIP_IDS_SQL`) is now shared between the two endpoints
+  instead of being duplicated. `PATCH /participants/:id`'s existing
+  leads-a-containing-trip check was audited against the same attacker path
+  and needs no change — it can no longer be satisfied by grafting an
+  unrelated participant in first, now that the graft itself is blocked.
+- **Round 2 — `created_by` ownership rule.** The round-1 guard above
+  regressed the add-a-new-traveller flow (`POST /participants` then the
+  members PUT): a freshly created participant is a member of nothing yet,
+  so it failed every allow rule. `participants` gained a nullable
+  `created_by INTEGER REFERENCES users(id)` column (DDL only; legacy rows
+  stay `NULL` and are already covered by the other allow rules), set on
+  every `POST /participants` to the caller's user id, and the members-PUT
+  guard gained one more allowance: an id with zero `trip_members` rows
+  anywhere whose `created_by` equals the caller's own user id. This
+  restores add-new-traveller while still refusing to let a different
+  caller graft someone else's still-unattached fresh participant.
+- **Days-union fix.** `Plan.tsx`'s day-chip union only counted activity/
+  auto-event days; a day that only had a note, a budget, or a title (day
+  setting) outside the trip's date range silently lost its chip. The union
+  now also folds in `dayNotes`/`dayBudgets`/`daySettings` days (skipping the
+  `'*'` default row), making the Addendum-4a "nothing vanishes" promise
+  actually true for every day-scoped feature, not just activities.
+- **''-vs-NULL fix.** People's trip-details save sent `''` for a cleared
+  date/destination field, which a bare `COALESCE(?, col)` bind happily wrote
+  as a literal empty string — corrupting `?? fallback` reads downstream
+  (most visibly on trips created with no dates/destination, e.g. the
+  any-account "Solo Getaway" flow). People.tsx now sends `null` instead of
+  `''`, and `PATCH /trips/:id` normalizes any incoming `''` for
+  `start_date`/`end_date`/`destination` to `null` before the bind — for
+  every caller, not just People. The same endpoint also gained a
+  server-side `end_date < start_date` guard (`bad_date_range`) alongside
+  the client-side one that already existed.
+- **Deletion ordering.** `DELETE /trips/:id` used to delete each document's
+  KV/R2 blob before running the D1 batch that removes the rows. Reordered
+  so `r2_key`s are collected up front, the D1 batch runs first, and the
+  blob deletions happen only after it succeeds — a failed batch can no
+  longer leave rows and blobs inconsistent; an orphaned blob after a failed
+  *blob* pass (batch already committed) is accepted as harmless.
+- **Viewer-view People fix.** The People route is URL-reachable by a viewer
+  even though its nav tab is leader-only, and its data-loading effects
+  (`/participants`, `/trips/:id/invites`) were unconditional, so a viewer
+  landing there directly got 403s as unhandled promise rejections plus a
+  broken-looking, unusable page. Those two effects now only fire when
+  `ctx.canLead` is true, and the leader-only role-select column, invite
+  links card, trip-details card, and danger card are all now wrapped in
+  `canLead` — a viewer opening the page sees only the members list, nothing
+  actionable.
+- **e2e additions.** A new negative test in the A3 block: the referral user
+  (leader of their own "Solo Getaway" trip, before they delete it) attempts
+  `PUT /api/trips/<their trip>/members` with `participant_ids: [1]` (a
+  family participant on trip 1, which they don't lead) — asserted 403, and
+  trip 1's member set asserted byte-for-byte unchanged. The dashboard
+  signups-chart assertion now checks that at least one `<rect>` has a
+  numeric `height` attribute > 0, not just that a rect exists. The
+  shrink-dates step now also adds a day note (via API) on an out-of-range
+  day with no activity, and asserts that day's chip survives the shrink
+  too, alongside the pre-existing activity-day check.
+
+Two rulings recorded during this fix wave (not code changes, decisions for
+the record):
+- **Open trip creation is deliberately left uncapped.** Any signed-in
+  account can create and lead trips with no per-account limit; population
+  stays invite-gated (an account still needs to be invited/registered to
+  exist at all), and a runaway or abusive account can be disabled from
+  `/admin` — no rate limit or cap was added, and none is planned unless
+  abuse is actually observed.
+- **The Admin feed's timestamp-offset convention is deferred to Phase B.**
+  The recent-activity feed renders `audit_log` timestamps without
+  normalizing a display-timezone offset convention across entries; this is
+  a real but low-severity polish item, explicitly punted to Phase B rather
+  than folded into this fix wave.
+
+Version 0.18.0. No manual SQL for this phase.
+
+Remaining after this phase: rooms allocation (admin assigns people per
+accommodation), PWA/offline itinerary, insights beyond the admin dashboard
+shipped here (the dashboard covers usage/growth; deeper per-trip spend/
+itinerary insights are still open), and a full-app BM audit (this phase
+covered the new/reworded strings it touched, not every pre-existing string
+in the app).
+
+**Owner post-deploy check:** open `/admin` and confirm the dashboard is
+populated (four cards, the signups chart, the feature-usage list, the
+referral leaderboard, the activity feed); change a family member's trip
+role and back from the People page; create a throwaway trip and delete it
+via its danger card; check that the referral leaderboard only shows names
+from the A2/A3 test era if those test accounts (`join@test.local`,
+`referral@test.local`, etc.) still persist in the target environment —
+they should generally be cleaned up before this ships somewhere real
+people will see the dashboard.
 
 ## v0.17.0 — "Invites, join & referrals" (5 Sep 2026)
 
@@ -661,8 +870,11 @@ makes the new assistant read the docs, run both test suites (61 unit /
 40-step e2e) and summarise the constraints back before touching code.
 
 ## Next — remaining spec items
-Rooms allocation (admin assigns people per accommodation), PWA/offline
-itinerary, insights, full BM copy review.
+As of v0.18: rooms allocation (admin assigns people per accommodation),
+PWA/offline itinerary, insights beyond the admin dashboard (v0.18 shipped
+usage/growth stats — deeper per-trip spend/itinerary insights are still
+open), and a full-app BM audit (v0.18's BM pass covered only the strings it
+touched).
 
 ## Notes / open items for Sage
 - R2 needs a payment card on file to enable (stays free within limits)

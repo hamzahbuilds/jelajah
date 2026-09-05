@@ -5,7 +5,8 @@ export const SCHEMA: string[] = [
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     is_infant INTEGER NOT NULL DEFAULT 0,
-    notes TEXT
+    notes TEXT,
+    created_by INTEGER REFERENCES users(id)
   )`,
   `CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -299,6 +300,7 @@ export const UPGRADES: string[] = [
   `ALTER TABLE trip_members ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'`,
   `ALTER TABLE users ADD COLUMN referred_by INTEGER REFERENCES users(id)`,
   `ALTER TABLE users ADD COLUMN referral_invite_id INTEGER REFERENCES invites(id)`,
+  `ALTER TABLE participants ADD COLUMN created_by INTEGER REFERENCES users(id)`,
   ...SCHEMA.filter(s =>
     /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily)\b/.test(s)
     || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code/.test(s)),

@@ -1245,16 +1245,28 @@ const joinExpSt = await p6.evaluate(() => fetch('/api/trips/1/expenses', {
 if (joinExpSt !== 403) await fail(`joiner (editor) expense POST should be 403, got ${joinExpSt}`);
 console.log('trip invite flow ok (join → editor role, activity ok, expense 403)');
 
-// 42. role chips: People members table shows Leader/Editor, never "Admin" (Addendum-2 rename)
+// 42. role chips: People members table shows Leader/Editor, never the
+// platform labels "Admin"/"Member" on a role chip (Addendum-2 rename).
+// Precision fix (Task 7, controller-authorized): this used to grep the
+// whole members card's text for the substring "Admin", which false-positives
+// once open trip creation (Task 2/3) legitimately links a participant named
+// after the creator's account — and the seed admin's account is literally
+// named "Admin". A participant NAME may contain anything; only the actual
+// role chip/badge (or a has_account member's role <select>) must never
+// read exactly "Admin" or "Member".
 await page.goto(`${BASE}/trips/1/people`);
 await page.waitForSelector('text=Trip members');
 const membersCard = '.card:has(h3:has-text("Trip members"))';
 await page.waitForSelector(`${membersCard}:has-text("Join Test")`);
-const membersCardText = await page.textContent(membersCard);
-if (membersCardText.includes('Admin')) await fail('People members card should never show "Admin" (renamed to Leader/Editor/Viewer)');
-if (!membersCardText.includes('Leader')) await fail('People members card missing the Leader chip');
-if (!membersCardText.includes('Editor')) await fail('People members card missing the Editor chip for the new joiner');
-console.log('role chips ok (Leader/Editor shown, "Admin" string absent)');
+const roleBadgeTexts = await page.$$eval(`${membersCard} .badge`, els => els.map(e => e.textContent?.trim() ?? ''));
+const roleSelectTexts = await page.$$eval(`${membersCard} select`, els => els.map(e => e.options[e.selectedIndex]?.text?.trim() ?? ''));
+const roleChipLabels = [...roleBadgeTexts, ...roleSelectTexts];
+if (roleChipLabels.some(x => x === 'Admin' || x === 'Member')) {
+  await fail(`People members card role chip should never read the platform label "Admin"/"Member" (renamed to Leader/Editor/Viewer), got ${JSON.stringify(roleChipLabels)}`);
+}
+if (!roleChipLabels.includes('Leader')) await fail('People members card missing the Leader chip');
+if (!roleChipLabels.includes('Editor')) await fail('People members card missing the Editor chip for the new joiner');
+console.log('role chips ok (Leader/Editor shown, no role chip reads platform "Admin"/"Member")');
 
 // 43. referral attribution: joiner's Settings shows a referral link, a second incognito
 // context registers through it with no trip, admin confirms referred_by via /api/users
@@ -1296,6 +1308,301 @@ if (p7PlanSt !== 403) await fail(`referral-only user's trip access should be 403
 await p7.goto(`${BASE}/admin`);
 await p7.waitForURL(`${BASE}/`);
 console.log('isolation ok (zero trips, plan 403, /admin redirects home)');
+
+/* ================================================================== */
+/* v0.18 — A3: open creation, role UI, transfer, deletion, dashboard   */
+/* (spec Addendum 4/4a). Still using the p6 (joiner) and p7            */
+/* (referral-only) contexts from the block above.                     */
+/* ================================================================== */
+
+// 46. any-account creation: the referral-only user (zero trips) creates a
+// trip via the Trips UI ("Solo Getaway") → /api/me shows it with
+// my_role 'leader'; their People page renders with no 403s; trip 1
+// remains invisible to them.
+await p7.click('button:has-text("New trip")');
+await p7.waitForSelector('.modal');
+await p7.fill('.modal input >> nth=0', 'Solo Getaway'); // trip name is the first text input
+await p7.click('.modal button.btn:not(.btn-ghost)');
+await p7.waitForSelector('.modal', { state: 'detached' });
+const p7MeAfterCreate = await p7.evaluate(() => fetch('/api/me').then(r => r.json()));
+const soloTrip = (p7MeAfterCreate.trips ?? []).find(t => t.name === 'Solo Getaway');
+if (!soloTrip) await fail('referral user should now have a "Solo Getaway" trip');
+if (soloTrip.my_role !== 'leader') await fail(`solo trip creator should be leader, got ${soloTrip.my_role}`);
+if ((p7MeAfterCreate.trips ?? []).some(t => t.id === 1)) await fail('trip 1 should still be invisible to the referral-only user after creating their own trip');
+const soloTripId = soloTrip.id;
+await p7.goto(`${BASE}/trips/${soloTripId}/people`);
+await p7.waitForSelector('text=Trip members');
+console.log(`any-account creation ok (Solo Getaway id=${soloTripId}, my_role=leader, trip 1 still hidden, People renders)`);
+
+// 47. role editing via the People select UI: editor → viewer → editor for
+// the joiner on trip 1, verified each time via the joiner's own /api/me
+// (not the raw PATCH endpoint tested earlier for a different member).
+await page.goto(`${BASE}/trips/1/people`);
+await page.waitForSelector('text=Trip members');
+const joinerRoleSelect = `${membersCard} .row-between:has-text("Join Test") select`;
+await page.waitForSelector(joinerRoleSelect);
+await page.selectOption(joinerRoleSelect, 'viewer');
+await page.waitForSelector('.toast:has-text("Saved")');
+await page.waitForTimeout(300);
+let joinerMe = await p6.evaluate(() => fetch('/api/me').then(r => r.json()));
+let joinerTrip1 = (joinerMe.trips ?? []).find(t => t.id === 1);
+if (joinerTrip1?.my_role !== 'viewer') await fail(`joiner my_role should be viewer after People-select change, got ${joinerTrip1?.my_role}`);
+await page.selectOption(joinerRoleSelect, 'editor');
+await page.waitForSelector('.toast:has-text("Saved")');
+await page.waitForTimeout(300);
+joinerMe = await p6.evaluate(() => fetch('/api/me').then(r => r.json()));
+joinerTrip1 = (joinerMe.trips ?? []).find(t => t.id === 1);
+if (joinerTrip1?.my_role !== 'editor') await fail(`joiner my_role should be editor again after People-select change, got ${joinerTrip1?.my_role}`);
+console.log('role editing (People select UI) ok: editor → viewer → editor, verified via joiner /api/me each time');
+
+// 48. atomic transfer via the People UI, with a confirm() dialog. `page`
+// already has a permanent page.on('dialog', d => d.accept()) handler
+// registered in the v0.6 section above (never removed), so the native
+// confirm() this triggers is auto-accepted by that existing handler —
+// no second listener is added here to avoid a double-accept race.
+//
+// The admin's OWN account is not actually a trip_members row on trip 1
+// (trip 1's real, sole leader is participant "Hamzah Bin Hamizan" — a
+// login-less participant promoted straight in DB during the role-ladder
+// test above; the admin's linked participant is a separate one auto-
+// created the first time the admin used open trip creation, e.g. for
+// "Kyushu Campervan" — see /api/me user.participant_id). POST /trips/:id/
+// transfer requires the CALLER's own participant_id to be a genuine
+// trip_members row (it does not use the platform-admin tripRole bypass),
+// so the admin session can only drive the transfer UI meaningfully once
+// their own participant is actually a member. This temporarily adds them
+// to trip 1 as leader, runs the real UI transfer, verifies it, transfers
+// back, then removes that temporary membership so trip 1 ends this step
+// with the exact member set it had before (still: Hamzah sole leader,
+// joiner editor).
+const tripBeforeTransfer = await page.evaluate(() => fetch('/api/trips/1').then(r => r.json()));
+const originalMemberIds = tripBeforeTransfer.members.map((m) => m.id);
+const joinerParticipant = tripBeforeTransfer.members.find((m) => m.name === 'Join Test');
+if (!joinerParticipant) await fail('joiner participant not found on trip 1 members list');
+const adminMeForTransfer = await page.evaluate(() => fetch('/api/me').then(r => r.json()));
+const adminParticipantId = adminMeForTransfer.user.participant_id;
+if (!adminParticipantId) await fail('admin account should have a linked participant_id by this point in the suite (via open trip creation)');
+
+if (!originalMemberIds.includes(adminParticipantId)) {
+  const addSt = await page.evaluate(ids => fetch('/api/trips/1/members', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ participant_ids: ids }),
+  }).then(r => r.status), [...originalMemberIds, adminParticipantId]);
+  if (addSt !== 200) await fail(`temporarily adding admin's own participant to trip 1 should succeed, got ${addSt}`);
+}
+const promoteAdminSt = await page.evaluate(pid => fetch(`/api/trips/1/members/${pid}/role`, {
+  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ role: 'leader' }),
+}).then(r => r.status), adminParticipantId);
+if (promoteAdminSt !== 200) await fail(`promoting admin's own participant to leader should succeed, got ${promoteAdminSt}`);
+await page.goto(`${BASE}/trips/1/people`);
+await page.waitForSelector(`${membersCard}:has-text("Join Test")`);
+
+await page.click(`${membersCard} .row-between:has-text("Join Test") button:has-text("Make leader")`);
+await page.waitForSelector('.toast:has-text("Leadership transferred")');
+await page.waitForTimeout(300);
+const tripAfterTransfer = await page.evaluate(() => fetch('/api/trips/1').then(r => r.json()));
+const adminMemberAfter = tripAfterTransfer.members.find((m) => m.id === adminParticipantId);
+const joinerMemberAfter = tripAfterTransfer.members.find((m) => m.id === joinerParticipant.id);
+if (adminMemberAfter?.trip_role !== 'editor') await fail(`admin's own trip_role should be editor after transfer, got ${adminMemberAfter?.trip_role}`);
+if (joinerMemberAfter?.trip_role !== 'leader') await fail(`joiner's trip_role should be leader after transfer, got ${joinerMemberAfter?.trip_role}`);
+const joinerMeAfterTransfer = await p6.evaluate(() => fetch('/api/me').then(r => r.json()));
+const joinerTrip1AfterTransfer = (joinerMeAfterTransfer.trips ?? []).find(t => t.id === 1);
+if (joinerTrip1AfterTransfer?.my_role !== 'leader') await fail(`joiner /api/me my_role should be leader after transfer, got ${joinerTrip1AfterTransfer?.my_role}`);
+console.log('transfer ok: admin → joiner (confirm dialog, trip_role + joiner /api/me both leader)');
+
+// transfer it BACK, then drop the admin's temporary membership entirely so
+// trip 1 ends this step with the exact member set it started with.
+const transferBackSt = await p6.evaluate(pid => fetch('/api/trips/1/transfer', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ participant_id: pid }),
+}).then(r => r.status), adminParticipantId);
+if (transferBackSt !== 200) await fail(`transfer-back should succeed, got ${transferBackSt}`);
+const tripAfterTransferBack = await page.evaluate(() => fetch('/api/trips/1').then(r => r.json()));
+const adminMemberRestored = tripAfterTransferBack.members.find((m) => m.id === adminParticipantId);
+const joinerMemberRestored = tripAfterTransferBack.members.find((m) => m.id === joinerParticipant.id);
+if (adminMemberRestored?.trip_role !== 'leader') await fail(`admin's trip_role should be restored to leader, got ${adminMemberRestored?.trip_role}`);
+if (joinerMemberRestored?.trip_role !== 'editor') await fail(`joiner's trip_role should be restored to editor, got ${joinerMemberRestored?.trip_role}`);
+
+const dropAdminSt = await page.evaluate(ids => fetch('/api/trips/1/members', {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ participant_ids: ids }),
+}).then(r => r.status), originalMemberIds);
+if (dropAdminSt !== 200) await fail(`removing admin's temporary trip 1 membership should succeed, got ${dropAdminSt}`);
+const tripAfterCleanup = await page.evaluate(() => fetch('/api/trips/1').then(r => r.json()));
+const memberIdsAfterCleanup = tripAfterCleanup.members.map((m) => m.id).sort((a, b) => a - b);
+if (JSON.stringify(memberIdsAfterCleanup) !== JSON.stringify([...originalMemberIds].sort((a, b) => a - b))) {
+  await fail(`trip 1 membership should be restored to its exact pre-transfer set, got ${JSON.stringify(memberIdsAfterCleanup)} vs ${JSON.stringify(originalMemberIds)}`);
+}
+console.log('transfer restored ok (joiner → admin back to leader/editor, admin\'s temporary membership removed, member set restored exactly)');
+
+// 49. dashboard: /admin as admin — four .stat values numeric, signups SVG
+// has ≥1 bar, feature list shows "Plan views", referral leaderboard names
+// the joiner (count ≥ 1), activity feed non-empty.
+await page.goto(`${BASE}/admin`);
+await page.waitForSelector('.stats .stat');
+const statValues = await page.$$eval('.stats .stat .value', els => els.map(e => e.textContent?.trim() ?? ''));
+if (statValues.length !== 4) await fail(`dashboard should render 4 stat cards, got ${statValues.length}`);
+for (const v of statValues) {
+  if (!/^\d+/.test(v)) await fail(`dashboard stat value should start with a number, got "${v}"`);
+}
+const barRectHeights = await page.$$eval('.dash-chart rect', els => els.map(e => e.getAttribute('height')));
+const barRectCount = barRectHeights.length;
+if (barRectCount < 1) await fail('signups chart should render at least one bar rect');
+if (!barRectHeights.some(h => Number(h) > 0)) {
+  await fail(`signups chart should have at least one bar rect with numeric height > 0, got ${JSON.stringify(barRectHeights)}`);
+}
+const featureNames = await page.$$eval('.card.barlist .barrow .name', els => els.map(e => e.textContent?.trim() ?? ''));
+if (!featureNames.includes('Plan views')) await fail(`feature usage list should include "Plan views", got ${JSON.stringify(featureNames)}`);
+const dashReferralCard = '.card:has(h3:has-text("Referral leaderboard"))';
+await page.waitForSelector(`${dashReferralCard} tbody tr`, { timeout: 10000 }).catch(() => {});
+const referralRows = await page.$$eval(`${dashReferralCard} tbody tr`, els => els.map(e => e.textContent ?? ''));
+if (!referralRows.some(r => r.includes('Join Test'))) await fail(`referral leaderboard should list the joiner, got ${JSON.stringify(referralRows)}`);
+const activityCard = '.card:has(h3:has-text("Recent activity"))';
+const activityRows = await page.$$eval(`${activityCard} .row-between`, els => els.length);
+if (activityRows < 1) await fail('activity feed should be non-empty');
+console.log(`dashboard ok (4 stats numeric, ${barRectCount} bar(s), Plan views listed, joiner in referral leaderboard, ${activityRows} activity row(s))`);
+
+// 50. trip-dates edit (Addendum 4a): extend trip 1's end_date by one day via
+// the Trip details card → Plan shows one more D-chip; restore the exact
+// original date → chip count restored. Then shrink the range so it would
+// exclude an activity-bearing day, and confirm that day's chip survives
+// anyway (union of range + activity days — no silent loss); restore again.
+const detailsCard = '.card:has(h3:has-text("Trip details"))';
+const endDateInput = `${detailsCard} label:has-text("End date") input`;
+const saveTripDates = async (end) => {
+  await page.goto(`${BASE}/trips/1/people`);
+  await page.waitForSelector(detailsCard);
+  await page.fill(endDateInput, end);
+  await page.click(`${detailsCard} button:has-text("Save")`);
+  await page.waitForSelector('.toast:has-text("Trip updated")');
+  await page.waitForTimeout(300);
+};
+const chipCount = async () => {
+  await page.goto(`${BASE}/trips/1/plan`);
+  await page.waitForSelector('.daychips');
+  return page.$$eval('.daychip .dd', els => els.map(e => e.textContent?.trim() ?? ''));
+};
+
+const ORIGINAL_END = '2026-12-07';
+const chipsBefore = await chipCount();
+
+await saveTripDates('2026-12-08');
+const chipsExtended = await chipCount();
+if (chipsExtended.length !== chipsBefore.length + 1) {
+  await fail(`extending end_date by one day should add one D-chip, got ${chipsBefore.length} → ${chipsExtended.length}`);
+}
+if (!chipsExtended.includes('Tue, 8 Dec')) await fail(`extended range should show a chip for the new last day, got ${JSON.stringify(chipsExtended)}`);
+
+await saveTripDates(ORIGINAL_END);
+const chipsRestored1 = await chipCount();
+if (chipsRestored1.length !== chipsBefore.length) {
+  await fail(`restoring the original end_date should restore the chip count, got ${chipsRestored1.length} vs ${chipsBefore.length}`);
+}
+
+// a NOTES-only day (2026-12-06, no activity) must also survive the shrink
+// below (Addendum-4a "nothing vanishes" covers dayNotes/dayBudgets/
+// daySettings unions, not just activities).
+const notesOnlyDaySt = await page.evaluate(() => fetch('/api/trips/1/daynotes', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ day: '2026-12-06', content: 'notes-only day survives shrink' }),
+}).then(r => r.status));
+if (notesOnlyDaySt !== 200) await fail(`adding a day note on an out-of-range day should succeed, got ${notesOnlyDaySt}`);
+
+await saveTripDates('2026-12-03'); // shrinks past the range end used by the "editor ladder activity" (2026-12-05)
+const chipsShrunk = await chipCount();
+if (!chipsShrunk.includes('Sat, 5 Dec')) {
+  await fail(`shrinking the trip range must not drop a day that still has an activity, got ${JSON.stringify(chipsShrunk)}`);
+}
+if (!chipsShrunk.includes('Sun, 6 Dec')) {
+  await fail(`shrinking the trip range must not drop a day that still has a note, got ${JSON.stringify(chipsShrunk)}`);
+}
+
+await saveTripDates(ORIGINAL_END);
+const chipsRestored2 = await chipCount();
+if (chipsRestored2.length !== chipsBefore.length) {
+  await fail(`restoring the original end_date after the shrink test should restore the chip count, got ${chipsRestored2.length} vs ${chipsBefore.length}`);
+}
+console.log(`trip-dates edit ok (+1 chip on extend, activity-bearing day survives a shrink, exact restore both times: ${chipsBefore.length} chips)`);
+
+// 51. BM smoke: the joiner switches to BM via the topbar language select.
+// NOTE: `/join/:code`'s own <I18nProvider> (App.tsx) has no `initial` prop
+// and always renders English regardless of the logged-in user's saved
+// lang — pre-existing behaviour from v0.17, not part of Tasks 1-7 — so a
+// literal "open a fresh invite and read BM off /join" smoke check cannot
+// pass without an app change, which is out of scope here. Instead this
+// verifies BM rendering on an authenticated page that does read the saved
+// preference (the trips list heading), which is the same i18n.tsx dict
+// Task 6 reworded. Value grepped live from src/i18n.tsx while writing this
+// step (ms.myTrips): 'Perjalanan saya'.
+const BM_MY_TRIPS = 'Perjalanan saya';
+await p6.goto(`${BASE}/`);
+await p6.waitForSelector('.topbar select');
+await p6.selectOption('.topbar select', 'ms');
+await p6.waitForTimeout(300); // PATCH /me { lang: 'ms' } persists
+await p6.reload();
+await p6.waitForSelector('h1');
+const bmHeading = (await p6.textContent('h1'))?.trim();
+if (bmHeading !== BM_MY_TRIPS) await fail(`BM smoke: expected ms myTrips "${BM_MY_TRIPS}", got "${bmHeading}"`);
+await p6.selectOption('.topbar select', 'en');
+await p6.waitForTimeout(300);
+console.log(`BM smoke ok (myTrips ms="${bmHeading}", switched back to EN)`);
+
+// 51a. regression guard: adding a brand-new traveller must still work after
+// the finding-1 members-PUT scoping fix. The referral user (leader of their
+// own Solo Getaway trip, pre-deletion) uses the People add-traveller form
+// (POST /participants then PUT /trips/:id/members) — a fresh participant is
+// a member of nothing yet, so it must be admitted via the round-2
+// created_by/zero-membership allowance, not rejected as unknown.
+await p7.goto(`${BASE}/trips/${soloTripId}/people`);
+await p7.waitForSelector(membersCard);
+const NEW_TRAVELLER_NAME = 'Fresh Traveller';
+await p7.fill(`${membersCard} input[placeholder="Add participant"]`, NEW_TRAVELLER_NAME);
+await p7.click(`${membersCard} button:has-text("Add")`);
+await p7.waitForSelector(`${membersCard} .row-between:has-text("${NEW_TRAVELLER_NAME}")`);
+const soloTripAfterAdd = await p7.evaluate(id => fetch(`/api/trips/${id}`).then(r => r.json()), soloTripId);
+if (!soloTripAfterAdd.members.some((m) => m.name === NEW_TRAVELLER_NAME)) {
+  await fail(`adding a brand-new traveller via the People form should succeed, got members ${JSON.stringify(soloTripAfterAdd.members.map((m) => m.name))}`);
+}
+console.log(`add-new-traveller regression ok ("${NEW_TRAVELLER_NAME}" added to trip ${soloTripId} via People form)`);
+
+// 51b. cross-tenant guard: the referral user (leader of their own Solo
+// Getaway trip, pre-deletion) attempts PUT /api/trips/<their trip>/members
+// with participant_ids: [1] (a family participant from trip 1, which they
+// do not lead). Must 403 before any mutation, and trip 1's member set must
+// be completely unchanged.
+const trip1MembersBeforeGraft = await page.evaluate(() => fetch('/api/trips/1').then(r => r.json()));
+const trip1MemberIdsBeforeGraft = trip1MembersBeforeGraft.members.map((m) => m.id).sort((a, b) => a - b);
+const graftAttemptSt = await p7.evaluate(id => fetch(`/api/trips/${id}/members`, {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ participant_ids: [1] }),
+}).then(r => r.status), soloTripId);
+if (graftAttemptSt !== 403) await fail(`cross-tenant members-PUT graft attempt should 403, got ${graftAttemptSt}`);
+const trip1MembersAfterGraft = await page.evaluate(() => fetch('/api/trips/1').then(r => r.json()));
+const trip1MemberIdsAfterGraft = trip1MembersAfterGraft.members.map((m) => m.id).sort((a, b) => a - b);
+if (JSON.stringify(trip1MemberIdsAfterGraft) !== JSON.stringify(trip1MemberIdsBeforeGraft)) {
+  await fail(`trip 1's member set must be unchanged after the cross-tenant graft attempt, got ${JSON.stringify(trip1MemberIdsAfterGraft)} vs ${JSON.stringify(trip1MemberIdsBeforeGraft)}`);
+}
+console.log(`cross-tenant members-PUT guard ok (graft attempt on trip ${soloTripId} 403, trip 1 members unchanged: ${JSON.stringify(trip1MemberIdsAfterGraft)})`);
+
+// 52. deletion: the referral user deletes "Solo Getaway" via the danger
+// card (typing the name); their /api/me goes back to zero trips, the
+// trip 403s for them; trip 1 is untouched for admin.
+await p7.goto(`${BASE}/trips/${soloTripId}/people`);
+const dangerCard = '.card.danger-card';
+await p7.waitForSelector(dangerCard);
+await p7.fill(`${dangerCard} input`, 'Solo Getaway');
+await p7.click(`${dangerCard} button:has-text("Delete this trip")`);
+await p7.waitForSelector('.toast:has-text("Trip deleted")');
+await p7.waitForURL(`${BASE}/`);
+const p7MeAfterDelete = await p7.evaluate(() => fetch('/api/me').then(r => r.json()));
+if ((p7MeAfterDelete.trips ?? []).length !== 0) await fail(`referral user should have zero trips after deleting Solo Getaway, got ${(p7MeAfterDelete.trips ?? []).length}`);
+const deletedTripSt = await p7.evaluate(id => fetch(`/api/trips/${id}`).then(r => r.status), soloTripId);
+if (![403, 404].includes(deletedTripSt)) await fail(`deleted trip should 403/404 for its former owner, got ${deletedTripSt}`);
+const trip1StillOkSt = await page.evaluate(() => fetch('/api/trips/1').then(r => r.status));
+if (trip1StillOkSt !== 200) await fail(`trip 1 should be untouched by the Solo Getaway deletion, got ${trip1StillOkSt}`);
+console.log('deletion ok (danger card, /api/me back to zero trips, deleted trip 403/404, trip 1 untouched)');
+
 await ctx6.close();
 await ctx7.close();
 
@@ -1362,4 +1669,4 @@ await shot('27-mobile-plan');
 console.log('mobile 360px ok (no horizontal scroll)');
 
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.17)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.18)');

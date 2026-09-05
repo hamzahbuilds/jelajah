@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
-import { api } from '../api';
+import { useNavigate, useOutletContext } from 'react-router-dom';
+import { api, ApiError } from '../api';
 import { useT } from '../i18n';
+import { useSession } from '../App';
 import { TripCtx, Participant } from './TripShell';
 import { useToast } from '../components/Toast';
 
@@ -13,7 +14,9 @@ type Invite = {
 export default function People() {
   const { t } = useT();
   const { toast } = useToast();
-  const { trip, tripId, members, reload } = useOutletContext<TripCtx>();
+  const navigate = useNavigate();
+  const { user, refresh } = useSession();
+  const { trip, tripId, members, reload, canLead } = useOutletContext<TripCtx>();
   const [canEditPlan, setCanEditPlan] = useState<boolean>(!!(trip as any).member_can_edit_plan);
   const [all, setAll] = useState<Participant[]>([]);
   const [newName, setNewName] = useState('');
@@ -27,7 +30,7 @@ export default function People() {
     setAll(await api.get('/participants'));
   };
   const loadInvites = async () => setInvites(await api.get(`/trips/${tripId}/invites`));
-  useEffect(() => { load(); loadInvites(); }, []);
+  useEffect(() => { if (canLead) { load(); loadInvites(); } }, [canLead]);
 
   // v0.13: optimistic membership — the chip flips instantly, the PUT runs in
   // the background, and the context resyncs when the server confirms.
@@ -61,10 +64,94 @@ export default function People() {
   };
 
   const roleChip = (p: Participant) => {
-    const role = (p as any).trip_role as 'leader' | 'editor' | 'viewer' | undefined;
+    const role = p.trip_role;
     if (!role) return null;
+    if (p.has_account) {
+      return (
+        <select value={role} onChange={e => changeRole(p.id, e.target.value as 'leader' | 'editor' | 'viewer')}>
+          <option value="leader">{t.roleLeader}</option>
+          <option value="editor">{t.roleEditor}</option>
+          <option value="viewer">{t.roleViewer}</option>
+        </select>
+      );
+    }
     const label = role === 'leader' ? t.roleLeader : role === 'editor' ? t.roleEditor : t.roleViewer;
     return <span className="badge">{label}</span>;
+  };
+
+  const changeRole = async (pid: number, role: 'leader' | 'editor' | 'viewer') => {
+    try {
+      await api.patch(`/trips/${tripId}/members/${pid}/role`, { role });
+      toast(t.tSaved);
+      await reload();
+    } catch (e: any) {
+      if (e instanceof ApiError && e.code === 'last_leader') toast(t.lastLeaderMsg, 'error');
+      else toast(t.tSaveFailed, 'error');
+    }
+  };
+
+  const transferLead = async (pid: number, name: string) => {
+    if (!window.confirm(t.transferConfirm(name))) return;
+    try {
+      await api.post(`/trips/${tripId}/transfer`, { participant_id: pid });
+      toast(t.tLeadershipMoved);
+      await reload();
+    } catch {
+      toast(t.tSaveFailed, 'error');
+    }
+  };
+
+  // ---- Task 3 (v0.18) — trip details card ----
+  const [details, setDetails] = useState({
+    name: trip.name ?? '', destination: (trip as any).destination ?? '',
+    start_date: (trip as any).start_date ?? '', end_date: (trip as any).end_date ?? '',
+  });
+  useEffect(() => {
+    setDetails({
+      name: trip.name ?? '', destination: (trip as any).destination ?? '',
+      start_date: (trip as any).start_date ?? '', end_date: (trip as any).end_date ?? '',
+    });
+  }, [trip]);
+
+  const saveTripDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (details.start_date && details.end_date && details.end_date < details.start_date) {
+      toast(t.badDateRange, 'error');
+      return;
+    }
+    try {
+      await api.patch(`/trips/${tripId}`, {
+        name: details.name, destination: details.destination || null,
+        start_date: details.start_date || null, end_date: details.end_date || null,
+      });
+      toast(t.tTripUpdated);
+      await reload();
+    } catch {
+      toast(t.tSaveFailed, 'error');
+    }
+  };
+
+  // ---- Task 3 (v0.18) — delete trip ----
+  const [deleteText, setDeleteText] = useState('');
+  const deleteTrip = async () => {
+    try {
+      const res = await fetch(`/api/trips/${tripId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: deleteText }),
+      });
+      if (res.status === 401) { location.href = '/login'; return; }
+      if (!res.ok) {
+        let code = 'error';
+        try { code = ((await res.json()) as any)?.error ?? 'error'; } catch { /* ignore */ }
+        throw new ApiError(code, res.status);
+      }
+      toast(t.tTripDeleted);
+      await refresh();
+      navigate('/');
+    } catch {
+      toast(t.tSaveFailed, 'error');
+    }
   };
 
   const copyInvite = async (code: string) => {
@@ -140,7 +227,16 @@ export default function People() {
             {members.map(m => (
               <div className="row-between" key={m.id} style={{ padding: '4px 0' }}>
                 <span>{m.name}{m.is_infant ? ' 👶' : ''}</span>
-                {roleChip(m)}
+                {canLead && (
+                  <div className="row" style={{ gap: 6 }}>
+                    {roleChip(m)}
+                    {!!m.has_account && m.id !== user.participant_id && (
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => transferLead(m.id, m.name)}>
+                        ⤵ {t.transferLead}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -154,35 +250,72 @@ export default function People() {
         </form>
       </div>
 
-      <div className="card">
-        <h3>{t.inviteTitle}</h3>
-        {invites.filter(i => !i.revoked).map(i => (
-          <div className={`row-between invite-row${i.id === justCreated ? ' invite-row-new' : ''}`} key={i.id}
-            style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
-            <div>
-              <div className="row" style={{ gap: 6 }}>
-                <span className="badge">{i.role === 'editor' ? t.roleEditor : t.roleViewer}</span>
-                <span className="tiny">{t.inviteUses(i.used_count, i.max_uses ?? 0)}</span>
-                {i.expires_at && <span className="tiny">{t.inviteExpires(new Date(i.expires_at).toLocaleDateString())}</span>}
+      {canLead && (
+        <div className="card">
+          <h3>{t.inviteTitle}</h3>
+          {invites.filter(i => !i.revoked).map(i => (
+            <div className={`row-between invite-row${i.id === justCreated ? ' invite-row-new' : ''}`} key={i.id}
+              style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+              <div>
+                <div className="row" style={{ gap: 6 }}>
+                  <span className="badge">{i.role === 'editor' ? t.roleEditor : t.roleViewer}</span>
+                  <span className="tiny">{t.inviteUses(i.used_count, i.max_uses ?? 0)}</span>
+                  {i.expires_at && <span className="tiny">{t.inviteExpires(new Date(i.expires_at).toLocaleDateString())}</span>}
+                </div>
+              </div>
+              <div className="row">
+                <button className="btn btn-ghost btn-sm" onClick={() => copyInvite(i.code)}>📋</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => revokeInvite(i.id)}>{t.inviteRevoke} ✕</button>
               </div>
             </div>
-            <div className="row">
-              <button className="btn btn-ghost btn-sm" onClick={() => copyInvite(i.code)}>📋</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => revokeInvite(i.id)}>{t.inviteRevoke} ✕</button>
+          ))}
+          <form className="row" onSubmit={createInvite} style={{ marginTop: 14 }}>
+            <label className="row tiny" style={{ gap: 4 }}>
+              <span>{t.inviteRoleLabel}</span>
+              <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'viewer' | 'editor')}>
+                <option value="viewer">{t.roleViewer}</option>
+                <option value="editor">{t.roleEditor}</option>
+              </select>
+            </label>
+            <button className="btn btn-sm">{t.inviteCreate}</button>
+          </form>
+        </div>
+      )}
+
+      {canLead && (
+        <div className="card">
+          <h3>📝 {t.tripDetails}</h3>
+          <form onSubmit={saveTripDetails}>
+            <div className="form-grid">
+              <label className="field full"><span>{t.tripName}</span>
+                <input value={details.name} onChange={e => setDetails({ ...details, name: e.target.value })} required /></label>
+              <label className="field full"><span>{t.destination}</span>
+                <input value={details.destination} onChange={e => setDetails({ ...details, destination: e.target.value })} /></label>
+              <label className="field"><span>{t.startDate}</span>
+                <input type="date" value={details.start_date} onChange={e => setDetails({ ...details, start_date: e.target.value })} /></label>
+              <label className="field"><span>{t.endDate}</span>
+                <input type="date" value={details.end_date} onChange={e => setDetails({ ...details, end_date: e.target.value })} /></label>
             </div>
+            <p className="tiny">{t.tripDatesHint}</p>
+            <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn" type="submit">{t.save}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {canLead && (
+        <div className="card danger-card">
+          <h3>🗑 {t.deleteTrip}</h3>
+          <p className="tiny">{t.deleteTripHint(trip.name)}</p>
+          <div className="row">
+            <input value={deleteText} onChange={e => setDeleteText(e.target.value)} placeholder={trip.name} style={{ flex: 1 }} />
+            <button type="button" className="btn btn-danger" disabled={deleteText !== trip.name} onClick={deleteTrip}>
+              {t.deleteTrip}
+            </button>
           </div>
-        ))}
-        <form className="row" onSubmit={createInvite} style={{ marginTop: 14 }}>
-          <label className="row tiny" style={{ gap: 4 }}>
-            <span>{t.inviteRoleLabel}</span>
-            <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'viewer' | 'editor')}>
-              <option value="viewer">{t.roleViewer}</option>
-              <option value="editor">{t.roleEditor}</option>
-            </select>
-          </label>
-          <button className="btn btn-sm">{t.inviteCreate}</button>
-        </form>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

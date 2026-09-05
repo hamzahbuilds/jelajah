@@ -10,7 +10,7 @@ import { CurrencyFields } from '../components/FxWidget';
 export default function Trips() {
   const { t, lang } = useT();
   const { toast } = useToast();
-  const { user, trips, refresh } = useSession();
+  const { trips, refresh } = useSession();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: '', destination: '', start_date: '', end_date: '', emoji: '🧳', color: '', base_currency: 'MYR', watch_currencies: [] as string[] });
 
@@ -26,7 +26,7 @@ export default function Trips() {
     <div>
       <div className="row-between" style={{ margin: '20px 0 14px' }}>
         <h1>{t.myTrips}</h1>
-        {user.role === 'admin' && <button className="btn" onClick={() => setOpen(true)}>＋ {t.newTrip}</button>}
+        <button className="btn" onClick={() => setOpen(true)}>＋ {t.newTrip}</button>
       </div>
       {trips.length === 0 && <div className="card muted">{t.noTrips}</div>}
       <div className="grid grid-2">

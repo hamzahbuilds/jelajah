@@ -4,9 +4,47 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { api } from '../api';
-import { useT } from '../i18n';
+import { useT, Dict } from '../i18n';
 import { useSession } from '../App';
 import { useToast } from '../components/Toast';
+import { trendPct } from '../../shared/metrics';
+
+// Humanized labels for usage_daily.feature raw keys (see server trackUsage() call sites).
+// Unknown/future feature keys fall back to the raw key itself.
+const FEATURE_LABELS: Record<string, keyof Dict> = {
+  login: 'fLogin', doc_upload: 'fDocUpload', expense_add: 'fExpenseAdd',
+  payment_add: 'fPaymentAdd', plan_view: 'fPlanView', myspend_add: 'fMyspendAdd',
+  fx_view: 'fFxView', join_register: 'fJoinRegister', ai_suggest: 'fAiSuggest',
+  ai_chat: 'fAiChat', mcp_call: 'fMcpCall',
+};
+
+type Stats = {
+  signups: Array<{ day: string; n: number }>;
+  active7: number; active7Prev: number; active30: number;
+  trips: number; mcp30: number;
+  features: Array<{ feature: string; n: number }>;
+  audit: Array<{ action: string; user: string | null; at: string }>;
+};
+type Referral = { user_id: number; name: string; referred: number; first_at: string };
+
+/** 30-day signups bar chart — precedent: FxWidget's Sparkline, but bars not a line. */
+function SignupsChart({ days }: { days: Array<{ day: string; n: number }> }) {
+  const W = 300, H = 60, P = 2;
+  const max = Math.max(1, ...days.map(d => d.n));
+  const bw = (W - 2 * P) / Math.max(days.length, 1);
+  return (
+    <svg className="dash-chart" viewBox={`0 0 ${W} ${H}`} width={W} height={H} aria-hidden>
+      {days.map((d, i) => {
+        const h = d.n > 0 ? Math.max(1, (d.n / max) * (H - 2 * P)) : 0;
+        if (h <= 0) return null;
+        return (
+          <rect key={d.day} x={P + i * bw} y={H - P - h}
+            width={Math.max(bw - 1, 1)} height={h} fill="var(--data)" />
+        );
+      })}
+    </svg>
+  );
+}
 
 // See Settings.tsx history (pre-Task-6) for why the model names stay editable:
 // providers retire free-tier model names without notice.
@@ -132,9 +170,16 @@ export default function Admin() {
       .catch(() => { setReferralsOn(!next); toast(t.tSaveFailed, 'error'); });
   };
 
+  // ---- Dashboard (Task 5) ----
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [referrals, setReferrals] = useState<Referral[]>([]);
+  const loadStats = async () => setStats(await api.get('/admin/stats'));
+  const loadReferrals = async () => setReferrals(await api.get('/admin/referrals'));
+
   useEffect(() => {
     if (user.role !== 'admin') return;
     loadAi(); loadAccounts(); loadInvites(); loadReferralsSetting();
+    loadStats(); loadReferrals();
   }, []);
 
   if (user.role !== 'admin') return <Navigate to="/" replace />;
@@ -142,6 +187,104 @@ export default function Admin() {
   return (
     <div>
       <h1 style={{ margin: '20px 0 14px' }}>🛂 {t.adminTitle}</h1>
+
+      <h2 style={{ margin: '0 0 12px' }}>📊 {t.mDashboard}</h2>
+      {stats && (() => {
+        const signups30 = stats.signups.reduce((a, d) => a + d.n, 0);
+        const trend = trendPct(stats.active7, stats.active7Prev);
+        const firstDay = stats.signups[0]?.day;
+        const lastDay = stats.signups[stats.signups.length - 1]?.day;
+        const maxFeature = Math.max(1, ...stats.features.map(f => f.n));
+        return (
+          <>
+            <div className="stats">
+              <div className="stat">
+                <div className="label">{t.mSignups30}</div>
+                <div className="value">{signups30}</div>
+              </div>
+              <div className="stat">
+                <div className="label">{t.mActive7}</div>
+                <div className="value">
+                  {stats.active7}{' '}
+                  {trend == null
+                    ? <span className="trend">—</span>
+                    : <span className={`trend ${trend >= 0 ? 'up' : 'down'}`}>{trend >= 0 ? '▲' : '▼'} {Math.abs(trend)}%</span>}
+                </div>
+                <div className="sub">{t.mVsPrev7}</div>
+              </div>
+              <div className="stat">
+                <div className="label">{t.mTrips}</div>
+                <div className="value">{stats.trips}</div>
+              </div>
+              <div className="stat">
+                <div className="label">{t.mMcp30}</div>
+                <div className="value">{stats.mcp30}</div>
+              </div>
+            </div>
+
+            <div className="card">
+              <h3>{t.mSignups30}</h3>
+              <SignupsChart days={stats.signups} />
+              <div className="row-between tiny muted">
+                <span>{firstDay ? new Date(firstDay + 'T00:00:00').toLocaleDateString() : ''}</span>
+                <span>{lastDay ? new Date(lastDay + 'T00:00:00').toLocaleDateString() : ''}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-2" style={{ alignItems: 'start' }}>
+              <div className="card barlist">
+                <h3>{t.mFeatureUsage}</h3>
+                {stats.features.length === 0 && <p className="muted">—</p>}
+                {stats.features.map(f => (
+                  <div className="barrow" key={f.feature}>
+                    <div className="name">{(t as any)[FEATURE_LABELS[f.feature]] ?? f.feature}</div>
+                    <div className="track"><div className="fill" style={{ width: `${(f.n / maxFeature) * 100}%` }} /></div>
+                    <div className="val">{f.n}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="card">
+                <h3>{t.mReferrals}</h3>
+                {referrals.length === 0 ? (
+                  <p className="muted">{t.mNoReferrals}</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr className="tiny muted">
+                        <th style={{ textAlign: 'left', fontWeight: 500 }}>{t.mReferredBy}</th>
+                        <th style={{ textAlign: 'right', fontWeight: 500 }}>{t.mReferredCount}</th>
+                        <th style={{ textAlign: 'right', fontWeight: 500 }}>{t.mSince}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {referrals.map(r => (
+                        <tr key={r.user_id} style={{ borderTop: '1px solid var(--line)' }}>
+                          <td style={{ padding: '5px 0' }}>{r.name}</td>
+                          <td style={{ textAlign: 'right' }}>{r.referred}</td>
+                          <td style={{ textAlign: 'right' }} className="tiny">{new Date(r.first_at).toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            <div className="card">
+              <h3>{t.mActivity}</h3>
+              {stats.audit.length === 0 && <p className="muted">—</p>}
+              {stats.audit.map((a, i) => (
+                <div className="row-between muted tiny" key={i} style={{ padding: '4px 0', borderBottom: '1px solid var(--line)' }}>
+                  <span>{a.action} · {a.user ?? '—'}</span>
+                  <span>{new Date(a.at).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        );
+      })()}
+
       <div className="grid grid-2" style={{ alignItems: 'start' }}>
         <div className="card">
           <h3>🤖 {t.aiProvider}</h3>

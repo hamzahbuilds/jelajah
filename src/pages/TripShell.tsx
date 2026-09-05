@@ -5,7 +5,10 @@ import { useT } from '../i18n';
 import { useSession, Trip, TripRole } from '../App';
 import ChatDrawer from '../components/ChatDrawer';
 
-export interface Participant { id: number; name: string; is_infant: number }
+export interface Participant {
+  id: number; name: string; is_infant: number;
+  trip_role?: 'leader' | 'editor' | 'viewer'; has_account?: number;
+}
 export interface TripCtx {
   trip: Trip; members: Participant[]; tripId: number;
   reload: () => Promise<void>;

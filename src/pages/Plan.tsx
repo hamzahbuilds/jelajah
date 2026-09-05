@@ -122,6 +122,9 @@ export default function Plan() {
     const extra = new Set<string>(base);
     for (const a of data?.activities ?? []) extra.add(a.day);
     for (const e of data?.autoEvents ?? []) extra.add(e.day);
+    for (const n of data?.dayNotes ?? []) if (n.day !== '*') extra.add(n.day);
+    for (const b of data?.dayBudgets ?? []) if (b.day !== '*') extra.add(b.day);
+    for (const s of data?.daySettings ?? []) if (s.day !== '*') extra.add(s.day);
     return [...extra].sort();
   }, [trip, data]);
 

@@ -10,6 +10,7 @@ import { SCHEMA, UPGRADES, JAPAN_TRIP } from './lib/schema';
 import { migratedRole, TripRole, atLeast } from './lib/roles';
 import { FX_WINDOWS, FxWindow, analyzeRates } from '../shared/fxband';
 import { checkInvite, newInviteCode } from '../shared/invites';
+import { fillDays, lastNDaysUtc } from '../shared/metrics';
 
 type Vars = { user: SessionUser };
 const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
@@ -269,6 +270,38 @@ async function leadsAnyTrip(env: Env, user: SessionUser): Promise<boolean> {
   return !!row;
 }
 
+/** SQL fragment: trip ids led by the participant bound at this placeholder. */
+const LED_TRIP_IDS_SQL = "SELECT trip_id FROM trip_members WHERE participant_id = ? AND role = 'leader'";
+
+/**
+ * Visibility rule shared by GET /participants (leader branch) and the
+ * members-PUT scoping guard: a participant is visible to a leader if they
+ * are a member of some trip that leader leads.
+ */
+async function isParticipantVisibleToLeader(env: Env, leaderParticipantId: number, participantId: number): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT 1 FROM trip_members m WHERE m.participant_id = ? AND m.trip_id IN (${LED_TRIP_IDS_SQL})`,
+  ).bind(participantId, leaderParticipantId).first();
+  return !!row;
+}
+
+/**
+ * Round-2 allowance for the members-PUT guard: a brand-new traveller the
+ * caller just created (POST /participants) is a member of nothing yet, so
+ * it fails every other allow rule. Permit it only when it is a member of
+ * ZERO trips anywhere (not just this one) AND the caller is the one who
+ * created it — this restores add-a-new-traveller without opening an
+ * orphan-sniping race (someone else's still-unattached fresh participant
+ * can't be grafted by a different caller).
+ */
+async function isFreshParticipantOwnedByCaller(env: Env, participantId: number, callerUserId: number): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT 1 FROM participants p WHERE p.id = ? AND p.created_by = ?
+     AND NOT EXISTS (SELECT 1 FROM trip_members m WHERE m.participant_id = p.id)`,
+  ).bind(participantId, callerUserId).first();
+  return !!row;
+}
+
 // Global participant directory: platform admin sees every participant;
 // a trip leader sees participants of the trips they lead. Members without
 // a led trip never reach this — the member list they need comes from
@@ -282,7 +315,7 @@ app.get('/participants', async c => {
   if (!(await leadsAnyTrip(c.env, user))) return bad(c, 'forbidden', 403);
   const rows = await c.env.DB.prepare(
     `SELECT DISTINCT p.* FROM participants p JOIN trip_members m ON m.participant_id = p.id
-     WHERE m.trip_id IN (SELECT trip_id FROM trip_members WHERE participant_id = ? AND role = 'leader')
+     WHERE m.trip_id IN (${LED_TRIP_IDS_SQL})
      ORDER BY p.name`,
   ).bind(user.participant_id).all();
   return c.json(rows.results);
@@ -293,8 +326,8 @@ app.post('/participants', async c => {
   if (!(await leadsAnyTrip(c.env, user))) return bad(c, 'forbidden', 403);
   const { name, is_infant } = await c.req.json<any>();
   if (!name?.trim()) return bad(c, 'name_required');
-  const r = await c.env.DB.prepare('INSERT INTO participants (name, is_infant) VALUES (?,?)')
-    .bind(name.trim(), is_infant ? 1 : 0).run();
+  const r = await c.env.DB.prepare('INSERT INTO participants (name, is_infant, created_by) VALUES (?,?,?)')
+    .bind(name.trim(), is_infant ? 1 : 0, user.id).run();
   return c.json({ id: r.meta.last_row_id });
 });
 
@@ -355,7 +388,8 @@ app.patch('/users/:id', requireAdmin, async c => {
 
 /* ---------------- trips ---------------- */
 
-app.post('/trips', requireAdmin, async c => {
+app.post('/trips', async c => {
+  const user: SessionUser = c.get('user');
   const { name, destination, start_date, end_date, emoji, color, base_currency, watch_currencies } = await c.req.json<any>();
   if (!name?.trim()) return bad(c, 'name_required');
   const codes = new Set((await currencyList(c.env)).map(x => x.code));
@@ -369,7 +403,18 @@ app.post('/trips', requireAdmin, async c => {
     'INSERT INTO trips (name, destination, start_date, end_date, emoji, color, base_currency, watch_currencies) VALUES (?,?,?,?,?,?,?,?)',
   ).bind(name.trim(), destination ?? null, start_date ?? null, end_date ?? null,
     emoji ?? '🧳', color ?? '', base, JSON.stringify(watch)).run();
-  return c.json({ id: r.meta.last_row_id });
+  const tripId = r.meta.last_row_id;
+  let participantId = user.participant_id;
+  if (!participantId) {
+    const p = await c.env.DB.prepare('INSERT INTO participants (name) VALUES (?)').bind(user.name).run();
+    participantId = p.meta.last_row_id as number;
+    await c.env.DB.prepare('UPDATE users SET participant_id = ? WHERE id = ?').bind(participantId, user.id).run();
+  }
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO trip_members (trip_id, participant_id, role) VALUES (?, ?, 'leader')`,
+  ).bind(tripId, participantId).run();
+  await audit(c.env, user.id, 'trip_create', 'trip', tripId);
+  return c.json({ id: tripId });
 });
 
 app.get('/trips/:id', async c => {
@@ -380,7 +425,9 @@ app.get('/trips/:id', async c => {
   const user = c.get('user');
   const my_role = user.role === 'admin' ? 'leader' : await tripRole(c.env, user, id);
   const members = await c.env.DB.prepare(
-    `SELECT p.*, m.role AS trip_role FROM participants p JOIN trip_members m ON m.participant_id = p.id WHERE m.trip_id = ? ORDER BY p.name`,
+    `SELECT p.*, m.role AS trip_role,
+     (SELECT COUNT(*) FROM users u WHERE u.participant_id = p.id) AS has_account
+     FROM participants p JOIN trip_members m ON m.participant_id = p.id WHERE m.trip_id = ? ORDER BY p.name`,
   ).bind(id).all();
   return c.json({ trip: { ...trip, my_role }, members: members.results });
 });
@@ -388,12 +435,19 @@ app.get('/trips/:id', async c => {
 app.patch('/trips/:id', requireLeader, async c => {
   const id = Number(c.req.param('id'));
   const b = await c.req.json<any>();
+  // Normalize '' to null for every caller (not just People.tsx) — an empty
+  // string bound into COALESCE(?, col) writes the literal '' instead of
+  // leaving the column alone, which corrupts downstream `?? fallback` reads.
+  const destination = b.destination === '' ? null : (b.destination ?? null);
+  const start_date = b.start_date === '' ? null : (b.start_date ?? null);
+  const end_date = b.end_date === '' ? null : (b.end_date ?? null);
+  if (start_date && end_date && end_date < start_date) return bad(c, 'bad_date_range');
   await c.env.DB.prepare(
     `UPDATE trips SET name = COALESCE(?, name), destination = COALESCE(?, destination),
      start_date = COALESCE(?, start_date), end_date = COALESCE(?, end_date), emoji = COALESCE(?, emoji),
      color = COALESCE(?, color), hidden_features = COALESCE(?, hidden_features),
      member_can_edit_plan = COALESCE(?, member_can_edit_plan) WHERE id = ?`,
-  ).bind(b.name ?? null, b.destination ?? null, b.start_date ?? null, b.end_date ?? null, b.emoji ?? null,
+  ).bind(b.name ?? null, destination, start_date, end_date, b.emoji ?? null,
     b.color ?? null, Array.isArray(b.hidden_features) ? JSON.stringify(b.hidden_features) : null,
     b.member_can_edit_plan === undefined ? null : (b.member_can_edit_plan ? 1 : 0), id).run();
   // Back-compat column keeps being written above; authorization no longer reads it —
@@ -409,8 +463,26 @@ app.patch('/trips/:id', requireLeader, async c => {
 
 app.put('/trips/:id/members', requireLeader, async c => {
   const id = Number(c.req.param('id'));
+  const user: SessionUser = c.get('user');
   const { participant_ids } = await c.req.json<{ participant_ids: number[] }>();
   const incoming = participant_ids ?? [];
+  // Cross-tenant guard: an id may only be (a) already a member of THIS trip,
+  // (b) accepted because the caller is platform admin, or (c) visible to the
+  // caller under the same rule GET /participants uses (member of a trip the
+  // caller leads). Anything else is rejected before any mutation happens.
+  if (incoming.length && user.role !== 'admin') {
+    const placeholders = incoming.map(() => '?').join(',');
+    const existing = await c.env.DB.prepare(
+      `SELECT participant_id FROM trip_members WHERE trip_id = ? AND participant_id IN (${placeholders})`,
+    ).bind(id, ...incoming).all<any>();
+    const alreadyMember = new Set((existing.results as any[]).map(r => r.participant_id));
+    for (const pid of incoming) {
+      if (alreadyMember.has(pid)) continue;
+      if (await isParticipantVisibleToLeader(c.env, user.participant_id!, pid)) continue;
+      if (await isFreshParticipantOwnedByCaller(c.env, pid, user.id)) continue;
+      return bad(c, 'unknown_participant', 403);
+    }
+  }
   if (incoming.length) {
     const placeholders = incoming.map(() => '?').join(',');
     const remainingLeaders = await c.env.DB.prepare(
@@ -457,6 +529,78 @@ app.patch('/trips/:id/members/:pid/role', requireLeader, async c => {
     .bind(role, tripId, pid).run();
   await audit(c.env, (c.get('user') as SessionUser).id, 'role_change', 'trip', tripId);
   return c.json({ ok: true, role });
+});
+
+app.post('/trips/:id/transfer', requireLeader, async c => {
+  const tripId = Number(c.req.param('id'));
+  const user: SessionUser = c.get('user');
+  const { participant_id } = await c.req.json<any>();
+  const target = Number(participant_id);
+  const own = await c.env.DB.prepare('SELECT participant_id FROM users WHERE id = ?').bind(user.id).first<any>();
+  const ownParticipantId: number | null = own?.participant_id ?? null;
+  if (!ownParticipantId) return bad(c, 'not_member');
+  const ownMember = await c.env.DB.prepare(
+    'SELECT 1 FROM trip_members WHERE trip_id = ? AND participant_id = ?',
+  ).bind(tripId, ownParticipantId).first();
+  if (!ownMember) return bad(c, 'not_member');
+  if (target === ownParticipantId) return bad(c, 'self');
+  const targetRow = await c.env.DB.prepare(
+    `SELECT 1 FROM trip_members tm JOIN users u ON u.participant_id = tm.participant_id
+     WHERE tm.trip_id = ? AND tm.participant_id = ?`,
+  ).bind(tripId, target).first();
+  if (!targetRow) return bad(c, 'no_account');
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE trip_members SET role = 'leader' WHERE trip_id = ? AND participant_id = ?`).bind(tripId, target),
+    c.env.DB.prepare(`UPDATE trip_members SET role = 'editor' WHERE trip_id = ? AND participant_id = ?`).bind(tripId, ownParticipantId),
+  ]);
+  await audit(c.env, user.id, 'leadership_transfer', 'trip', tripId);
+  return c.json({ ok: true });
+});
+
+app.delete('/trips/:id', requireLeader, async c => {
+  const tripId = Number(c.req.param('id'));
+  const user: SessionUser = c.get('user');
+  const { confirm } = await c.req.json<any>();
+  const trip = await c.env.DB.prepare('SELECT name FROM trips WHERE id = ?').bind(tripId).first<any>();
+  if (!trip) return bad(c, 'not_found', 404);
+  if (confirm !== trip.name) return bad(c, 'confirm_mismatch');
+
+  // Collect r2_keys before the batch, but don't delete the KV/R2 blobs until
+  // AFTER the D1 batch succeeds — a failed batch must leave rows and blobs
+  // consistent; orphaned blobs after a failed KV pass are acceptable.
+  const docs = await c.env.DB.prepare('SELECT r2_key FROM documents WHERE trip_id = ?').bind(tripId).all<any>();
+
+  await audit(c.env, user.id, `trip_delete: ${trip.name}`, 'trip', tripId);
+
+  const DB = c.env.DB;
+  await DB.batch([
+    DB.prepare(`DELETE FROM activity_participants WHERE activity_id IN (SELECT id FROM activities WHERE trip_id = ?)`).bind(tripId),
+    DB.prepare(`DELETE FROM activities WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM group_members WHERE group_id IN (SELECT id FROM groups WHERE trip_id = ?)`).bind(tripId),
+    DB.prepare(`DELETE FROM groups WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM day_settings WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM day_budgets WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM day_notes WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM checklist_items WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM leg_overrides WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM import_profiles WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM personal_shares WHERE personal_expense_id IN (SELECT id FROM personal_expenses WHERE trip_id = ?)`).bind(tripId),
+    DB.prepare(`DELETE FROM personal_expenses WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM due_dates WHERE expense_id IN (SELECT id FROM expenses WHERE trip_id = ?)`).bind(tripId),
+    DB.prepare(`DELETE FROM payments WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM expense_shares WHERE expense_id IN (SELECT id FROM expenses WHERE trip_id = ?)`).bind(tripId),
+    DB.prepare(`DELETE FROM expenses WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM documents WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM invites WHERE kind = 'trip' AND trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM trip_members WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM trips WHERE id = ?`).bind(tripId),
+  ]);
+
+  for (const d of docs.results as any[]) {
+    await filesDelete(c.env, d.r2_key);
+  }
+
+  return c.json({ ok: true });
 });
 
 /* ---------------- documents ---------------- */
@@ -1826,6 +1970,69 @@ app.post('/join/:code/accept', async c => {
     .bind(inv.trip_id, participantId, inv.role).run();
   await audit(c.env, user.id, 'join_accept', 'invite', inv.id);
   return c.json({ ok: true });
+});
+
+/* v0.18 — admin dashboard */
+
+app.get('/admin/stats', requireAdmin, async c => {
+  const { DB } = c.env;
+  const { start: s30, end: e30 } = lastNDaysUtc(30);
+  const { start: s7, end: e7 } = lastNDaysUtc(7);
+  const prevEndDate = new Date(s7 + 'T00:00:00Z'); prevEndDate.setUTCDate(prevEndDate.getUTCDate() - 1);
+  const prev7End = prevEndDate.toISOString().slice(0, 10);
+  const prevStartDate = new Date(prevEndDate); prevStartDate.setUTCDate(prevStartDate.getUTCDate() - 6);
+  const prev7Start = prevStartDate.toISOString().slice(0, 10);
+
+  const signupRows = await DB.prepare(
+    `SELECT substr(created_at,1,10) AS day, COUNT(*) AS n FROM users
+     WHERE substr(created_at,1,10) BETWEEN ? AND ? GROUP BY day`,
+  ).bind(s30, e30).all();
+  const signups = fillDays((signupRows.results as any[]).map(r => ({ day: r.day, n: Number(r.n) })), s30, e30);
+
+  const active7 = (await DB.prepare(
+    `SELECT COUNT(DISTINCT user_id) AS n FROM usage_daily WHERE day BETWEEN ? AND ?`,
+  ).bind(s7, e7).first<any>())?.n ?? 0;
+  const active7Prev = (await DB.prepare(
+    `SELECT COUNT(DISTINCT user_id) AS n FROM usage_daily WHERE day BETWEEN ? AND ?`,
+  ).bind(prev7Start, prev7End).first<any>())?.n ?? 0;
+  const active30 = (await DB.prepare(
+    `SELECT COUNT(DISTINCT user_id) AS n FROM usage_daily WHERE day BETWEEN ? AND ?`,
+  ).bind(s30, e30).first<any>())?.n ?? 0;
+
+  const trips = (await DB.prepare(`SELECT COUNT(*) AS n FROM trips`).first<any>())?.n ?? 0;
+
+  const mcp30 = (await DB.prepare(
+    `SELECT SUM(count) AS n FROM usage_daily WHERE feature = 'mcp_call' AND day BETWEEN ? AND ?`,
+  ).bind(s30, e30).first<any>())?.n ?? 0;
+
+  const featureRows = await DB.prepare(
+    `SELECT feature, SUM(count) AS n FROM usage_daily WHERE day BETWEEN ? AND ? GROUP BY feature ORDER BY n DESC`,
+  ).bind(s30, e30).all();
+  const features = (featureRows.results as any[]).map(r => ({ feature: r.feature, n: Number(r.n) }));
+
+  const auditRows = await DB.prepare(
+    `SELECT a.action AS action, u.name AS user, a.at AS at FROM audit_log a
+     LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 20`,
+  ).all();
+  const audit = (auditRows.results as any[]).map(r => ({ action: r.action, user: r.user ?? null, at: r.at }));
+
+  return c.json({
+    signups, active7: Number(active7), active7Prev: Number(active7Prev), active30: Number(active30),
+    trips: Number(trips), mcp30: Number(mcp30), features, audit,
+  });
+});
+
+app.get('/admin/referrals', requireAdmin, async c => {
+  const rows = await c.env.DB.prepare(
+    `SELECT u.referred_by AS user_id, ref.name AS name, COUNT(*) AS referred, MIN(u.created_at) AS first_at
+     FROM users u JOIN users ref ON ref.id = u.referred_by
+     WHERE u.referred_by IS NOT NULL
+     GROUP BY u.referred_by
+     ORDER BY referred DESC, first_at ASC`,
+  ).all();
+  return c.json((rows.results as any[]).map(r => ({
+    user_id: Number(r.user_id), name: r.name, referred: Number(r.referred), first_at: r.first_at,
+  })));
 });
 
 /* ================================================================== */

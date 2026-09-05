@@ -267,3 +267,40 @@ their instrumentation ships. A2 therefore lays the pipes, no UI:
 - B renders: referral report (from `referred_by`), signups trend (from
   `users.created_at`), active users / "sessions spent" as active-days
   (from `usage_daily`), feature usage (from `usage_daily`).
+
+## Addendum 4 (5 Sep 2026, owner request): A3 + dashboard screens ship together (v0.18)
+
+**A3 — leader self-service:**
+- Any account creates trips (auto-creates/links the creator's participant,
+  seats them as leader). The Trips "New trip" button loses its admin gate.
+- Role editing UI on People: leaders change each account-holding member
+  between leader/editor/viewer (existing endpoint; last-leader guard holds).
+- **Leadership transfer**: atomic endpoint — target becomes leader, caller
+  becomes editor, one D1 batch, audited; UI with typed confirmation.
+- **Trip deletion** (leader, typed confirmation): cascades every trip-scoped
+  row (members, activities+participants, groups, day settings/budgets/notes,
+  leg overrides, import profiles, expenses+shares+due dates+payments,
+  personal expenses+shares, invites, documents INCLUDING their KV files).
+- Light BM pass over the A2/A3 flows (join, invites, admin, roles).
+
+**B — dashboard screens on /admin** (data from A2's instrumentation):
+- Metric cards (value + trend vs previous period): signups 30d, active users
+  7d (vs prior 7d), trips total, MCP calls 30d.
+- Signups chart (30 daily buckets, inline SVG bars — no chart library).
+- Feature usage 30d (bar list, existing `.barlist` pattern).
+- **Referral leaderboard**: per-user count of accounts whose `referred_by`
+  points at them, with names; ties broken by earliest referral.
+- Recent activity feed: last 20 audit rows (action, user, time).
+- All series use UTC day buckets presented in the viewer's local timezone
+  (per Addendum 3's note); missing days filled with zeroes.
+- Endpoints: `GET /admin/stats`, `GET /admin/referrals` — platform admin only.
+
+### Addendum 4a (5 Sep 2026, owner request): edit trip details after creation
+
+Leaders can change the trip's **name, destination and start/end dates** after
+creation (a "Trip details" card on the People page — People is the trip's
+settings home). Shrinking the date range does NOT delete anything: activities
+on now-out-of-range days remain and their days keep showing as extra chips,
+so no data is lost silently; the leader removes them explicitly if wanted.
+Server: the existing leader-gated `PATCH /trips/:id` already accepts these
+fields — this is UI only.
