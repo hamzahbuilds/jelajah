@@ -117,6 +117,13 @@ export default function Plan() {
   // v0.13: bulk-select mode for deleting many activities at once
   const [selMode, setSelMode] = useState(false);
   const [selIds, setSelIds] = useState<Set<number>>(new Set());
+  // v0.24 (spec §4): row actions (▲▼/edit/delete/grip) are cluttered when always
+  // visible — desktop hides them behind an Edit-mode toggle (default off, session
+  // state only); mobile never shows them and instead opens a per-row ⋯ menu that
+  // calls the exact same handlers. The done/select checkbox stays visible always.
+  const [editMode, setEditMode] = useState(false);
+  const [rowMenuId, setRowMenuId] = useState<number | null>(null);
+  const [rowMenuAnchor, setRowMenuAnchor] = useState<HTMLButtonElement | null>(null);
   // v0.13: day notes / checklist under each day
   const [noteText, setNoteText] = useState('');
   const [noteCheck, setNoteCheck] = useState(false);
@@ -608,6 +615,12 @@ export default function Plan() {
                       <Icon name="check" size={16} /> {selMode ? t.cancel : t.selectBtn}
                     </button>
                   )}
+                  {canEdit && dayActs.length > 0 && (
+                    <button className={`btn ghost sm pi-editmode-btn ${editMode ? 'on' : ''}`}
+                      onClick={() => setEditMode(v => !v)}>
+                      <Icon name="edit" size={16} /> {t.editMode}
+                    </button>
+                  )}
                 </span>
               </div>
               {selMode && (
@@ -631,10 +644,23 @@ export default function Plan() {
                   const nextRef = idx + 1 < items.length ? refOf(items[idx + 1]) : null;
                   const chip = leg && nextRef && leg.to.ref === nextRef ? leg : null;
                   const railIcon = chip ? RAIL_MODE_ICON[chip.chosen] : undefined;
+                  // v0.24 (spec §4): row actions moved behind a desktop Edit-mode
+                  // toggle + mobile ⋯ menu. Handlers are hoisted here, UNCHANGED
+                  // from their pre-v0.24 inline bodies, so both entry points
+                  // (the desktop edit/delete icon buttons and the mobile Menu
+                  // items) call the exact same logic — freeze per spec §4.
+                  const doEditActivity = () => setModal({ ...i.activity, est_cost_myr: i.activity.est_cost_myr ?? '' });
+                  const doDeleteActivity = () => {
+                    if (!window.confirm(t.confirmDelete)) return;
+                    const aid = i.activity.id;
+                    removeActivitiesLocal([aid]);
+                    toast(t.tActivityDeleted);
+                    api.del(`/activities/${aid}`).catch(() => { toast(t.tSaveFailed, 'error'); load(); });
+                  };
                   return (
                     <div key={i.key}>
                       <div className={`plan-item stop ${i.activity?.done ? 'done' : ''} ${dragId === i.activity?.id ? 'dragging' : ''} ${i.activity && selIds.has(i.activity.id) ? 'selected' : ''}`}
-                        draggable={canEdit && !!i.activity}
+                        draggable={canEdit && editMode && !!i.activity}
                         onDragStart={() => i.activity && setDragId(i.activity.id)}
                         onDragEnd={() => setDragId(null)}
                         onDragOver={e => { if (i.activity) e.preventDefault(); }}
@@ -683,7 +709,16 @@ export default function Plan() {
                           )}
                         </div>
                         {canEdit && i.activity && (
-                          <div className="row" style={{ gap: 2, flexWrap: 'nowrap' }}>
+                          <input type="checkbox" className="pi-done-check" checked={!!i.activity.done} title={t.doneLabel}
+                            onChange={e => toggleDone(i.activity, e.target.checked)} />
+                        )}
+                        {/* v0.24 (spec §4): desktop-only, and only while Edit mode is on —
+                            conditional render (not CSS-hide) keeps the DOM clean. The
+                            .pi-desktop-actions wrapper is also CSS-hidden below 1024px
+                            as a belt-and-suspenders guard against a stale editMode=true
+                            carried over from a desktop session into a narrower viewport. */}
+                        {canEdit && i.activity && editMode && (
+                          <div className="pi-desktop-actions row" style={{ gap: 2, flexWrap: 'nowrap' }}>
                             <span className="row" style={{ flexDirection: 'column', gap: 0 }}>
                               <button className="icon" style={{ padding: '0 4px', lineHeight: 1 }} title={t.moveUp}
                                 onClick={() => moveActivity(i.activity.id, -1)}>
@@ -694,22 +729,36 @@ export default function Plan() {
                                 <span style={{ display: 'inline-flex', transform: 'rotate(90deg)' }}><Icon name="chev-r" size={16} /></span>
                               </button>
                             </span>
-                            <input type="checkbox" checked={!!i.activity.done} title={t.doneLabel}
-                              onChange={e => toggleDone(i.activity, e.target.checked)} />
-                            <button className="icon" onClick={() => setModal({ ...i.activity, est_cost_myr: i.activity.est_cost_myr ?? '' })}>
+                            <button className="icon" onClick={doEditActivity}>
                               <Icon name="edit" size={16} />
                             </button>
-                            <button className="icon" onClick={() => {
-                              if (!window.confirm(t.confirmDelete)) return;
-                              const aid = i.activity.id;
-                              removeActivitiesLocal([aid]);
-                              toast(t.tActivityDeleted);
-                              api.del(`/activities/${aid}`).catch(() => { toast(t.tSaveFailed, 'error'); load(); });
-                            }}><Icon name="trash" size={16} /></button>
+                            <button className="icon" onClick={doDeleteActivity}><Icon name="trash" size={16} /></button>
                             <span className="icon drag-handle"><Icon name="grip" size={16} /></span>
                           </div>
                         )}
+                        {/* v0.24 (spec §4): mobile-only ⋯ opens the shared Menu with the
+                            exact same handlers as the desktop Edit-mode row actions. */}
+                        {canEdit && i.activity && (
+                          <div className="pi-mobile-actions">
+                            <button className="icon" aria-label={t.actions}
+                              style={{ width: 44, height: 44 }}
+                              onClick={e => { setRowMenuId(i.activity.id); setRowMenuAnchor(e.currentTarget); }}>
+                              <Icon name="more" size={16} />
+                            </button>
+                          </div>
+                        )}
                       </div>
+                      {canEdit && i.activity && (
+                        <Menu open={rowMenuId === i.activity.id} anchor={rowMenuAnchor}
+                          onClose={() => setRowMenuId(null)}
+                          items={[
+                            { icon: 'edit', label: t.edit, onPick: doEditActivity },
+                            { icon: 'swap', label: t.moveUp, onPick: () => moveActivity(i.activity.id, -1) },
+                            { icon: 'swap', label: t.moveDown, onPick: () => moveActivity(i.activity.id, 1) },
+                            '-',
+                            { icon: 'trash', label: t.delete, onPick: doDeleteActivity, danger: true },
+                          ]} />
+                      )}
                       {chip && (
                         <div className="tchip-row"
                           onDragOver={e => { if (items[idx + 1].activity) e.preventDefault(); }}

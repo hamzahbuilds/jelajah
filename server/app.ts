@@ -12,6 +12,7 @@ import { FX_WINDOWS, FxWindow, analyzeRates } from '../shared/fxband';
 import { checkInvite, newInviteCode } from '../shared/invites';
 import { fillDays, lastNDaysUtc } from '../shared/metrics';
 import { singleOccupancyBatch } from '../shared/rooms';
+import { roomShares, RoomSplitError, RoomSplitRoom } from '../shared/roomSplit';
 
 type Vars = { user: SessionUser };
 const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
@@ -801,16 +802,20 @@ app.post('/trips/:id/cover/auto', requireLeader, async c => {
   if (!trip) return bad(c, 'not_found', 404);
   const dest = trip.destination || trip.name;
   const UA = 'Jelajah/1.0 (family trip planner; personal use)';
-  let json: any;
-  try {
-    const res = await fetch(
-      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(dest)}`,
-      { headers: { 'User-Agent': UA } },
-    );
-    if (!res.ok) return bad(c, 'no_photo', 404);
-    json = await res.json();
-  } catch {
-    return bad(c, 'no_photo', 404);
+  // compound destinations ("Tokyo & Osaka, Japan") have no Wikipedia page —
+  // retry with the first place segment before giving up
+  const candidates = [dest, dest.split(/[,&]/)[0].trim()].filter((v: string, i: number, a: string[]) => v && a.indexOf(v) === i);
+  let json: any = null;
+  for (const cand of candidates) {
+    try {
+      const res = await fetch(
+        `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cand)}`,
+        { headers: { 'User-Agent': UA } },
+      );
+      if (!res.ok) continue;
+      const j: any = await res.json();
+      if (j?.thumbnail?.source) { json = j; break; }
+    } catch { /* try next candidate */ }
   }
   const thumbUrl = json?.thumbnail?.source;
   if (!thumbUrl) return bad(c, 'no_photo', 404);
@@ -828,9 +833,11 @@ app.post('/trips/:id/cover/auto', requireLeader, async c => {
   }
   let imgRes: Response;
   try {
-    // redirect: 'error' — a redirect off the allowlisted host after the
+    // redirect: 'manual' — the Workers runtime does not support 'error'
+    // (it throws before any I/O). A redirect off the allowlisted host after the
     // check above must fail closed, not be followed.
-    imgRes = await fetch(thumbUrl, { headers: { 'User-Agent': UA }, redirect: 'error' });
+    imgRes = await fetch(thumbUrl, { headers: { 'User-Agent': UA }, redirect: 'manual' });
+    if (imgRes.status >= 300 && imgRes.status < 400) return bad(c, 'no_photo', 404); // refuse redirects (host pin)
   } catch {
     return bad(c, 'no_photo', 404);
   }
@@ -937,10 +944,11 @@ async function fetchUnsplashCoverBytes(
   }
   let imgRes: Response;
   try {
-    imgRes = await fetch(withUnsplashParams(regularUrl, { w: '1280', q: '80' }), { redirect: 'error' });
+    imgRes = await fetch(withUnsplashParams(regularUrl, { w: '1280', q: '80' }), { redirect: 'manual' });
   } catch {
     return null;
   }
+  if (imgRes.status >= 300 && imgRes.status < 400) return null; // refuse redirects (host pin)
   const contentType = (imgRes.headers.get('content-type') || '').split(';')[0].trim();
   if (!imgRes.ok || !ALLOWED_COVER_TYPES.has(contentType)) return null;
   if (Number(imgRes.headers.get('content-length') || 0) > 600_000) return null;
@@ -1074,10 +1082,11 @@ app.post('/trips/:id/cover/unsplash', requireLeader, async c => {
 
   let imgRes: Response;
   try {
-    imgRes = await fetch(withUnsplashParams(regularUrl.toString(), { w: '1280', q: '80' }), { redirect: 'error' });
+    imgRes = await fetch(withUnsplashParams(regularUrl.toString(), { w: '1280', q: '80' }), { redirect: 'manual' });
   } catch {
     return bad(c, 'no_photo', 404);
   }
+  if (imgRes.status >= 300 && imgRes.status < 400) return bad(c, 'no_photo', 404); // refuse redirects (host pin)
   const imgType = (imgRes.headers.get('content-type') || '').split(';')[0].trim();
   if (!imgRes.ok || !ALLOWED_COVER_TYPES.has(imgType)) return bad(c, 'no_photo', 404);
   if (Number(imgRes.headers.get('content-length') || 0) > 600_000) return bad(c, 'no_photo', 404);
@@ -1093,6 +1102,14 @@ app.post('/trips/:id/cover/unsplash', requireLeader, async c => {
 
 /* -------- expense payload helpers -------- */
 
+/** Optional body shape for spec v0.25 room-cost splitting (accommodation only).
+ *  See docs/13-spec-v0.25-room-split.md §3. Any other/absent split ⇒ split_json NULL. */
+interface RoomsSplitPayload {
+  mode: 'rooms';
+  stay_label: string;
+  room_amounts: Record<string, number>;
+}
+
 interface ExpensePayload {
   category: string; description: string; vendor?: string; location?: string;
   expense_date?: string; end_date?: string; payment_date?: string;
@@ -1102,6 +1119,7 @@ interface ExpensePayload {
   due_dates?: Array<{ due_date: string; amount_myr?: number; note?: string; participant_id?: number | null }>;
   payment_status?: 'paid' | 'pay_at_hotel';
   meta?: unknown;
+  split?: RoomsSplitPayload | { mode: string };
 }
 
 function validExpense(p: ExpensePayload): string | null {
@@ -1114,18 +1132,93 @@ function validExpense(p: ExpensePayload): string | null {
   return null;
 }
 
-async function insertExpense(env: Env, tripId: number, documentId: number | null, p: ExpensePayload): Promise<number> {
+/** Validates + resolves a `split: { mode:'rooms', stay_label, room_amounts }` payload into
+ *  engine-generated shares + the split_json to persist. Caller must only invoke this when
+ *  `p.split?.mode === 'rooms'` — any other/absent split is handled by the caller as a plain
+ *  NULL split_json with the client-supplied shares untouched (freeze). Returns `{ error }`
+ *  with a 400-appropriate code (never throws) on any validation failure, including
+ *  RoomSplitError codes from shared/roomSplit.ts. */
+async function resolveRoomsSplit(
+  env: Env, tripId: number, category: string, amountMyr: number, split: RoomsSplitPayload,
+): Promise<{ shares: Array<{ participant_id: number; amount_myr: number }>; splitJson: string } | { error: string }> {
+  if (category !== 'accommodation') return { error: 'rooms_split_category' };
+
+  const stayLabel = typeof split.stay_label === 'string' ? split.stay_label : '';
+  if (!stayLabel) return { error: 'unknown_stay' };
+
+  const roomsRes = await env.DB.prepare(
+    'SELECT id FROM rooms WHERE trip_id = ? AND stay_label = ?',
+  ).bind(tripId, stayLabel).all<any>();
+  const roomIds = (roomsRes.results as any[]).map(r => Number(r.id));
+  if (!roomIds.length) return { error: 'unknown_stay' };
+  const roomIdSet = new Set(roomIds);
+
+  const roomAmounts = split.room_amounts && typeof split.room_amounts === 'object' ? split.room_amounts : {};
+  for (const key of Object.keys(roomAmounts)) {
+    if (!roomIdSet.has(Number(key))) return { error: 'unknown_room' };
+  }
+  for (const rid of roomIds) {
+    if (!(String(rid) in roomAmounts)) return { error: 'missing_room' };
+  }
+
+  const totalSen = Math.round(amountMyr * 100);
+  const sumSen = roomIds.reduce((a, rid) => a + Math.round(Number(roomAmounts[String(rid)]) * 100), 0);
+  if (sumSen !== totalSen) return { error: 'sum_mismatch' };
+
+  const occRes = await env.DB.prepare(
+    `SELECT ro.room_id, ro.participant_id, p.is_infant FROM room_occupants ro
+     JOIN participants p ON p.id = ro.participant_id
+     JOIN trip_members tm ON tm.trip_id = ? AND tm.participant_id = ro.participant_id
+     WHERE ro.room_id IN (${roomIds.map(() => '?').join(',')})`,
+  ).bind(tripId, ...roomIds).all<any>();
+
+  const occByRoom = new Map<number, number[]>();
+  const infantIds = new Set<number>();
+  for (const row of occRes.results as any[]) {
+    if (!occByRoom.has(row.room_id)) occByRoom.set(row.room_id, []);
+    occByRoom.get(row.room_id)!.push(row.participant_id);
+    if (row.is_infant) infantIds.add(row.participant_id);
+  }
+
+  const engineRooms: RoomSplitRoom[] = roomIds.map(rid => ({
+    id: rid,
+    amountMyr: Number(roomAmounts[String(rid)]),
+    occupantIds: occByRoom.get(rid) ?? [],
+  }));
+
+  let shares: Array<{ participant_id: number; amount_myr: number }>;
+  try {
+    shares = roomShares({ totalMyr: amountMyr, rooms: engineRooms, infantIds });
+  } catch (e) {
+    if (e instanceof RoomSplitError) return { error: e.code };
+    throw e;
+  }
+
+  const occupantsSnapshot: Record<string, number[]> = {};
+  for (const rid of roomIds) occupantsSnapshot[String(rid)] = occByRoom.get(rid) ?? [];
+
+  const splitJson = JSON.stringify({
+    mode: 'rooms', stay_label: stayLabel, room_amounts: roomAmounts, occupants: occupantsSnapshot,
+  });
+
+  return { shares, splitJson };
+}
+
+async function insertExpense(
+  env: Env, tripId: number, documentId: number | null, p: ExpensePayload, splitJson: string | null = null,
+): Promise<number> {
   const r = await env.DB.prepare(
     `INSERT INTO expenses (trip_id, document_id, category, description, vendor, location,
       expense_date, end_date, payment_date, amount_original, currency, fx_rate, amount_myr,
-      payer_participant_id, meta_json, payment_status)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      payer_participant_id, meta_json, payment_status, split_json)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).bind(
     tripId, documentId, p.category, p.description.trim(), p.vendor ?? null, p.location ?? null,
     p.expense_date ?? null, p.end_date ?? null, p.payment_date ?? null,
     p.amount_original, p.currency, p.fx_rate, p.amount_myr,
     p.payer_participant_id, p.meta ? JSON.stringify(p.meta) : null,
     p.payment_status === 'pay_at_hotel' ? 'pay_at_hotel' : 'paid',
+    splitJson,
   ).run();
   const eid = Number(r.meta.last_row_id);
   const stmts = p.shares.map(s =>
@@ -1180,9 +1273,16 @@ app.get('/trips/:id/expenses', async c => {
 app.post('/trips/:id/expenses', requireLeader, async c => {
   const id = Number(c.req.param('id'));
   const p = await c.req.json<ExpensePayload>();
+  let splitJson: string | null = null;
+  if (p.split && p.split.mode === 'rooms') {
+    const result = await resolveRoomsSplit(c.env, id, p.category, p.amount_myr, p.split as RoomsSplitPayload);
+    if ('error' in result) return bad(c, result.error);
+    p.shares = result.shares;
+    splitJson = result.splitJson;
+  }
   const err = validExpense(p);
   if (err) return bad(c, err);
-  const eid = await insertExpense(c.env, id, null, p);
+  const eid = await insertExpense(c.env, id, null, p, splitJson);
   await audit(c.env, c.get('user').id, 'expense_create', 'expense', eid);
   await trackUsage(c.env, c.get('user').id, 'expense_add');
   return c.json({ id: eid });
@@ -1194,16 +1294,23 @@ app.put('/expenses/:id', async c => {
   if (!old) return bad(c, 'not_found', 404);
   if (!(await needRole(c, old.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
   const p = await c.req.json<ExpensePayload>();
+  let splitJson: string | null = null;
+  if (p.split && p.split.mode === 'rooms') {
+    const result = await resolveRoomsSplit(c.env, old.trip_id, p.category, p.amount_myr, p.split as RoomsSplitPayload);
+    if ('error' in result) return bad(c, result.error);
+    p.shares = result.shares;
+    splitJson = result.splitJson;
+  }
   const err = validExpense(p);
   if (err) return bad(c, err);
   await c.env.DB.batch([
     c.env.DB.prepare(
       `UPDATE expenses SET category=?, description=?, vendor=?, location=?, expense_date=?, end_date=?,
        payment_date=?, amount_original=?, currency=?, fx_rate=?, amount_myr=?, payer_participant_id=?,
-       payment_status=COALESCE(?, payment_status) WHERE id=?`,
+       payment_status=COALESCE(?, payment_status), split_json=? WHERE id=?`,
     ).bind(p.category, p.description.trim(), p.vendor ?? null, p.location ?? null, p.expense_date ?? null,
       p.end_date ?? null, p.payment_date ?? null, p.amount_original, p.currency, p.fx_rate, p.amount_myr,
-      p.payer_participant_id, p.payment_status ?? null, id),
+      p.payer_participant_id, p.payment_status ?? null, splitJson, id),
     c.env.DB.prepare('DELETE FROM expense_shares WHERE expense_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM due_dates WHERE expense_id = ?').bind(id),
   ]);

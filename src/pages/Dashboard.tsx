@@ -178,6 +178,7 @@ export default function Dashboard() {
         )}
       </div>
 
+      <div className="grid">
       {journey && (
         <div className="card">
           <div className="cardhead"><h3><Icon name="pin" /> {t.journey}</h3></div>
@@ -192,23 +193,25 @@ export default function Dashboard() {
         </div>
       )}
 
-      <FxWidget tripId={tripId} trip={trip} isAdmin={canLead} onChanged={reload} />
+      <div className="grid-2col16">
+        <FxWidget tripId={tripId} trip={trip} isAdmin={canLead} onChanged={reload} />
 
-      {upcoming.length > 0 ? (
-        <div className="card" style={{ borderLeft: '4px solid var(--brand-600)' }}>
-          <div className="cardhead"><h3><Icon name="clock" /> {t.upNext}</h3></div>
-          {upcoming.slice(0, canLead ? 3 : 1).map((u2, i) => (
-            <div className="row-between" key={i} style={{ padding: '4px 0' }}>
-              <span className="row" style={{ gap: 8 }}><span className="tile sm"><Icon name={u2.icon} /></span><strong>{u2.title}</strong></span>
-              <span className="muted" style={{ whiteSpace: 'nowrap' }}>
-                {fmtDate(ymd(u2.when), lang)}{u2.time ? ` · ${u2.time}` : ''} · {t.inDays(daysUntil(u2.when))}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : plan ? (
-        <div className="card"><div className="cardhead"><h3><Icon name="clock" /> {t.upNext}</h3></div><p className="muted">{t.nothingUpcoming}</p></div>
-      ) : null}
+        {upcoming.length > 0 ? (
+          <div className="card" style={{ borderLeft: '4px solid var(--brand-600)' }}>
+            <div className="cardhead"><h3><Icon name="clock" /> {t.upNext}</h3></div>
+            {upcoming.slice(0, canLead ? 3 : 1).map((u2, i) => (
+              <div className="row-between" key={i} style={{ padding: '4px 0' }}>
+                <span className="row" style={{ gap: 8 }}><span className="tile sm"><Icon name={u2.icon} /></span><strong>{u2.title}</strong></span>
+                <span className="muted" style={{ whiteSpace: 'nowrap' }}>
+                  {fmtDate(ymd(u2.when), lang)}{u2.time ? ` · ${u2.time}` : ''} · {t.inDays(daysUntil(u2.when))}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : plan ? (
+          <div className="card"><div className="cardhead"><h3><Icon name="clock" /> {t.upNext}</h3></div><p className="muted">{t.nothingUpcoming}</p></div>
+        ) : null}
+      </div>
 
       <div className="grid grid-2">
         {!moneyHidden && (
@@ -335,6 +338,7 @@ export default function Dashboard() {
             <button className="btn sm" type="submit">{t.add}</button>
           </form>
         </div>
+      </div>
       </div>
     </div>
   );

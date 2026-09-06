@@ -23,27 +23,54 @@ const fail = async (msg) => { console.error('FAIL:', msg); await shot('failure')
 // 1. login
 await page.goto(`${BASE}/login`);
 
-// v0.23 (T4) — keyless Unsplash: this sandbox env has NO UNSPLASH_ACCESS_KEY,
-// which is exactly the case spec §5 wants covered. /api/public/carousel must
-// 404 with {error:'no_unsplash'} (server/app.ts ~L940), and the login page's
-// AuthCarousel must still render byte-identical gradients-only slides (its
-// fetch to that endpoint fails/404s and is swallowed — see AuthCarousel's
-// catch). Checked via `page.request` (no navigation) so it can't be confused
-// with a live external call — this never leaves 127.0.0.1.
+// v0.24 (T4) — KEY-AGNOSTIC Unsplash: this block must pass whether or not
+// this env has an UNSPLASH_ACCESS_KEY. T3's ruling (progress.md) is that
+// moving .dev.vars aside to force the keyless path is not acceptable — the
+// block probes /api/public/carousel first and branches on its real status.
+// Both branches are asserted below; whichever ran is logged so the final
+// PASSED line's meaning is auditable from the console output alone.
 const carouselRes = await page.request.get(`${BASE}/api/public/carousel`);
-if (carouselRes.status() !== 404) await fail(`/api/public/carousel should 404 keyless, got ${carouselRes.status()}`);
-const carouselJson = await carouselRes.json();
-if (carouselJson.error !== 'no_unsplash') await fail(`/api/public/carousel error should be no_unsplash, got "${carouselJson.error}"`);
-console.log('keyless unsplash: carousel endpoint 404s ok');
+const carouselStatus = carouselRes.status();
+let unsplashBranch;
+if (carouselStatus === 200) {
+  unsplashBranch = 'keyed';
+  const carouselJson = await carouselRes.json();
+  if (!Array.isArray(carouselJson.items) || carouselJson.items.length < 1)
+    await fail(`/api/public/carousel 200 should have >=1 items, got ${JSON.stringify(carouselJson).slice(0, 200)}`);
+  for (const it of carouselJson.items) {
+    if (!it.url) await fail(`/api/public/carousel item missing url: ${JSON.stringify(it)}`);
+    if (typeof it.author_name !== 'string') await fail(`/api/public/carousel item missing author_name: ${JSON.stringify(it)}`);
+  }
+  console.log('keyed unsplash: carousel endpoint 200s ok (items have url + author_name)');
 
-await page.waitForSelector('.caro .ph.on');
-const caroSlideVisible = await page.isVisible('.caro .cap .place');
-if (!caroSlideVisible) await fail('login carousel: no slide caption visible');
-const caroPhotoCount = await page.locator('.caro-photo').count();
-if (caroPhotoCount !== 0) await fail(`login carousel: expected zero .caro-photo imgs (keyless), found ${caroPhotoCount}`);
-const caroCreditCount = await page.locator('.caro-credit').count();
-if (caroCreditCount !== 0) await fail(`login carousel: expected zero .caro-credit (keyless), found ${caroCreditCount}`);
-console.log('keyless unsplash: login carousel renders gradients only (no photos, no credit)');
+  await page.waitForSelector('.caro .ph.on');
+  const caroSlideVisible = await page.isVisible('.caro .cap .place');
+  if (!caroSlideVisible) await fail('login carousel: no slide caption visible');
+  // the photo layer arrives async (carousel fetch) — wait for it rather than
+  // racing the gradient slide, which renders instantly
+  await page.waitForSelector('.caro-photo', { timeout: 10_000 })
+    .catch(async () => { await fail('login carousel: no .caro-photo img appeared within 10s (keyed)'); });
+  const caroCreditCount = await page.locator('.caro-credit').count();
+  if (caroCreditCount < 1) await fail(`login carousel: expected >=1 .caro-credit (keyed), found ${caroCreditCount}`);
+  console.log('keyed unsplash: login carousel renders real photos + credit');
+} else if (carouselStatus === 404) {
+  unsplashBranch = 'keyless';
+  const carouselJson = await carouselRes.json();
+  if (carouselJson.error !== 'no_unsplash') await fail(`/api/public/carousel error should be no_unsplash, got "${carouselJson.error}"`);
+  console.log('keyless unsplash: carousel endpoint 404s ok');
+
+  await page.waitForSelector('.caro .ph.on');
+  const caroSlideVisible = await page.isVisible('.caro .cap .place');
+  if (!caroSlideVisible) await fail('login carousel: no slide caption visible');
+  const caroPhotoCount = await page.locator('.caro-photo').count();
+  if (caroPhotoCount !== 0) await fail(`login carousel: expected zero .caro-photo imgs (keyless), found ${caroPhotoCount}`);
+  const caroCreditCount = await page.locator('.caro-credit').count();
+  if (caroCreditCount !== 0) await fail(`login carousel: expected zero .caro-credit (keyless), found ${caroCreditCount}`);
+  console.log('keyless unsplash: login carousel renders gradients only (no photos, no credit)');
+} else {
+  await fail(`/api/public/carousel should be 200 (keyed) or 404 (keyless), got ${carouselStatus}`);
+}
+console.log(`unsplash e2e branch: ${unsplashBranch}`);
 
 await page.fill('input[type=email]', 'admin@jelajah.local');
 await page.fill('input[type=password]', 'ubah-saya-123');
@@ -122,10 +149,13 @@ await page.waitForSelector('.check-item');
 await shot('08-dashboard-checklist');
 
 // 7. BM language switch
-// .topbar is mobile-only chrome (hidden >=1024px) — the sidebar's language
-// select is the desktop equivalent, and the Dashboard tab is now the
-// sidebar's "Overview" nav item (BM: "Ringkasan").
-await page.selectOption('.side-lang', 'ms');
+// v0.24: the sidebar's language select was removed — language now lives on
+// the Settings page's Language seg. The Dashboard tab is the sidebar's
+// "Overview" nav item (BM: "Ringkasan").
+await page.goto(`${BASE}/settings`);
+await page.click('.seg button:has-text("Bahasa Malaysia")');
+await page.waitForTimeout(300); // PATCH /me { lang: 'ms' } persists
+await page.goto(`${BASE}/trips/1`);
 await page.waitForSelector('.sidebar a.nav-item:has-text("Ringkasan")');
 await shot('09-dashboard-bm');
 console.log('BM switch ok');
@@ -137,7 +167,10 @@ await shot('10-mobile-dashboard');
 
 /* ---------------- Phase 2 ---------------- */
 await page.setViewportSize({ width: 1280, height: 900 });
-await page.selectOption('.side-lang', 'en');
+await page.goto(`${BASE}/settings`);
+await page.click('.seg button:has-text("English")');
+await page.waitForTimeout(300);
+await page.goto(`${BASE}/trips/1`);
 await page.waitForSelector('.sidebar a.nav-item:has-text("Overview")');
 
 // 9. upload the flight ITINERARY (same booking no) as document-only → enriches plan with times
@@ -556,6 +589,10 @@ await page.waitForSelector('text=Sensoji Temple');
 const before = await page.evaluate(() => fetch('/api/trips/1/plan').then(r => r.json())
   .then(p => p.activities.filter(a => a.day === '2026-11-30').sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || String(a.start_time).localeCompare(String(b.start_time)))));
 if (before[0].title !== 'Lawatan teamLab Planets') await fail('unexpected initial order');
+// v0.24 (spec §4): ▲▼/edit/delete/grip are hidden behind a desktop Edit-mode
+// toggle by default — turn it on so the "Move up" button exists in the DOM.
+await page.click('button:has-text("Edit mode")');
+await page.waitForSelector('.plan-item:has-text("Sensoji Temple") button[title="Move up"]');
 // move Sensoji up: it takes the 10:30 anchor; teamLab reflows after it + travel
 await page.click('.plan-item:has-text("Sensoji Temple") button[title="Move up"]');
 await page.waitForSelector('button:has-text("Undo reorder")');
@@ -1364,6 +1401,173 @@ await shot('40-rooms-viewer');
 await ctx5.close();
 
 /* ================================================================== */
+/* v0.25 — room-cost splitting (spec docs/13-spec-v0.25-room-split.md) */
+/* Reuses the "E2E Test Stay" (Room One / Room Two) created in the      */
+/* v0.21 section above, and its `roomPeople`/`moved` participants. Per  */
+/* that section's final state: Room One holds 1 non-infant occupant     */
+/* (`moved`, no capacity set), Room Two holds 2 non-infant occupants     */
+/* (`roomPeople[0]`, `roomPeople[1]`, capacity 2) — reconfirmed fresh    */
+/* below via the rooms API rather than assumed, so any upstream change  */
+/* in the suite fails loudly here instead of silently mis-computing.    */
+/* ================================================================== */
+
+const roomsForSplit = await page.evaluate(() => fetch('/api/trips/1/rooms').then(r => r.json()));
+const splitRoomOne = roomsForSplit.rooms.find(r => r.name === 'Room One');
+const splitRoomTwo = roomsForSplit.rooms.find(r => r.name === 'Room Two');
+if (splitRoomOne.occupant_ids.length !== 1) await fail(`expected Room One to hold 1 occupant before the rooms-split e2e, got ${splitRoomOne.occupant_ids.length}`);
+if (splitRoomTwo.occupant_ids.length !== 2) await fail(`expected Room Two to hold 2 occupants before the rooms-split e2e, got ${splitRoomTwo.occupant_ids.length}`);
+console.log('rooms-split pre-condition ok (Room One: 1 occupant, Room Two: 2 occupants)');
+
+// 41. leader adds an accommodation expense split "by rooms": RM350.00 total,
+// Room One RM200.00 (1 occupant) / Room Two RM150.00 (2 occupants) — an
+// unequal room split as required by the brief.
+//
+// HAND-COMPUTED expected per-person shares (engine: shared/roomSplit.ts
+// roomShares() — each room's sen amount is divided equally among its
+// non-infant occupants, largest-remainder-to-lowest-participant-id when it
+// doesn't divide evenly; both rooms happen to divide evenly here so there
+// is no remainder to distribute):
+//   Room One: RM200.00 / 1 occupant  = RM200.00 exactly        (20000 sen / 1 = 20000 sen)
+//   Room Two: RM150.00 / 2 occupants = RM75.00 + RM75.00 exactly (15000 sen / 2 = 7500 sen each)
+//   Conservation: 200.00 + 75.00 + 75.00 = 350.00 = amount_myr ✓
+await page.goto(`${BASE}/trips/1/ledger`);
+await page.waitForSelector('.lrow');
+await page.click('button:has-text("Add expense")');
+await page.waitForSelector('.modal');
+await page.selectOption('.modal .form-grid select >> nth=0', 'accommodation');
+// form-grid has exactly 2 required inputs (currency stays MYR so no fx/amount_myr
+// fields render): description first, amount_original second — DOM order is fixed
+// by ExpenseForm's JSX regardless of rooms mode (which only affects markup below
+// form-grid), so nth-indexing here is safe and unambiguous.
+await page.fill('.modal .form-grid input[required] >> nth=0', 'E2E Room Split Stay');
+await page.fill('.modal .form-grid input[required] >> nth=1', '350');
+await page.selectOption('.modal .form-grid select[required]', { label: 'Hamzah Bin Hamizan' });
+await page.waitForSelector('.room-split-editor');
+await page.click('.room-split-editor label:has-text("Split by rooms")');
+await page.waitForSelector('.room-split-row');
+await page.fill('.room-split-row:has-text("Room One") input[type=number]', '200');
+await page.fill('.room-split-row:has-text("Room Two") input[type=number]', '150');
+await page.waitForTimeout(150); // let the remainder recompute settle
+const remainderText1 = (await page.textContent('.room-split-remainder'))?.trim();
+if (!/0\.00/.test(remainderText1 ?? '')) await fail(`rooms-split remainder should read 0.00 left to assign, got "${remainderText1}"`);
+if (await page.$('.room-split-remainder.err')) await fail('rooms-split remainder still flagged as non-zero (err class) despite 200+150=350');
+console.log('rooms-split remainder reached 0 ok:', remainderText1);
+await page.click('.modal form button[type=submit]');
+await page.waitForSelector('.toast:has-text("Expense saved")');
+await page.waitForSelector('.modal', { state: 'detached' });
+console.log('rooms-split expense saved ok');
+
+// 42. assert "By rooms" badge + exact per-person shares (UI + API)
+const roomsSplitRow = '.lrow:has-text("E2E Room Split Stay")';
+await page.waitForSelector(roomsSplitRow);
+if (!(await page.$(`${roomsSplitRow} .badge.brand:has-text("By rooms")`))) await fail('rooms-split expense row missing "By rooms" badge');
+console.log('"By rooms" badge visible on ledger row ok');
+
+const afterSplit = await page.evaluate(() => fetch('/api/trips/1/expenses').then(r => r.json()));
+const splitExpense = afterSplit.expenses.find(e => e.description === 'E2E Room Split Stay');
+if (!splitExpense) await fail('rooms-split expense not found via GET /trips/1/expenses');
+const splitShares = afterSplit.shares.filter(s => s.expense_id === splitExpense.id);
+const shareFor = (shares, pid) => shares.find(s => s.participant_id === pid)?.amount_myr;
+if (shareFor(splitShares, moved.id) !== 200) await fail(`Room One occupant (${moved.name}) share should be exactly 200, got ${shareFor(splitShares, moved.id)}`);
+if (shareFor(splitShares, roomPeople[0].id) !== 75) await fail(`Room Two occupant (${roomPeople[0].name}) share should be exactly 75, got ${shareFor(splitShares, roomPeople[0].id)}`);
+if (shareFor(splitShares, roomPeople[1].id) !== 75) await fail(`Room Two occupant (${roomPeople[1].name}) share should be exactly 75, got ${shareFor(splitShares, roomPeople[1].id)}`);
+const splitSum = splitShares.reduce((a, s) => a + s.amount_myr, 0);
+if (splitSum !== 350) await fail(`rooms-split shares must sum to 350 (conservation), got ${splitSum}`);
+if (splitExpense.amount_myr !== 350) await fail(`rooms-split expense amount_myr should be 350, got ${splitExpense.amount_myr}`);
+console.log('rooms-split shares exact via API ok: 200 / 75 / 75, sum 350 (conserved)');
+
+// 43. drift: move roomPeople[1] from Room Two into Room One via the rooms
+// API. Room One now holds 2 occupants (moved, roomPeople[1]); Room Two
+// holds 1 (roomPeople[0]). The saved split_json occupants snapshot no
+// longer matches current room_occupants ⇒ drift chip should appear.
+const roomsBeforeDrift = await page.evaluate(() => fetch('/api/trips/1/rooms').then(r => r.json()));
+const driftRoomOneId = roomsBeforeDrift.rooms.find(r => r.name === 'Room One').id;
+const driftMoveSt = await page.evaluate(({ roomId, ids }) => fetch(`/api/trips/1/rooms/${roomId}/occupants`, {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ participant_ids: ids }),
+}).then(r => r.status), { roomId: driftRoomOneId, ids: [moved.id, roomPeople[1].id] });
+if (driftMoveSt !== 200) await fail(`drift setup: moving ${roomPeople[1].name} into Room One should succeed, got ${driftMoveSt}`);
+console.log(`drift setup ok (${roomPeople[1].name} moved Room Two -> Room One)`);
+
+await page.reload();
+await page.waitForSelector(roomsSplitRow);
+await page.waitForSelector(`${roomsSplitRow} .badge.warning:has-text("Rooms changed since this split")`);
+console.log('drift chip visible on ledger row ok');
+
+// 44. re-apply: editor opens prefilled with the SAVED amounts (200/150,
+// unchanged) but the CURRENT occupancy (Room One (2), Room Two (1/2) —
+// Room One has no capacity set so its label omits "/capacity").
+await page.click(`${roomsSplitRow} button:has-text("Re-apply")`);
+await page.waitForSelector('.modal');
+await page.waitForSelector('.room-split-row');
+const roomOneRowSel = '.room-split-row:has-text("Room One")';
+const roomTwoRowSel = '.room-split-row:has-text("Room Two")';
+await page.waitForSelector(`${roomOneRowSel}:has-text("(2)")`);
+await page.waitForSelector(`${roomTwoRowSel}:has-text("(1/2)")`);
+console.log('re-apply editor shows current occupancy ok (Room One (2), Room Two (1/2))');
+const reapplyRoomOneVal = await page.inputValue(`${roomOneRowSel} input[type=number]`);
+const reapplyRoomTwoVal = await page.inputValue(`${roomTwoRowSel} input[type=number]`);
+if (Number(reapplyRoomOneVal) !== 200) await fail(`re-apply editor should keep the saved Room One amount 200, got ${reapplyRoomOneVal}`);
+if (Number(reapplyRoomTwoVal) !== 150) await fail(`re-apply editor should keep the saved Room Two amount 150, got ${reapplyRoomTwoVal}`);
+console.log('re-apply editor amounts unchanged (200/150) ok');
+await page.click('.modal form button[type=submit]');
+await page.waitForSelector('.toast:has-text("Expense saved")');
+await page.waitForSelector('.modal', { state: 'detached' });
+console.log('re-apply save ok');
+
+// HAND-COMPUTED new shares after drift + re-apply (same 200/150 room
+// amounts, current occupants):
+//   Room One: RM200.00 / 2 occupants (moved, roomPeople[1]) = RM100.00 + RM100.00 exactly (20000 sen / 2 = 10000 sen each)
+//   Room Two: RM150.00 / 1 occupant  (roomPeople[0])        = RM150.00 exactly              (15000 sen / 1 = 15000 sen)
+//   Conservation: 100.00 + 100.00 + 150.00 = 350.00 = amount_myr ✓ (unchanged total)
+const afterReapply = await page.evaluate(() => fetch('/api/trips/1/expenses').then(r => r.json()));
+const reappliedShares = afterReapply.shares.filter(s => s.expense_id === splitExpense.id);
+if (shareFor(reappliedShares, moved.id) !== 100) await fail(`after re-apply, Room One occupant (${moved.name}) share should be exactly 100, got ${shareFor(reappliedShares, moved.id)}`);
+if (shareFor(reappliedShares, roomPeople[1].id) !== 100) await fail(`after re-apply, Room One occupant (${roomPeople[1].name}) share should be exactly 100, got ${shareFor(reappliedShares, roomPeople[1].id)}`);
+if (shareFor(reappliedShares, roomPeople[0].id) !== 150) await fail(`after re-apply, Room Two occupant (${roomPeople[0].name}) share should be exactly 150, got ${shareFor(reappliedShares, roomPeople[0].id)}`);
+const reSum = reappliedShares.reduce((a, s) => a + s.amount_myr, 0);
+if (reSum !== 350) await fail(`re-applied shares must still sum to 350 (conservation), got ${reSum}`);
+console.log('re-apply shares exact via API ok: 100 / 100 / 150, sum 350 (conserved)');
+
+await page.reload();
+await page.waitForSelector(roomsSplitRow);
+if (await page.$(`${roomsSplitRow} .badge.warning:has-text("Rooms changed since this split")`)) await fail('drift chip should be gone after re-apply');
+if (await page.$(`${roomsSplitRow} button:has-text("Re-apply")`)) await fail('Re-apply button should be gone after re-apply');
+console.log('drift chip gone after re-apply ok');
+
+// 45. negative: non-accommodation expense form shows NO "Split by rooms"
+// option — emptyDraft() defaults category to 'other', then we also try
+// 'food' explicitly.
+await page.click('button:has-text("Add expense")');
+await page.waitForSelector('.modal');
+if (await page.$('.room-split-editor')) await fail('non-accommodation expense (default category "other") should not show "Split by rooms"');
+await page.selectOption('.modal .form-grid select >> nth=0', 'food');
+await page.waitForTimeout(200);
+if (await page.$('.room-split-editor')) await fail('food-category expense should not show "Split by rooms"');
+console.log('non-accommodation "Split by rooms" absence ok (other + food categories)');
+await page.click('.modal button.x');
+await page.waitForSelector('.modal', { state: 'detached' });
+
+// 46. negative: direct API POST with split.mode='rooms' on a non-
+// accommodation category (food) must 400 with rooms_split_category —
+// request-level assert (status + error code), bypassing the UI entirely.
+const negRes = await page.evaluate(async () => {
+  const r = await fetch('/api/trips/1/expenses', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      category: 'food', description: 'E2E rooms-split negative', amount_original: 10, currency: 'MYR', fx_rate: 1,
+      amount_myr: 10, payer_participant_id: 1, shares: [],
+      split: { mode: 'rooms', stay_label: 'E2E Test Stay', room_amounts: {} },
+    }),
+  });
+  return { status: r.status, body: await r.json() };
+});
+if (negRes.status !== 400) await fail(`POST rooms-split on non-accommodation category should be 400, got ${negRes.status}`);
+if (negRes.body.error !== 'rooms_split_category') await fail(`expected error "rooms_split_category", got "${negRes.body.error}"`);
+console.log('rooms-split category negative check ok (400 rooms_split_category)');
+await shot('41-rooms-split');
+
+/* ================================================================== */
 /* v0.17 — invites, join & referrals (spec §Registration + Addendum 1) */
 /* ================================================================== */
 
@@ -1684,8 +1888,10 @@ if (chipsRestored2.length !== chipsBefore.length) {
 }
 console.log(`trip-dates edit ok (+1 chip on extend, activity-bearing day survives a shrink, exact restore both times: ${chipsBefore.length} chips)`);
 
-// 51. BM smoke: the joiner switches to BM via the sidebar language select
-// (.topbar is mobile-only chrome, hidden at this desktop viewport width).
+// 51. BM smoke: the joiner switches to BM via the Settings Language seg
+// (v0.24: sidebar's language select was removed — language now lives on
+// Settings only; .topbar is mobile-only chrome, hidden at this desktop
+// viewport width anyway).
 // NOTE: `/join/:code`'s own <I18nProvider> (App.tsx) has no `initial` prop
 // and always renders English regardless of the logged-in user's saved
 // lang — pre-existing behaviour from v0.17, not part of Tasks 1-7 — so a
@@ -1696,15 +1902,15 @@ console.log(`trip-dates edit ok (+1 chip on extend, activity-bearing day survive
 // Task 6 reworded. Value grepped live from src/i18n.tsx while writing this
 // step (ms.myTrips): 'Perjalanan saya'.
 const BM_MY_TRIPS = 'Perjalanan saya';
-await p6.goto(`${BASE}/`);
-await p6.waitForSelector('.side-lang');
-await p6.selectOption('.side-lang', 'ms');
+await p6.goto(`${BASE}/settings`);
+await p6.click('.seg button:has-text("Bahasa Malaysia")');
 await p6.waitForTimeout(300); // PATCH /me { lang: 'ms' } persists
-await p6.reload();
+await p6.goto(`${BASE}/`);
 await p6.waitForSelector('h1');
 const bmHeading = (await p6.textContent('h1'))?.trim();
 if (bmHeading !== BM_MY_TRIPS) await fail(`BM smoke: expected ms myTrips "${BM_MY_TRIPS}", got "${bmHeading}"`);
-await p6.selectOption('.side-lang', 'en');
+await p6.goto(`${BASE}/settings`);
+await p6.click('.seg button:has-text("English")');
 await p6.waitForTimeout(300);
 console.log(`BM smoke ok (myTrips ms="${bmHeading}", switched back to EN)`);
 
@@ -1918,6 +2124,22 @@ await p9.waitForSelector('.daypills');
 const planHasWalkEmoji = await p9.evaluate(() => document.body.textContent.includes('🚶'));
 if (planHasWalkEmoji) await fail('🚶 emoji still present in Plan DOM (should be the walk icon)');
 console.log('mobile no-walk-emoji ok');
+
+// v0.24 (spec §4): mobile row actions — no ▲▼/edit/delete/grip clutter below
+// 1024px, just a per-row ⋯ that opens the shared Menu with Edit/Move/Delete.
+await p9.click('.daypill:has-text("D2")');
+await p9.waitForSelector('.plan-item:has-text("Sensoji Temple")');
+if (await p9.isVisible('.plan-item:has-text("Sensoji Temple") .pi-desktop-actions button[title="Move up"]'))
+  await fail('mobile: desktop row-action buttons should not be visible below 1024px');
+const rowMoreBtn = '.plan-item:has-text("Sensoji Temple") .pi-mobile-actions button[aria-label="Actions"]';
+await p9.waitForSelector(rowMoreBtn);
+await p9.click(rowMoreBtn);
+await p9.waitForSelector('.menu .mi:has-text("Edit")');
+console.log('mobile row ⋯ menu ok (Edit item present)');
+await p9.keyboard.press('Escape');
+await p9.waitForSelector('.menu', { state: 'detached' });
+console.log('mobile row ⋯ menu escape-close ok');
+
 await ctx9.close();
 
 // 55. covers: leader (admin) on trip 1's People page uploads a tiny fixture
@@ -1932,20 +2154,39 @@ await page.goto(`${BASE}/trips/1/people`);
 const tripDetailsCard = '.card:has(h3:has-text("Trip details"))';
 await page.waitForSelector(`${tripDetailsCard} .cover-block`);
 
-// v0.23 (T4) — keyless Unsplash: leader sees "Choose from Unsplash" on
-// mount (People.tsx `showUnsplashBtn` starts true); it only hides once a
-// search probe comes back `no_unsplash` (People.tsx searchUnsplash's catch,
-// ~L259) — so the correct sequence is click -> modal auto-searches (trip's
-// destination) -> 404 -> noUnsplashKey toast -> button hidden. Never touches
-// unsplash.com; the 404 comes from this env's own missing access key.
+// v0.24 (T4) — KEY-AGNOSTIC Unsplash picker: leader sees "Choose from
+// Unsplash" on mount (People.tsx `showUnsplashBtn` starts true). Which way
+// this branches was already decided by the /api/public/carousel probe above
+// (same env, same key) — reuse `unsplashBranch` rather than re-probing.
 const unsplashBtn = `${tripDetailsCard} .cover-block button:has-text("Choose from Unsplash")`;
 await page.waitForSelector(unsplashBtn);
-console.log('keyless unsplash: "Choose from Unsplash" button visible initially');
-await page.click(unsplashBtn);
-await page.waitForSelector('.toast:has-text("Unsplash isn\'t set up yet.")', { timeout: 15000 });
-console.log('keyless unsplash: search probe toast ok (no_unsplash)');
-await page.waitForSelector(unsplashBtn, { state: 'detached' });
-console.log('keyless unsplash: "Choose from Unsplash" button hidden after failed probe');
+console.log(`${unsplashBranch} unsplash: "Choose from Unsplash" button visible initially`);
+if (unsplashBranch === 'keyless') {
+  // click -> modal auto-searches (trip's destination) -> 404 -> noUnsplashKey
+  // toast -> button hidden. Never touches unsplash.com; the 404 comes from
+  // this env's own missing access key.
+  await page.click(unsplashBtn);
+  await page.waitForSelector('.toast:has-text("Unsplash isn\'t set up yet.")', { timeout: 15000 });
+  console.log('keyless unsplash: search probe toast ok (no_unsplash)');
+  await page.waitForSelector(unsplashBtn, { state: 'detached' });
+  console.log('keyless unsplash: "Choose from Unsplash" button hidden after failed probe');
+} else {
+  // keyed branch: this env's owner installed a real UNSPLASH_ACCESS_KEY, so
+  // a single live Unsplash search here is an accepted opt-in cost (ONE
+  // search only). click -> modal auto-searches trip's destination -> a
+  // results grid renders -> close via Escape WITHOUT selecting, so no cover
+  // is set and trip state stays clean for the rest of the suite.
+  await page.click(unsplashBtn);
+  await page.waitForSelector('.modal .unsplash-grid .unsplash-thumb', { timeout: 15000 });
+  const unsplashThumbCount = await page.locator('.modal .unsplash-grid .unsplash-thumb').count();
+  if (unsplashThumbCount < 1) await fail(`keyed unsplash: expected >=1 search result thumb, found ${unsplashThumbCount}`);
+  console.log(`keyed unsplash: search returned ${unsplashThumbCount} result(s)`);
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.modal', { state: 'detached' });
+  console.log('keyed unsplash: modal closed via Escape without selecting (no cover set)');
+  await page.waitForSelector(unsplashBtn);
+  console.log('keyed unsplash: "Choose from Unsplash" button still visible (key stays usable)');
+}
 // 1x1 transparent PNG, inline — the smallest valid fixture; uploadCover's
 // resizeImageFile canvas-redraws it to JPEG client-side regardless of the
 // source format, so a 1x1 source is enough to exercise the whole path.
@@ -1968,8 +2209,10 @@ await page.click(`${tripDetailsCard} .cover-block button:has-text("Remove")`);
 await page.waitForSelector('.toast:has-text("Cover photo removed")');
 await page.goto(`${BASE}/`);
 await page.waitForSelector('a.tripcard');
-const coverImgGone = await page.$('a.tripcard img[src*="/cover"]');
-if (coverImgGone) await fail('cover remove: Trips card should fall back to the gradient, still found a cover img');
+// scope to trip 1's card: with a live Unsplash key, OTHER trips may hold
+// legitimate auto-covers (trip-create auto-cover), so a global img scan false-fails
+const coverImgGone = await page.$('a.tripcard[href="/trips/1"] img[src*="/trips/1/cover"]');
+if (coverImgGone) await fail('cover remove: trip 1 card should fall back to the gradient, still found its cover img');
 console.log('cover remove ok (gradient fallback restored)');
 
 // ---------------------------------------------------------------------
@@ -2040,4 +2283,4 @@ await ctx10.close();
 console.log('pwa: SW unregistered + jl-* caches cleared');
 
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.23)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.25)');

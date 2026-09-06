@@ -107,6 +107,8 @@ const en = {
   walkTo: (n: number) => `${n} min`, viaStation: 'via',
   moveUp: 'Move up', moveDown: 'Move down', undoReflow: 'Undo reorder',
   reflowed: 'Times reflowed for the new order',
+  // v0.24: plan row action redesign (spec §4) — desktop edit-mode toggle (mobile row menu reuses the existing `actions` key above)
+  editMode: 'Edit mode',
   journey: 'Journey', places: 'places', stays: 'stays', flights: 'flights',
   committed: 'committed', payAtHotel: 'Pay at hotel', markPaid: 'Mark paid',
   committedNote: 'Committed, not owed — excluded from balances until marked paid',
@@ -392,6 +394,16 @@ const en = {
   editRoomTitle: 'Edit room', deleteRoomTitle: 'Delete this room?',
   deleteRoomHint: 'Occupants are unassigned. This cannot be undone.',
   tRoomSaved: 'Room saved', tRoomDeleted: 'Room deleted', tOccupantsSaved: 'Occupants updated',
+  // v0.25 — room-cost splitting (ExpenseForm room editor + Ledger drift chip)
+  splitByRooms: 'Split by rooms',
+  remainderLeft: (x: string) => `${x} left to assign`,
+  balanceLast: 'Balance last room',
+  byRooms: 'By rooms',
+  roomsChanged: 'Rooms changed since this split',
+  reapply: 'Re-apply',
+  chooseStay: 'Stay',
+  staleStayMsg: 'This stay group no longer exists — pick another or switch split mode.',
+  roomsSplitRejected: 'Room split rejected — reopen the editor and check the amounts.',
 };
 
 const ms: typeof en = {
@@ -488,6 +500,8 @@ const ms: typeof en = {
   walkTo: (n: number) => `${n} min`, viaStation: 'melalui',
   moveUp: 'Naik', moveDown: 'Turun', undoReflow: 'Buat asal susunan',
   reflowed: 'Masa disusun semula mengikut urutan baharu',
+  // v0.24: plan row action redesign (spec §4) — desktop edit-mode toggle (mobile row menu reuses the existing `actions` key above)
+  editMode: 'Mod sunting',
   journey: 'Perjalanan', places: 'tempat', stays: 'penginapan', flights: 'penerbangan',
   committed: 'komited', payAtHotel: 'Bayar di hotel', markPaid: 'Tanda dibayar',
   committedNote: 'Komited, belum terhutang — dikecualikan daripada baki sehingga ditanda dibayar',
@@ -765,6 +779,16 @@ const ms: typeof en = {
   editRoomTitle: 'Sunting bilik', deleteRoomTitle: 'Padam bilik ini?',
   deleteRoomHint: 'Penghuni bilik ini akan dikeluarkan. Tindakan ini tidak boleh dibatalkan.',
   tRoomSaved: 'Bilik disimpan', tRoomDeleted: 'Bilik dipadam', tOccupantsSaved: 'Penghuni dikemas kini',
+  // v0.25 — room-cost splitting (ExpenseForm room editor + Ledger drift chip)
+  splitByRooms: 'Bahagi ikut bilik',
+  remainderLeft: (x: string) => `${x} belum diagih`,
+  balanceLast: 'Imbangkan bilik terakhir',
+  byRooms: 'Ikut bilik',
+  roomsChanged: 'Bilik berubah selepas bahagian ini',
+  reapply: 'Guna semula',
+  chooseStay: 'Penginapan',
+  staleStayMsg: 'Kumpulan penginapan ini tidak wujud lagi — pilih satu lagi atau tukar mod bahagian.',
+  roomsSplitRejected: 'Bahagian bilik ditolak — buka semula editor dan semak jumlahnya.',
 };
 
 export type Dict = typeof en;

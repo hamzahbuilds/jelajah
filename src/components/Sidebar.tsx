@@ -2,8 +2,7 @@
 // Ported from design/ui-refresh/nav.js (structure) + ui.css (`.sidebar` / `html.side-min`).
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { api } from '../api';
-import { useT, Lang } from '../i18n';
+import { useT } from '../i18n';
 import { useSession, useTripNav, TripRole } from '../App';
 import { Icon } from './Icon';
 import Sheet from './Sheet';
@@ -26,7 +25,7 @@ function initials(name: string): string {
 }
 
 export default function Sidebar() {
-  const { t, lang, setLang } = useT();
+  const { t } = useT();
   const { user, trips, logout } = useSession();
   const nav = useTripNav();
   const { pathname } = useLocation();
@@ -47,8 +46,6 @@ export default function Sidebar() {
     document.documentElement.classList.toggle('side-min', next);
     try { localStorage.setItem(SIDE_KEY, next ? 'min' : ''); } catch { /* ignore write failure */ }
   };
-
-  const changeLang = async (l: Lang) => { setLang(l); await api.patch('/me', { lang: l }); };
 
   const model = navModel(pathname, {
     isAdmin: user.role === 'admin',
@@ -104,20 +101,15 @@ export default function Sidebar() {
         ))}
 
         <div className="nav-item side-user" title={user.name}>
-          <span className="avatar">{initials(user.name)}</span>
+          <span className="ic"><span className="avatar">{initials(user.name)}</span></span>
           <span className="lbl">{user.name}</span>
           <span className="pill badge gray">{roleLabel(t, nav?.trip ? nav.myRole : undefined)}</span>
         </div>
 
-        <div className="row" style={{ gap: 6, padding: '4px 12px' }}>
-          <select value={lang} onChange={e => changeLang(e.target.value as Lang)} aria-label={t.language} className="side-lang">
-            <option value="en">EN</option>
-            <option value="ms">BM</option>
-          </select>
-          <button className="btn sm ghost" onClick={logout} title={t.logout}>
-            <Icon name="logout" size={16} />
-          </button>
-        </div>
+        <button type="button" className="nav-item" onClick={logout} title={t.logout}>
+          <span className="ic"><Icon name="logout" size={20} /></span>
+          <span className="lbl">{t.logout}</span>
+        </button>
       </div>
 
       <Sheet open={switcherOpen} onClose={() => setSwitcherOpen(false)} title={t.switchTrip}>

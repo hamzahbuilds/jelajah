@@ -237,6 +237,14 @@ export default function Review() {
             <strong>{t.createExpense}</strong>
           </label>
           {createExp ? (
+            // v0.25: rooms-split-at-confirm is deliberately unsupported here —
+            // POST /documents/:id/confirm never calls resolveRoomsSplit, so a
+            // `split` payload would 400 (or, if that guard ever slipped,
+            // insert an accommodation expense with zero share rows). No
+            // `tripId` is passed, so ExpenseForm never offers the "Split by
+            // rooms" option on this screen; a leader who wants a rooms split
+            // confirms normally, then edits the expense in Ledger afterwards.
+            // Wiring the confirm route for splits is future work.
             <ExpenseForm members={members} initial={initial} busy={busy} externalPatch={patch}
               submitLabel={t.confirmSave} onSubmit={p => confirm(p)} />
           ) : (

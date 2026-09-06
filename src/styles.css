@@ -94,6 +94,14 @@ p { margin: .3rem 0; }
 @media (min-width: 760px) {
   .grid-2 { grid-template-columns: 1fr 1fr; }
 }
+
+/* Dashboard: Currency + Up next share a row on desktop (spec v0.24 §1) */
+.grid-2col16 { display: grid; gap: 16px; grid-template-columns: 1fr; }
+.grid-2col16 > * { min-width: 0; }
+.grid-2col16 > *:only-child { grid-column: 1 / -1; }
+@media (min-width: 1024px) {
+  .grid-2col16 { grid-template-columns: 1fr 1fr; align-items: start; }
+}
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
 /* v0.20 covers: subtle photo backdrop behind the TripShell header, when the
@@ -135,7 +143,7 @@ p { margin: .3rem 0; }
 /* ---------- forms ---------- */
 input, select, textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
-  font: inherit; background: #fff; color: var(--ink);
+  font-family: inherit; background: #fff; color: var(--ink);
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid #99f6e4; border-color: var(--brand-700); }
 .form-grid { display: grid; gap: 0 14px; }
@@ -215,6 +223,16 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 /* share editor */
 .share-row { display: grid; grid-template-columns: 1fr 110px; gap: 8px; align-items: center; padding: 3px 0; }
 
+/* ---------- v0.25 room-cost split editor (ExpenseForm) ---------- */
+.room-split-editor {
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 14px; background: var(--surface);
+}
+.room-split-row { display: grid; grid-template-columns: 1fr 120px; gap: 8px; align-items: center; padding: 4px 0; }
+.room-split-row input { min-height: 44px; }
+.room-split-remainder { font-weight: 600; font-size: .85rem; color: var(--ink-2); }
+.room-split-remainder.err { color: var(--warning-700); }
+[data-theme="dark"] .room-split-remainder.err { color: #FDB022; }
+
 /* ---------- planner ---------- */
 /* v0.19 day-pill rail (ported from design/ui-refresh/02-plan.html + ui.css .daypills/.daypill).
    Bare names — the prior `.daychips`/`.daychip` classes are renamed in this same pass (no
@@ -283,15 +301,22 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 /* transit chip between two rail rows — display only, sourced from the same `legs`
    the transport card renders. Indent roughly lines it up under the row title.
    ::before continues the .stop-line rail through the chip's gap (86px = the
-   76px pi-time column + 10px gap; +14px centers on the 28px .pinno circle). */
+   76px pi-time column + 10px gap; +14px centers on the 28px .pinno circle).
+   v0.24 (spec §3): the chip's left edge sits at the SAME x-offset as the
+   .pinno circles' left edge (86px / 68px, matching .pi-time's flex-basis +
+   row gap at each breakpoint) so it reads as part of the pin column rather
+   than floating over the rail line. A solid var(--surface) background + 1px
+   border makes the chip opaque so the ::before line — which paints first,
+   underneath — visibly stops behind it instead of showing through. */
 .tchip-row { position: relative; padding: 3px 0 3px 86px; }
 .tchip-row::before {
   content: ''; position: absolute; left: 100px; top: 0; bottom: 0;
   width: 2px; background: var(--border); border-radius: 1px;
 }
 .tchip {
-  display: inline-flex; align-items: center; gap: 6px; font-size: .74rem; color: var(--ink-2);
-  background: var(--tile); border-radius: 999px; padding: 3px 10px;
+  position: relative; display: inline-flex; align-items: center; gap: 6px;
+  font-size: .74rem; color: var(--ink-2);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px;
 }
 .tchip .icon { width: 16px; height: 16px; }
 @media (max-width: 620px) {
@@ -396,6 +421,25 @@ img, iframe, .preview { max-width: 100%; }
 .plan-item.dragging { opacity: .45; }
 .drag-handle { cursor: grab; color: var(--ink-3); user-select: none; }
 
+/* v0.24 (spec §4): plan row actions redesign. Desktop (>=1024px) shows the
+   ▲▼/edit/delete/grip cluster only while the day-card's Edit-mode toggle is
+   on (Plan.tsx conditionally renders .pi-desktop-actions' contents — this
+   CSS breakpoint is a belt-and-suspenders guard, not the primary gate).
+   Mobile (<1024px) never shows that cluster; it shows the ⋯ overflow button
+   instead. The done/select checkbox lives outside both wrappers and is
+   always visible on every breakpoint. */
+.pi-desktop-actions { display: none; }
+@media (min-width: 1024px) { .pi-desktop-actions { display: flex; } }
+.pi-mobile-actions { display: flex; align-items: center; }
+@media (min-width: 1024px) { .pi-mobile-actions { display: none; } }
+/* .btn.ghost.pi-editmode-btn.on (not just .pi-editmode-btn.on) so this beats
+   the later, equal-or-higher-specificity `.btn.ghost` base rule in source order. */
+.btn.ghost.pi-editmode-btn.on { background: var(--tile); color: var(--brand-700); }
+[data-theme="dark"] .btn.ghost.pi-editmode-btn.on { color: var(--brand-300); }
+/* .btn.pi-editmode-btn (not just .pi-editmode-btn) so this beats the later,
+   equal-specificity `.btn { display: inline-flex }` base rule in source order. */
+@media (max-width: 1023px) { .btn.pi-editmode-btn { display: none; } }
+
 .journey-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .journey-stats .jstat {
   display: inline-flex; align-items: center; gap: 4px;
@@ -495,6 +539,12 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
   padding: 6px 10px; margin: 6px 0 10px;
 }
 .plan-item .sel-box { width: 17px; height: 17px; accent-color: var(--error-700); align-self: center; flex-shrink: 0; }
+/* v0.24: the done-toggle checkbox is now a direct flex child of .plan-item
+   (it used to sit inside the now-conditional actions <div>, which insulated
+   it from the global `input{width:100%}` form rule since that div's own
+   width was indeterminate). Give it the same explicit sizing as .sel-box so
+   it doesn't inherit width:100% of .plan-item's now-definite width. */
+.plan-item .pi-done-check { width: 17px; height: 17px; align-self: center; flex-shrink: 0; }
 .daynotes { border-top: 1px dashed var(--border); margin-top: 10px; }
 .note-row { display: flex; gap: 8px; align-items: center; padding: 3px 0; font-size: .86rem; }
 .note-row .note-dot { color: var(--brand-700); font-weight: 700; width: 17px; text-align: center; flex-shrink: 0; }
@@ -537,7 +587,7 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
 .fx-row { padding: 10px 0; border-bottom: 1px solid var(--border); }
 .fx-row:last-child { border-bottom: none; }
 .fx-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
-.fx-spark { display: block; max-width: 100%; }
+.fx-spark { display: block; width: 100%; height: 72px; }
 .fx-band { fill: var(--brand-600); opacity: .12; }
 .fx-line { stroke: var(--brand-600); stroke-width: 1.5; }
 .fx-dot { fill: var(--brand-800); }
@@ -1000,6 +1050,7 @@ html.side-min .side-collapse .icon { transform: none; }
   display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: var(--r-md);
   color: var(--ink-2); font-weight: 500; font-size: 14px; min-height: 40px;
 }
+button.nav-item { width: 100%; border: none; background: none; font-family: inherit; text-align: left; }
 .nav-item:hover { background: var(--gray-100); color: var(--ink); }
 [data-theme="dark"] .nav-item:hover { background: var(--gray-800); }
 .nav-item.on { background: var(--tile); color: var(--brand-700); font-weight: 600; }
@@ -1008,10 +1059,7 @@ html.side-min .side-collapse .icon { transform: none; }
 .nav-item .pill { margin-left: auto; }
 .nav-item .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .side-user { cursor: default; }
-.side-lang {
-  background: var(--surface); color: var(--ink); border: 1px solid var(--border);
-  border-radius: 8px; padding: 6px 8px; font-size: .8rem;
-}
+.side-user .ic .avatar { width: 20px; height: 20px; border-radius: 10px; font-size: 9px; }
 
 .side-foot { margin-top: auto; border-top: 1px solid var(--border); padding-top: 12px; }
 
@@ -1024,9 +1072,7 @@ html.side-min .nav-item .pill,
 html.side-min .trip-switch .t,
 html.side-min .trip-switch .tsw-chev,
 html.side-min .side-user .lbl,
-html.side-min .side-user .pill,
-html.side-min .side-lang,
-html.side-min .side-foot .row { display: none; }
+html.side-min .side-user .pill { display: none; }
 html.side-min .side-collapse { position: absolute; margin: 0; right: auto; top: 44px; }
 html.side-min .nav-item { justify-content: center; padding: 9px 0; }
 html.side-min .trip-switch { justify-content: center; padding: 10px 0; }

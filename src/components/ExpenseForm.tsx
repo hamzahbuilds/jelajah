@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, fmtMYR } from '../api';
+import { api, ApiError, fmtMYR } from '../api';
 import { useT } from '../i18n';
+import { useToast } from './Toast';
 import { Participant } from '../pages/TripShell';
+import { allocateByWeight, ROOM_SPLIT_ERROR_CODES } from '../../shared/roomSplit';
+import { occupancyLabel } from '../../shared/rooms';
+
+/** v0.25 F2c — server-side codes a rooms-split submit can be rejected with:
+ *  the resolveRoomsSplit-level codes plus every engine RoomSplitError code.
+ *  Anything in this set maps to one generic, actionable toast; anything
+ *  outside it (a genuine network/unexpected failure) still surfaces via the
+ *  inline `err` callout as before. */
+const KNOWN_ROOMS_SPLIT_ERROR_CODES = new Set<string>([
+  'sum_mismatch', 'unknown_room', 'unknown_stay', 'missing_room', 'rooms_split_category',
+  ...Object.values(ROOM_SPLIT_ERROR_CODES),
+]);
 
 export const CATEGORIES = ['accommodation', 'flight', 'transport', 'entrance', 'pass', 'food', 'shopping', 'other'] as const;
 const CURRENCIES = ['MYR', 'JPY', 'SGD', 'USD', 'EUR', 'GBP', 'THB', 'IDR', 'KRW', 'CNY'];
@@ -16,6 +29,11 @@ export interface ExpenseDraft {
   customShares: Record<number, number>;
   due_dates: Array<{ due_date: string; amount_myr?: number; note?: string; participant_id?: number | null }>;
   payment_status: 'paid' | 'pay_at_hotel';
+  /** v0.25 — room-cost splitting (additive; null = not in rooms mode).
+   *  `amounts`/`dirty` are keyed by room id (string). `dirty[roomId]` tracks
+   *  whether the user hand-edited that room's amount, so proportional
+   *  re-prefill (on amount/stay change) never clobbers it. */
+  roomsSplit: { stay_label: string; amounts: Record<string, number>; dirty: Record<string, boolean> } | null;
 }
 
 export function emptyDraft(): ExpenseDraft {
@@ -25,7 +43,63 @@ export function emptyDraft(): ExpenseDraft {
     amount_original: 0, currency: 'MYR', fx_rate: 1, amount_myr: 0,
     payer_participant_id: 0, participant_ids: [], custom: false, customShares: {}, due_dates: [],
     payment_status: 'paid',
+    roomsSplit: null,
   };
+}
+
+/** v0.25 room-cost splitting — types + pure helpers for the room editor.
+ *  See docs/13-spec-v0.25-room-split.md §4. All additive; the equal/custom
+ *  split paths above are untouched. */
+type RoomRow = {
+  id: number; stay_label: string; check_in: string | null; check_out: string | null;
+  name: string; capacity: number | null; occupant_ids: number[];
+};
+type RoomGroup = { stay_label: string; check_in: string | null; check_out: string | null; rooms: RoomRow[] };
+
+function groupRoomsByStay(rooms: RoomRow[]): RoomGroup[] {
+  const groups: RoomGroup[] = [];
+  for (const r of rooms) {
+    let g = groups.find(g2 => g2.stay_label === r.stay_label);
+    if (!g) { g = { stay_label: r.stay_label, check_in: r.check_in, check_out: r.check_out, rooms: [] }; groups.push(g); }
+    g.rooms.push(r);
+  }
+  return groups;
+}
+
+/** Prefill match: prefer a stay whose check-in/out overlaps the expense's
+ *  date range, or whose label matches the description either way; falls
+ *  back to the first group when nothing scores. */
+function pickBestStayGroup(groups: RoomGroup[], expenseDate: string, endDate: string, description: string): RoomGroup | null {
+  if (!groups.length) return null;
+  const desc = description.trim().toLowerCase();
+  let best = groups[0]; let bestScore = -1;
+  for (const g of groups) {
+    let score = 0;
+    if (g.check_in && expenseDate && g.check_in === expenseDate) score += 2;
+    if (g.check_out && endDate && g.check_out === endDate) score += 2;
+    if (g.check_in && expenseDate && g.check_in <= expenseDate && (!g.check_out || g.check_out >= expenseDate)) score += 1;
+    const label = g.stay_label.toLowerCase();
+    if (desc && label && (label.includes(desc) || desc.includes(label))) score += 1;
+    if (score > bestScore) { bestScore = score; best = g; }
+  }
+  return best;
+}
+
+/** Non-infant occupant count for a room — the prefill weight. */
+function nonInfantCount(room: RoomRow, infantIds: Set<number>): number {
+  return room.occupant_ids.filter(id => !infantIds.has(id)).length;
+}
+
+/** Proportional prefill by non-infant occupant count, summing to totalMyr
+ *  EXACTLY via shared/roomSplit's allocateByWeight (same largest-remainder
+ *  discipline the engine uses, exported for this purpose — see that file). */
+function prefillRoomAmounts(group: RoomGroup, totalMyr: number, infantIds: Set<number>): Record<string, number> {
+  const totalSen = Math.round(totalMyr * 100);
+  const weights = group.rooms.map(r => nonInfantCount(r, infantIds));
+  const sens = allocateByWeight(totalSen, weights);
+  const out: Record<string, number> = {};
+  group.rooms.forEach((r, i) => { out[String(r.id)] = sens[i] / 100; });
+  return out;
 }
 
 /** Equal split in sen with remainder going to the first participants. */
@@ -42,7 +116,7 @@ export function equalShares(total: number, ids: number[]): Record<number, number
   return out;
 }
 
-export default function ExpenseForm({ members, initial, onSubmit, submitLabel, busy, externalPatch }: {
+export default function ExpenseForm({ members, initial, onSubmit, submitLabel, busy, externalPatch, tripId }: {
   members: Participant[];
   initial: ExpenseDraft;
   onSubmit: (payload: any) => Promise<void>;
@@ -50,12 +124,114 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
   busy?: boolean;
   /** v0.11 keyword chips push values in from outside; bump seq per tap */
   externalPatch?: { seq: number; data: Partial<ExpenseDraft> | ((prev: ExpenseDraft) => Partial<ExpenseDraft>) };
+  /** v0.25 — needed to lazily fetch GET /trips/:id/rooms for the room-split
+   *  option. Optional so any pre-existing caller that never touches
+   *  accommodation expenses keeps compiling untouched; the rooms option
+   *  simply never appears without it. */
+  tripId?: number;
 }) {
   const { t } = useT();
+  const { toast } = useToast();
   const [d, setD] = useState<ExpenseDraft>(initial);
   const [err, setErr] = useState('');
   const [fxBusy, setFxBusy] = useState(false);
   const set = (patch: Partial<ExpenseDraft>) => setD(prev => ({ ...prev, ...patch }));
+
+  // ---- v0.25 room-cost splitting (additive) ----
+  const [roomsData, setRoomsData] = useState<{ rooms: RoomRow[]; suggested_stays: any[] } | null>(null);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+
+  // Fetch rooms lazily when category becomes accommodation; cached in state
+  // for the life of this form instance (no refetch on re-render).
+  useEffect(() => {
+    if (d.category !== 'accommodation' || !tripId || roomsData || roomsLoading) return;
+    setRoomsLoading(true);
+    api.get(`/trips/${tripId}/rooms`)
+      .then(r => setRoomsData({ rooms: r.rooms ?? [], suggested_stays: r.suggested_stays ?? [] }))
+      .catch(() => setRoomsData({ rooms: [], suggested_stays: [] }))
+      .finally(() => setRoomsLoading(false));
+  }, [d.category, tripId, roomsData, roomsLoading]);
+
+  const infantIds = useMemo(() => new Set(members.filter(m => m.is_infant).map(m => m.id)), [members]);
+  const roomGroups = useMemo(() => roomsData ? groupRoomsByStay(roomsData.rooms) : [], [roomsData]);
+  const activeGroup = useMemo(
+    () => d.roomsSplit ? roomGroups.find(g => g.stay_label === d.roomsSplit!.stay_label) ?? null : null,
+    [roomGroups, d.roomsSplit],
+  );
+
+  const enableRoomsMode = () => {
+    const group = pickBestStayGroup(roomGroups, d.expense_date, d.end_date, d.description);
+    if (!group) return;
+    const amounts = prefillRoomAmounts(group, d.amount_myr, infantIds);
+    const dirty: Record<string, boolean> = {};
+    for (const k of Object.keys(amounts)) dirty[k] = false;
+    set({ roomsSplit: { stay_label: group.stay_label, amounts, dirty } });
+  };
+  const disableRoomsMode = () => set({ roomsSplit: null });
+
+  const changeStayGroup = (stayLabel: string) => {
+    const group = roomGroups.find(g => g.stay_label === stayLabel);
+    if (!group) return;
+    const amounts = prefillRoomAmounts(group, d.amount_myr, infantIds);
+    const dirty: Record<string, boolean> = {};
+    for (const k of Object.keys(amounts)) dirty[k] = false;
+    set({ roomsSplit: { stay_label: stayLabel, amounts, dirty } });
+  };
+
+  const setRoomAmount = (roomId: number, value: number, markDirty = true) => {
+    if (!d.roomsSplit) return;
+    const key = String(roomId);
+    set({
+      roomsSplit: {
+        ...d.roomsSplit,
+        amounts: { ...d.roomsSplit.amounts, [key]: value },
+        dirty: markDirty ? { ...d.roomsSplit.dirty, [key]: true } : d.roomsSplit.dirty,
+      },
+    });
+  };
+
+  const balanceLastRoom = () => {
+    if (!d.roomsSplit || !activeGroup || activeGroup.rooms.length === 0) return;
+    const last = activeGroup.rooms[activeGroup.rooms.length - 1];
+    const othersSumSen = activeGroup.rooms.slice(0, -1)
+      .reduce((a, r) => a + Math.round((Number(d.roomsSplit!.amounts[String(r.id)]) || 0) * 100), 0);
+    const remainingSen = Math.round(d.amount_myr * 100) - othersSumSen;
+    if (remainingSen < 0) return;
+    setRoomAmount(last.id, remainingSen / 100, true);
+  };
+
+  // Recompute non-dirty room amounts when the total or the selected stay
+  // changes — never touches rooms the user has hand-edited.
+  useEffect(() => {
+    if (!d.roomsSplit || !activeGroup) return;
+    const fresh = prefillRoomAmounts(activeGroup, d.amount_myr, infantIds);
+    setD(prev => {
+      if (!prev.roomsSplit) return prev;
+      let changed = false;
+      const amounts = { ...prev.roomsSplit.amounts };
+      for (const r of activeGroup.rooms) {
+        const key = String(r.id);
+        if (!prev.roomsSplit.dirty[key] && amounts[key] !== fresh[key]) { amounts[key] = fresh[key]; changed = true; }
+      }
+      return changed ? { ...prev, roomsSplit: { ...prev.roomsSplit, amounts } } : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d.amount_myr, activeGroup]);
+
+  // v0.25 F2b — when roomsSplit mode is on but the saved stay group no
+  // longer resolves (renamed/deleted), there is nothing to sum against and
+  // the remainder MUST NOT read as "balanced" — that early-return-0 hole is
+  // what let a stale-stay save reach the server silently. Any non-zero
+  // sentinel keeps the `roomsRemainderSen !== 0` submit gate closed; the
+  // actual guidance shown to the user is the staleStayMsg block below.
+  const ROOMS_STALE_STAY_SENTINEL_SEN = Number.MAX_SAFE_INTEGER;
+  const roomsRemainderSen = useMemo(() => {
+    if (!d.roomsSplit) return 0;
+    if (!activeGroup) return ROOMS_STALE_STAY_SENTINEL_SEN;
+    const sumSen = activeGroup.rooms.reduce(
+      (a, r) => a + Math.round((Number(d.roomsSplit!.amounts[String(r.id)]) || 0) * 100), 0);
+    return Math.round(d.amount_myr * 100) - sumSen;
+  }, [d.roomsSplit, activeGroup, d.amount_myr]);
 
   useEffect(() => {
     if (externalPatch && externalPatch.seq > 0) {
@@ -105,6 +281,58 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr('');
+    // v0.25 rooms mode is a fully separate branch — the equal/custom path
+    // below (existing code) is never reached when it's active, so that
+    // path's payload shape and sumOk gate stay byte-identical.
+    if (d.roomsSplit) {
+      // v0.25 F2b — the stay this split was built against no longer
+      // resolves (renamed/deleted room's stay_label). Nothing safe to send.
+      if (!activeGroup) { setErr(t.staleStayMsg); return; }
+      if (roomsRemainderSen !== 0) { setErr(t.remainderLeft(fmtMYR(roomsRemainderSen / 100))); return; }
+      // v0.25 F2a — build room_amounts from the CURRENT stay's rooms
+      // (activeGroup.rooms), matching prior amounts by room id. A room
+      // present in d.roomsSplit.amounts but no longer in the stay (deleted)
+      // simply drops out here instead of being sent and rejected as
+      // unknown_room; a room newly added to the stay that the prefill
+      // effect hasn't caught up with yet defaults to 0 (and the remainder
+      // gate above catches it, since 0 for that room won't balance the sum).
+      const roomAmounts: Record<string, number> = {};
+      for (const r of activeGroup.rooms) {
+        const key = String(r.id);
+        roomAmounts[key] = Number(d.roomsSplit.amounts[key]) || 0;
+      }
+      const roomsPayload = {
+        category: d.category, description: d.description, vendor: d.vendor || undefined,
+        location: d.location || undefined,
+        expense_date: d.expense_date || undefined, end_date: d.end_date || undefined,
+        payment_date: d.payment_date || undefined,
+        amount_original: Number(d.amount_original), currency: d.currency,
+        fx_rate: Number(d.fx_rate), amount_myr: Number(d.amount_myr),
+        payer_participant_id: Number(d.payer_participant_id),
+        shares: [] as Array<{ participant_id: number; amount_myr: number }>, // server recomputes for split.mode==='rooms'
+        due_dates: d.due_dates.filter(x => x.due_date),
+        payment_status: d.payment_status,
+        split: { mode: 'rooms' as const, stay_label: d.roomsSplit.stay_label, room_amounts: roomAmounts },
+      };
+      // v0.25 F2c — no silent failures: a rooms-split save can now be
+      // rejected by server-side codes that a client-side gate can't fully
+      // prevent (e.g. another tab changed the stay between load and save).
+      // Map any known code to one generic, actionable toast; keep the raw
+      // code in a console.warn for debugging. Anything unrecognized falls
+      // through to the inline error callout as before.
+      try {
+        await onSubmit(roomsPayload);
+      } catch (e) {
+        const code = e instanceof ApiError ? e.code : undefined;
+        if (code && KNOWN_ROOMS_SPLIT_ERROR_CODES.has(code)) {
+          console.warn(`[rooms-split] save rejected: ${code}`);
+          toast(t.roomsSplitRejected, 'error');
+        } else {
+          setErr(t.roomsSplitRejected);
+        }
+      }
+      return;
+    }
     if (!sumOk) { setErr(t.sharesMustSum); return; }
     const payload = {
       category: d.category, description: d.description, vendor: d.vendor || undefined,
@@ -190,6 +418,61 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
         </label>
       </div>
 
+      {/* v0.25 — "Split by rooms" option, additive: only shown for
+          accommodation expenses with at least one room stay group. Selecting
+          it hides the participant-picker + equal/custom blocks below
+          (which stay byte-identical when it's off) in favor of the room
+          editor. */}
+      {d.category === 'accommodation' && roomGroups.length > 0 && (
+        <div className="room-split-editor">
+          <div className="row" style={{ marginBottom: d.roomsSplit ? 10 : 0 }}>
+            <label className="row" style={{ gap: 5 }}>
+              <input type="radio" checked={!d.roomsSplit} onChange={disableRoomsMode} /> {t.equalSplit}/{t.customSplit}
+            </label>
+            <label className="row" style={{ gap: 5 }}>
+              <input type="radio" checked={!!d.roomsSplit} onChange={enableRoomsMode} /> {t.splitByRooms}
+            </label>
+          </div>
+          {/* v0.25 F2b — saved split points at a stay_label that no longer
+              resolves against the trip's current rooms (the stay was
+              renamed or every room in it deleted). There is nothing to
+              render or balance against, so show an explicit error instead
+              of silently disappearing — the submit gate below also refuses
+              this state via the roomsRemainderSen sentinel. */}
+          {d.roomsSplit && !activeGroup && (
+            <p className="callout warn">{t.staleStayMsg}</p>
+          )}
+          {d.roomsSplit && activeGroup && (
+            <div>
+              <label className="fld full" style={{ marginBottom: 8 }}>
+                <span>{t.chooseStay}</span>
+                <select value={d.roomsSplit.stay_label} onChange={e => changeStayGroup(e.target.value)}>
+                  {roomGroups.map(g => <option key={g.stay_label} value={g.stay_label}>{g.stay_label}</option>)}
+                </select>
+              </label>
+              {activeGroup.rooms.map(r => {
+                const infants = r.occupant_ids.filter(id => infantIds.has(id)).length;
+                const count = r.occupant_ids.length - infants;
+                return (
+                  <div className="room-split-row" key={r.id}>
+                    <span>{r.name} <span className="tiny">({occupancyLabel(count, infants, r.capacity)})</span></span>
+                    <input type="number" step="0.01" min="0" value={d.roomsSplit!.amounts[String(r.id)] ?? 0}
+                      onChange={e => setRoomAmount(r.id, Number(e.target.value))} />
+                  </div>
+                );
+              })}
+              <div className="row-between" style={{ marginTop: 8 }}>
+                <button type="button" className="btn ghost sm" onClick={balanceLastRoom}>{t.balanceLast}</button>
+                <span className={`room-split-remainder${roomsRemainderSen !== 0 ? ' err' : ''}`}>
+                  {t.remainderLeft(fmtMYR(roomsRemainderSen / 100))}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!d.roomsSplit && (
       <div style={{ margin: '8px 0 14px' }}>
         <div className="row-between">
           <span style={{ fontWeight: 600, fontSize: '.85rem', color: 'var(--ink-2)' }}>
@@ -211,8 +494,9 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
           ))}
         </div>
       </div>
+      )}
 
-      {d.participant_ids.length > 0 && (
+      {!d.roomsSplit && d.participant_ids.length > 0 && (
         <div style={{ marginBottom: 14 }}>
           <div className="row" style={{ marginBottom: 6 }}>
             <label className="row" style={{ gap: 5 }}>
@@ -271,8 +555,10 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
       </div>
 
       {err && <p className="callout warn">{err}</p>}
-      {!sumOk && d.participant_ids.length > 0 && <p className="callout warn">{t.sharesMustSum}</p>}
-      <button className="btn" type="submit" disabled={busy || !d.payer_participant_id || d.participant_ids.length === 0}>
+      {!d.roomsSplit && !sumOk && d.participant_ids.length > 0 && <p className="callout warn">{t.sharesMustSum}</p>}
+      <button className="btn" type="submit"
+        disabled={busy || !d.payer_participant_id
+          || (d.roomsSplit ? (!activeGroup || roomsRemainderSen !== 0) : d.participant_ids.length === 0)}>
         {submitLabel}
       </button>
     </form>

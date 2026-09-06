@@ -18,7 +18,7 @@ interface Series {
 const SIGNAL_VARIANT = { buy: 'success', ok: 'gray', wait: 'warning' } as const;
 
 function Sparkline({ s }: { s: Series }) {
-  const W = 220, H = 48, P = 3;
+  const W = 480, H = 72, P = 3;
   const rates = s.points.map(p => p.rate);
   const lo = Math.min(...rates, s.band?.low ?? Infinity);
   const hi = Math.max(...rates, s.band?.high ?? -Infinity);
@@ -26,7 +26,7 @@ function Sparkline({ s }: { s: Series }) {
   const x = (i: number) => P + (i / Math.max(s.points.length - 1, 1)) * (W - 2 * P);
   const y = (r: number) => H - P - ((r - lo) / span) * (H - 2 * P);
   return (
-    <svg className="fx-spark" viewBox={`0 0 ${W} ${H}`} width={W} height={H} aria-hidden>
+    <svg className="fx-spark" viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" aria-hidden>
       {s.band && (
         <rect x={0} y={y(s.band.high)} width={W} height={Math.max(y(s.band.low) - y(s.band.high), 1)}
           className="fx-band" />

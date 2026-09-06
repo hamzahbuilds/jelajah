@@ -86,6 +86,7 @@ export const SCHEMA: string[] = [
     lat REAL,
     lng REAL,
     payment_status TEXT NOT NULL DEFAULT 'paid',
+    split_json TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS expense_shares (
@@ -322,6 +323,7 @@ export const UPGRADES: string[] = [
   `ALTER TABLE trips ADD COLUMN cover_key TEXT`,
   `ALTER TABLE trips ADD COLUMN cover_credit TEXT`,
   `ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE expenses ADD COLUMN split_json TEXT`,
   ...SCHEMA.filter(s =>
     /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily|rooms|room_occupants)\b/.test(s)
     || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code|idx_rooms_trip/.test(s)),

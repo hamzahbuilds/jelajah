@@ -1,4 +1,4 @@
--- Jelajah D1 schema — regenerated from server/lib/schema.ts SCHEMA (v0.21).
+-- Jelajah D1 schema — regenerated from server/lib/schema.ts SCHEMA (v0.25).
 -- Runtime UPGRADES in schema.ts self-heal older DBs; this file is the fresh-install CLI path.
 -- Regenerate rather than hand-edit: keep in sync with server/lib/schema.ts.
 PRAGMA foreign_keys = ON;
@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS expenses (
     lat REAL,
     lng REAL,
     payment_status TEXT NOT NULL DEFAULT 'paid',
+    split_json TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 

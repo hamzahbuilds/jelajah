@@ -10,6 +10,7 @@ import PageHead from '../components/PageHead';
 import Empty from '../components/Empty';
 import Modal from '../components/Modal';
 import { Icon, type IconName } from '../components/Icon';
+import { roomsDrift, parseRoomsSplitJson } from '../lib/roomsDrift';
 
 // tile icon by category — plane/hotel/train/ticket/food, falling back to a
 // generic receipt for anything without a closer match (shopping, other…).
@@ -24,9 +25,20 @@ export default function Ledger() {
   const [data, setData] = useState<any>(null);
   const [filter, setFilter] = useState('all');
   const [editing, setEditing] = useState<any | 'new' | null>(null);
+  // F2-adjacent — mirrors Review.tsx's busy gate: without it the submit
+  // button in the modal never disables during the request, so a rapid
+  // double-click sends two POST/PUT calls (double-submit / duplicate save).
+  const [busy, setBusy] = useState(false);
+  // v0.25 — rooms payload for the "By rooms" badge + drift chip. Member-safe
+  // GET (same access gate as the expenses list), fetched once alongside it.
+  const [rooms, setRooms] = useState<Array<{ id: number; occupant_ids: number[] }>>([]);
 
   const load = async () => setData(await api.get(`/trips/${tripId}/expenses`));
-  useEffect(() => { load(); }, [tripId]);
+  const loadRooms = async () => {
+    try { const r = await api.get(`/trips/${tripId}/rooms`); setRooms(r.rooms ?? []); }
+    catch { setRooms([]); }
+  };
+  useEffect(() => { load(); loadRooms(); }, [tripId]);
 
   const sharesByExpense = useMemo(() => {
     const map = new Map<number, any[]>();
@@ -60,15 +72,38 @@ export default function Ledger() {
       due_dates: (data?.due_dates ?? []).filter((x: any) => x.expense_id === e.id)
         .map((x: any) => ({ due_date: x.due_date, amount_myr: x.amount_myr ?? undefined, note: x.note ?? undefined, participant_id: x.participant_id ?? null })),
     });
+    // v0.25 — re-open a rooms-split expense (edit OR re-apply) in rooms mode,
+    // amounts prefilled from the saved split_json. Every room is marked
+    // dirty so the room editor's own re-prefill effect never overwrites
+    // these saved amounts — the editor's occupancy badges still read from
+    // the live `rooms` payload, so drifted occupants show as CURRENT there.
+    const sj = parseRoomsSplitJson(e.split_json);
+    if (sj) {
+      const amounts: Record<string, number> = {};
+      const dirty: Record<string, boolean> = {};
+      for (const [rid, amt] of Object.entries(sj.room_amounts ?? {})) { amounts[rid] = Number(amt); dirty[rid] = true; }
+      d.roomsSplit = { stay_label: sj.stay_label, amounts, dirty };
+    }
     return d;
   };
 
+  const openEdit = async (e: any) => {
+    await loadRooms(); // refresh occupants so the room editor reflects any drift
+    setEditing(e);
+  };
+
   const save = async (payload: any) => {
-    if (editing === 'new') await api.post(`/trips/${tripId}/expenses`, payload);
-    else await api.put(`/expenses/${editing.id}`, payload);
-    setEditing(null);
-    toast(t.tExpenseSaved);
-    await load();
+    setBusy(true);
+    try {
+      if (editing === 'new') await api.post(`/trips/${tripId}/expenses`, payload);
+      else await api.put(`/expenses/${editing.id}`, payload);
+      setEditing(null);
+      toast(t.tExpenseSaved);
+      await load();
+      await loadRooms();
+    } finally {
+      setBusy(false);
+    }
   };
 
   const remove = async (e: any) => {
@@ -129,11 +164,15 @@ export default function Ledger() {
             e.document_id ? `${t.documentCol} #${e.document_id}` : null,
           ].filter(Boolean).join(' · ');
           const shareCount = (sharesByExpense.get(e.id) ?? []).length;
+          // v0.25 — rooms-split badge + drift detection (pure helper, src/lib/roomsDrift.ts)
+          const roomsSplitJson = parseRoomsSplitJson(e.split_json);
+          const drifted = roomsSplitJson ? roomsDrift(e.split_json, rooms) : false;
           return (
             <div className="lrow" key={e.id}>
               <span className="tile"><Icon name={CAT_ICON[e.category] ?? 'receipt'} /></span>
               <div className="l-main">
                 <b>{e.description}</b>
+                {roomsSplitJson && <span className="badge brand" style={{ marginLeft: 6 }}>{t.byRooms}</span>}
                 <small>
                   {fmtDate(e.expense_date, lang)}
                   {e.payer_participant_id ? ` · ${pname(e.payer_participant_id)}` : ''}
@@ -155,9 +194,15 @@ export default function Ledger() {
                     {t.markPaid}
                   </button>
                 )}
+                {roomsSplitJson && drifted && canLead && (
+                  <>
+                    <span className="badge warning" title={t.roomsChanged}>{t.roomsChanged}</span>
+                    <button type="button" className="btn ghost sm" onClick={() => openEdit(e)}>{t.reapply}</button>
+                  </>
+                )}
                 {canLead && (
                   <>
-                    <button type="button" className="btn ghost sm" aria-label={t.edit} onClick={() => setEditing(e)}>
+                    <button type="button" className="btn ghost sm" aria-label={t.edit} onClick={() => openEdit(e)}>
                       <Icon name="edit" size={16} />
                     </button>
                     <button type="button" className="btn ghost sm" aria-label={t.delete} onClick={() => remove(e)}>
@@ -175,7 +220,7 @@ export default function Ledger() {
         icon={editing === 'new' ? 'plus' : 'edit'}
         title={editing === 'new' ? t.addExpense : t.editExpense}>
         {editing && (
-          <ExpenseForm members={members}
+          <ExpenseForm members={members} tripId={tripId} busy={busy}
             initial={editing === 'new' ? emptyDraft() : draftFor(editing)}
             submitLabel={t.save} onSubmit={save} />
         )}

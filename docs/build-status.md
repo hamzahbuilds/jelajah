@@ -1,6 +1,105 @@
 # Jelajah — Build Status
 
-Updated: 6 Sep 2026 (v0.23 COMPLETE — mobile overflow fixes, walk icon, key-optional Unsplash, e2e green)
+Updated: 6 Sep 2026 (v0.25 COMPLETE — room-cost splitting, e2e green)
+
+## v0.25.0 — room-cost splitting (6 Sep 2026) — v0.25 COMPLETE
+
+Per `docs/13-spec-v0.25-room-split.md` (approved): links the v0.21 rooms
+allocation (previously informational-only) to the split engine, so an
+accommodation expense can be divided by room instead of equally/custom
+across all participants.
+
+**Shipped (T1–T4):**
+- **Engine** (`shared/roomSplit.ts`, additive, frozen once landed) —
+  `roomShares()`: pure function, all arithmetic in integer sen internally
+  (float MYR only at the input/output boundary) to avoid drift. Splits the
+  total across rooms by each room's entered amount, then within a room
+  divides evenly among its non-infant occupants; when a room's sen amount
+  doesn't divide evenly, the extra sen go to the lowest participant ids
+  first (documented, deterministic tie-break). Throws typed
+  `RoomSplitError`s (`ROOM_SPLIT_ERROR_CODES`) for invalid/negative amounts,
+  duplicate occupants across rooms, sum mismatch vs the expense total, an
+  empty room with a non-zero amount, and an infant-only room with a
+  non-zero amount. A separate `allocateByWeight` weighted largest-remainder
+  helper is exported for **UI prefill only** — never used by `roomShares`
+  itself, keeping the money-critical path a single, frozen code path.
+  21 unit tests (`tests/roomSplit.test.ts`).
+- **Routes** (`server/app.ts`) — `POST/PUT` on `/trips/:id/expenses` and
+  `/expenses/:id` accept an optional `split: { mode:'rooms', stay_label,
+  room_amounts }` body. `resolveRoomsSplit()` validates category is
+  `accommodation` first (else `400 rooms_split_category` — checked before
+  any other field, so a non-accommodation category always short-circuits
+  here regardless of what else is in the payload), resolves the stay's
+  rooms + current occupants + infant flags from D1, calls `roomShares()`,
+  and persists the engine-computed shares (client-sent shares are ignored
+  for rooms mode) plus a `split_json` snapshot
+  (`{mode,stay_label,room_amounts,occupants}`) used later for drift
+  detection. Any other/absent `split` leaves `split_json` `NULL` and the
+  existing equal/custom path byte-identical.
+- **Editor** (`src/components/ExpenseForm.tsx`) — "Split by rooms" appears
+  only for `category === 'accommodation'` with ≥1 room stay group; picking
+  it hides the participant-picker + equal/custom blocks (unwrapped and
+  untouched otherwise). Per-room amount inputs prefill via
+  `allocateByWeight` (weighted by non-infant occupant count) but freeze the
+  moment a user hand-edits a room (`dirty` flags) so the recompute effect
+  never clobbers a manual entry. Live remainder line + a "Balance last
+  room" helper; submit is blocked client-side while the remainder ≠ 0 (the
+  server re-validates regardless).
+- **Drift** (`src/lib/roomsDrift.ts`, `src/pages/Ledger.tsx`) — pure
+  `roomsDrift(split_json, currentRooms)` compares the saved occupants
+  snapshot to live room occupancy (order-insensitive; a since-deleted room
+  counts as drift). Ledger fetches rooms alongside expenses and shows a
+  "Rooms changed since this split" chip + **Re-apply** button on any
+  drifted row (leader-only). Re-apply is literally the existing edit path
+  (`openEdit`) with no new endpoint or state machine — the room editor
+  reopens with the **saved amounts** but **current** occupant
+  counts/badges, so re-saving recomputes shares against who's actually in
+  each room today. 14 unit tests (`tests/roomsDrift.test.ts`).
+- **Conservation invariant**, verified exactly (sen-precise, no float
+  rounding) in unit tests and e2e alike: `Σ per-person shares ===
+  amount_myr` in every rooms-mode split, before and after a re-apply.
+- **Modes frozen**: the pre-existing equal-split and custom-split code
+  paths in `ExpenseForm.tsx` are unmodified except for additive
+  `!d.roomsSplit &&` visibility gates — verbatim below the new
+  `if (d.roomsSplit)` early-return in `submit()`.
+- **e2e** (`scripts/e2e.mjs`, reuses the v0.21 "E2E Test Stay" / Room
+  One (1 occupant) / Room Two (2 occupants) fixtures): leader adds a
+  RM350.00 accommodation expense split by rooms (Room One RM200.00, Room
+  Two RM150.00) — asserts the remainder line reaches 0, the "By rooms"
+  badge appears on the ledger row, and per-person shares are **exact**
+  (200 / 75 / 75, hand-computed, sum 350 conserved) via
+  `GET /trips/:id/expenses`. Then moves an occupant between the two rooms
+  via the rooms API, reloads the ledger, asserts the drift chip appears,
+  clicks Re-apply, confirms the editor shows the *current* occupancy
+  ((2) / (1/2)) with the *saved* amounts (200/150) unchanged, saves, and
+  asserts the *new* exact shares (100 / 100 / 150, sum 350 conserved) with
+  the drift chip gone afterward. Negative coverage: a non-accommodation
+  expense form shows no "Split by rooms" option (categories `other` and
+  `food` both checked), and a direct API `POST` with
+  `split.mode:'rooms'` on category `food` 400s `rooms_split_category`
+  (request-level assert, bypassing the UI). Marker:
+  `E2E PASSED (Phase 1 + 2 + v0.6-v0.25)`.
+- **Verify trio, 2 clean full-suite runs**: `npx vitest run` 202/202 ·
+  `npx tsc --noEmit` clean · `node scripts/e2e.mjs` green twice in a row
+  (full reset-and-reseed ritual between runs), no fetch-flake sighted in
+  either run.
+
+**Explicitly deferred (recorded, untouched):**
+- **Offline write queueing (v2)** — reads only (PWA, v0.22); writes still
+  never intercepted by the service worker, by design.
+- **Push notifications** — needs its own spec.
+- **Per-night room splits** — v0.25 splits a room's *entered amount* across
+  its occupants for the whole stay; splitting by individual night (e.g. an
+  occupant who only stayed 2 of 4 nights) is a distinct future spec, not
+  attempted here.
+
+## v0.24.0 — dashboard/sidebar/plan polish (6 Sep 2026)
+
+- Dashboard: consistent 16px card rhythm; Currency + Up-next share a 2-col row on desktop; sparkline stretches full-width (FxWidget layout-only, logic frozen).
+- Sidebar: language select + bare logout icon removed; proper "Log out" nav item; avatar aligned to the icon grid; language now lives in Settings for everyone (mobile topbar select also removed).
+- Plan: transit chips aligned to the pin column (solid background, rail line flows behind); row actions redesigned — checkbox always visible, desktop "Edit mode" toggle reveals move/edit/delete/drag, mobile per-row ⋯ opens the shared actions menu. All handlers byte-frozen.
+- e2e: language steps migrated to Settings; Move-up steps gated on Edit mode; new mobile ⋯ asserts; Unsplash block now KEY-AGNOSTIC (branches on carousel probe; both branches ritual-verified). Marker: E2E PASSED (Phase 1 + 2 + v0.6-v0.24).
+- Watch item: transient e2e fetch-flake (2nd sighting, unreproduced on retry) — 3rd sighting earns a repro ticket.
 
 ## v0.23.0 — "Mobile overflow + key-optional Unsplash" (6 Sep 2026) — v0.23 COMPLETE
 
@@ -100,8 +199,8 @@ needed — and should get one live pass once a key is provisioned.
 - **Offline write queueing (v2)** — reads only in v1 (PWA, v0.22); writes are
   never intercepted by the service worker, by design.
 - **Push notifications** — needs its own spec.
-- **Room-cost splitting v2** — rooms are informational only (v0.21); linking
-  room assignment to the split engine is a distinct future spec.
+- **Room-cost splitting** — shipped in v0.25 (see that section above); this
+  bullet is kept here only as a historical note that it was once deferred.
 - **MySpend `CAT_EMOJI` consistency pass (optional)** — `MySpend.tsx`'s
   category-icon map (`food`/`shopping`/`transport`/`entrance`/`other`) is
   still plain-text emoji, not sprite icons like the rest of the app's iconography;

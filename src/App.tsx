@@ -136,11 +136,10 @@ function Shell() {
 }
 
 function Chrome({ children }: { children: React.ReactNode }) {
-  const { t, lang, setLang } = useT();
+  const { t } = useT();
   const { user, logout } = useSession();
   const [offline, setOffline] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const changeLang = async (l: Lang) => { setLang(l); await api.patch('/me', { lang: l }); };
 
   // v0.22 PWA — offline banner tracks the most recent API response; it
   // clears itself the instant a fresh (online) response arrives.
@@ -169,10 +168,6 @@ function Chrome({ children }: { children: React.ReactNode }) {
           {user.role === 'admin' && (
             <a href="/admin" style={{ color: '#fff', textDecoration: 'none', fontSize: '.85rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}><Icon name="shield" size={16} /> {t.adminTitle}</a>
           )}
-          <select value={lang} onChange={e => changeLang(e.target.value as Lang)} aria-label={t.language}>
-            <option value="en">EN</option>
-            <option value="ms">BM</option>
-          </select>
           <span style={{ fontSize: '.85rem', opacity: .9 }}>{user.name}</span>
           <button onClick={logout}>{t.logout}</button>
         </div>
