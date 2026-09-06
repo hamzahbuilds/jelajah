@@ -28,6 +28,21 @@ Spec: docs/16-spec-v0.27-spacing-audit-polish.md. Feedback batch, no money-path 
 - Verified: tsc clean, 223 unit tests pass, full ritual
   `E2E PASSED (Phase 1 + 2 + v0.6-v0.27)` incl. new checks (container padding 24px,
   feed 5-default → 15 after Show more, Trip Settings title).
+- **Dark-mode contrast fixes** (follow-up, same day): several elements hardcoded
+  light backgrounds while text inherited the dark theme's light ink — unreadable
+  in dark mode. Added `[data-theme="dark"]` overrides co-located with each base
+  rule: `.chip` (was `#fff` bg → white-on-white; now gray-800) and `.chip.on`
+  (teal wash + brand-300), form `input/select/textarea` (was `#fff`; now gray-800 +
+  gray-700 border), `.callout.warn/.info` (translucent amber/sky washes),
+  `.dropzone:hover/.drag`, `.weekcell.on`, `.cal-cell.trip`, `.emoji-swatch.on`
+  (all were `#f0fdfa` → teal washes), `.hl-row` (`#fef9c3` → yellow wash),
+  `.invite-row-new` (`#ccfbf1` → teal wash). Verified via headless computed-style
+  check in dark theme (chip: teal wash/brand-300; input: gray-800/light ink) +
+  full e2e rerun green. Audited clean: badges, daypills, login card (authcard
+  neutralizes it), drop2, tooltips (already dark-toned).
+- Watch item: transient e2e flake, 3rd sighting (this time "drift chip should be
+  gone after the nights-drift re-apply" — passed unchanged on immediate rerun;
+  earlier two were fetch flakes). Repro ticket now warranted per the v0.26 ruling.
 
 ## v0.26.0 — per-night room splits, nights-as-weights (6 Sep 2026) — v0.26 COMPLETE
 

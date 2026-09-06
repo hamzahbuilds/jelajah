@@ -145,6 +145,9 @@ input, select, textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
   font-family: inherit; background: #fff; color: var(--ink);
 }
+[data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea {
+  background: var(--gray-800); border-color: var(--gray-700);
+}
 input:focus, select:focus, textarea:focus { outline: 2px solid #99f6e4; border-color: var(--brand-700); }
 .form-grid { display: grid; gap: 0 14px; }
 @media (min-width: 640px) { .form-grid { grid-template-columns: 1fr 1fr; } .form-grid .full { grid-column: 1 / -1; } }
@@ -154,6 +157,8 @@ button.icon { background: none; border: none; cursor: pointer; font-size: 1rem; 
 .callout { border-radius: 8px; padding: 10px 12px; font-size: .87rem; margin: 8px 0; }
 .callout.warn { background: #FEF0C7; color: var(--warning-700); }
 .callout.info { background: #e0f2fe; color: #075985; }
+[data-theme="dark"] .callout.warn { background: rgba(247,144,9,.15); color: #FDB022; }
+[data-theme="dark"] .callout.info { background: rgba(14,165,233,.15); color: #7CD4FD; }
 
 /* checkbox chip picker */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -163,6 +168,10 @@ button.icon { background: none; border: none; cursor: pointer; font-size: 1rem; 
   max-width: 100%; overflow-wrap: anywhere;
 }
 .chip.on { background: #ccfbf1; border-color: var(--brand-700); color: var(--brand-800); font-weight: 600; }
+/* dark: .chip's hardcoded #fff bg + inherited light ink made chips
+   white-on-white; .on's light-teal wash had the same problem */
+[data-theme="dark"] .chip { background: var(--gray-800); color: var(--ink-2); border-color: var(--gray-700); }
+[data-theme="dark"] .chip.on { background: rgba(15,118,110,.25); border-color: var(--brand-500); color: var(--brand-300); }
 
 /* ---------- tables ---------- */
 .tablewrap { overflow-x: auto; }
@@ -201,6 +210,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
   text-align: center; color: var(--ink-2); cursor: pointer; background: var(--surface);
 }
 .dropzone:hover, .dropzone.drag { border-color: var(--brand-700); background: #f0fdfa; }
+[data-theme="dark"] .dropzone:hover, [data-theme="dark"] .dropzone.drag { background: rgba(15,118,110,.15); }
 
 /* v0.19 upload zone (Documents.tsx only — suffixed so Plan.tsx's .dropzone stays untouched) */
 .drop2 {
@@ -346,6 +356,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
   padding: 10px; cursor: pointer; min-height: 90px;
 }
 .weekcell.on { border-color: var(--brand-700); background: #f0fdfa; }
+[data-theme="dark"] .weekcell.on { background: rgba(15,118,110,.2); border-color: var(--brand-500); }
 .weekcell .wc-head { font-weight: 700; font-size: .78rem; color: var(--brand-700); margin-bottom: 4px; }
 [data-theme="dark"] .weekcell .wc-head { color: var(--brand-300); }
 .weekcell .wc-item { font-size: .76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 0; }
@@ -357,6 +368,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
   font-size: .72rem; cursor: pointer; overflow: hidden; background: var(--surface);
 }
 .cal-cell.trip { background: #f0fdfa; }
+[data-theme="dark"] .cal-cell.trip { background: rgba(15,118,110,.18); }
 .cal-cell.on { border-color: var(--brand-700); border-width: 2px; }
 .cal-cell .cal-num { font-weight: 700; color: var(--ink-2); }
 .cal-cell .cal-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -381,6 +393,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 .scroll-cap { max-height: 190px; overflow-y: auto; padding-right: 4px; }
 .scroll-cap-lg { max-height: 420px; overflow-y: auto; padding-right: 4px; }
 .hl-row { background: #fef9c3; border-radius: 6px; }
+[data-theme="dark"] .hl-row { background: rgba(250,204,21,.16); }
 
 /* ---------- responsive hardening ---------- */
 img, iframe, .preview { max-width: 100%; }
@@ -413,6 +426,7 @@ img, iframe, .preview { max-width: 100%; }
   display: inline-flex; align-items: center; justify-content: center; padding: 0;
 }
 .emoji-swatch.on { border-color: var(--brand-700); background: #f0fdfa; }
+[data-theme="dark"] .emoji-swatch.on { background: rgba(15,118,110,.25); border-color: var(--brand-500); }
 .color-swatch {
   width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--border); cursor: pointer; padding: 0;
 }
@@ -600,6 +614,7 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
 
 /* v0.17 invite panel */
 .invite-row-new { background: #ccfbf1; border-radius: 8px; padding-left: 6px; padding-right: 6px; }
+[data-theme="dark"] .invite-row-new { background: rgba(15,118,110,.22); }
 
 /* v0.19 inline SVG icon system */
 .icon { fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:0 0 auto; vertical-align:-4px; overflow:visible; }
