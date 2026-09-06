@@ -230,6 +230,21 @@ export const SCHEMA: string[] = [
     settled_at TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_personal_shares ON personal_shares(personal_expense_id)`,
+  `CREATE TABLE IF NOT EXISTS rooms (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    stay_label TEXT NOT NULL,
+    check_in TEXT, check_out TEXT,
+    name TEXT NOT NULL,
+    capacity INTEGER,
+    sort INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE TABLE IF NOT EXISTS room_occupants (
+    room_id INTEGER NOT NULL REFERENCES rooms(id),
+    participant_id INTEGER NOT NULL REFERENCES participants(id),
+    PRIMARY KEY (room_id, participant_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_rooms_trip ON rooms(trip_id, stay_label)`,
   `CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -308,8 +323,8 @@ export const UPGRADES: string[] = [
   `ALTER TABLE trips ADD COLUMN cover_credit TEXT`,
   `ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT ''`,
   ...SCHEMA.filter(s =>
-    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily)\b/.test(s)
-    || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code/.test(s)),
+    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily|rooms|room_occupants)\b/.test(s)
+    || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code|idx_rooms_trip/.test(s)),
 ];
 
 // Optional first-run seed: the Japan Nov/Dec 2026 trip with its 16 travellers,

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { clearApiCaches } from '../lib/pwa';
 import { useT } from '../i18n';
 import AuthCarousel from '../components/AuthCarousel';
 import { Icon } from '../components/Icon';
@@ -30,6 +31,10 @@ export default function Login() {
         await api.post('/setup', { name, email, password, seedJapanTrip: seed });
       } else {
         await api.post('/auth/login', { email, password });
+        // F1 (v0.22 final review, 2026-09-06): clear any previous user's
+        // cached API/files data on a successful login, before navigating —
+        // a shared device may still hold another user's offline cache.
+        await clearApiCaches();
       }
       navigate('/');
     } catch {

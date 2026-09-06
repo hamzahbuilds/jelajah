@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { api } from './api';
+import { api, setOfflineListener } from './api';
+import { applyUpdate, clearApiCaches } from './lib/pwa';
 import { I18nProvider, useT, Lang } from './i18n';
 import { getThemePref, setThemePref } from './theme';
 import Login from './pages/Login';
@@ -21,6 +22,7 @@ import { ToastProvider } from './components/Toast';
 import { Icon, IconDefs } from './components/Icon';
 import Sidebar from './components/Sidebar';
 import TabBar from './components/TabBar';
+import { AppBanner } from './components/AppBanner';
 
 export type TripRole = 'leader' | 'editor' | 'viewer';
 
@@ -82,7 +84,23 @@ function Shell() {
   if (state === 'loading') return <div className="container"><p className="muted" style={{ padding: 40 }}>…</p></div>;
   if (!state) return <Navigate to="/login" replace />;
 
-  const logout = async () => { await api.post('/auth/logout'); navigate('/login'); };
+  const logout = async () => {
+    // F2 (v0.22 final review, 2026-09-06): the logout POST can fail offline
+    // or on a 5xx — that must never block clearing caches or navigating
+    // away, or a borrowed-device user pressing Log out offline would see
+    // nothing happen while their cached data stays on the device.
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // ignore — best-effort, we still clear caches and navigate below
+    }
+    try {
+      await clearApiCaches(); // best-effort — shared-device mitigation (spec v0.22 §2)
+    } catch {
+      // clearApiCaches() is already internally defensive; belt-and-braces here
+    }
+    navigate('/login');
+  };
 
   return (
     <I18nProvider initial={state.user.lang}>
@@ -120,7 +138,25 @@ function Shell() {
 function Chrome({ children }: { children: React.ReactNode }) {
   const { t, lang, setLang } = useT();
   const { user, logout } = useSession();
+  const [offline, setOffline] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   const changeLang = async (l: Lang) => { setLang(l); await api.patch('/me', { lang: l }); };
+
+  // v0.22 PWA — offline banner tracks the most recent API response; it
+  // clears itself the instant a fresh (online) response arrives.
+  useEffect(() => {
+    setOfflineListener(setOffline);
+    return () => setOfflineListener(null);
+  }, []);
+
+  // Update banner: main.tsx's registerSW dispatches this window event once
+  // a new service worker is waiting (see src/main.tsx).
+  useEffect(() => {
+    const onUpdate = () => setUpdateAvailable(true);
+    window.addEventListener('jl-sw-update', onUpdate);
+    return () => window.removeEventListener('jl-sw-update', onUpdate);
+  }, []);
+
   return (
     <div className="shell">
       <Sidebar />
@@ -142,6 +178,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       <div className="main">
+        <AppBanner offline={offline} updateAvailable={updateAvailable} onRefresh={applyUpdate} />
         <div className="container">
           {user.must_change_password ? <PasswordNudge /> : null}
           {children}

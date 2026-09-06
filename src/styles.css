@@ -40,6 +40,7 @@ body {
   color: var(--ink);
   font-size: 15px;
   line-height: 1.45;
+  overflow-wrap: break-word;
 }
 h1, h2, h3 { margin: 0 0 .5rem; line-height: 1.25; }
 h1 { font-size: 1.5rem; } h2 { font-size: 1.15rem; } h3 { font-size: 1rem; }
@@ -78,6 +79,15 @@ p { margin: .3rem 0; }
 .cover-block .hint { margin: 0 0 10px; }
 .cover-block .hint a { color: var(--brand-600); font-weight: 600; }
 [data-theme="dark"] .cover-block .hint a { color: var(--brand-300); }
+
+/* v0.23 (Task 3) — Unsplash cover picker grid (People > cover-block Modal). */
+.unsplash-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.unsplash-thumb { position: relative; aspect-ratio: 1 / 1; min-height: 44px; padding: 0; margin: 0;
+  border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; background: var(--tile);
+  cursor: pointer; }
+.unsplash-thumb:hover, .unsplash-thumb:focus-visible { border-color: var(--brand-500); outline: none; }
+.unsplash-thumb:disabled { opacity: .6; cursor: default; }
+.unsplash-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .danger-title { color: var(--error-700); }
 [data-theme="dark"] .danger-title { color: #F97066; }
 .grid { display: grid; gap: 16px; }
@@ -142,6 +152,7 @@ button.icon { background: none; border: none; cursor: pointer; font-size: 1rem; 
 .chip {
   border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px;
   font-size: .83rem; cursor: pointer; background: #fff; user-select: none;
+  max-width: 100%; overflow-wrap: anywhere;
 }
 .chip.on { background: #ccfbf1; border-color: var(--brand-700); color: var(--brand-800); font-weight: 600; }
 
@@ -245,7 +256,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 .plan-item .pi-time { flex: 0 0 76px; font-variant-numeric: tabular-nums; font-size: .82rem; color: var(--ink-2); padding-top: 2px; }
 .plan-item .pi-ic { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .plan-item .pi-ic .stop-line { flex: 1; width: 2px; min-height: 14px; background: var(--border); border-radius: 1px; }
-.plan-item .pi-body { flex: 1; min-width: 0; }
+.plan-item .pi-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .plan-item .pi-title { font-weight: 600; }
 .plan-item.done .pi-title { text-decoration: line-through; color: var(--ink-3); }
 
@@ -453,7 +464,7 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
 .suggest-card.added { opacity: .55; }
 .suggest-card .sc-time { font-weight: 700; font-size: .8rem; white-space: nowrap; color: var(--brand-700); }
 [data-theme="dark"] .suggest-card .sc-time { color: var(--brand-300); }
-.suggest-card .sc-body { flex: 1; min-width: 0; }
+.suggest-card .sc-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .suggest-card .sc-title { font-weight: 600; font-size: .9rem; }
 
 /* ---------- v0.12: upload progress ---------- */
@@ -565,6 +576,21 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
 [data-theme="dark"] .btn.secondary:hover { background: var(--gray-800); }
 .btn.ghost { background: none; border-color: transparent; box-shadow: none; color: var(--ink-2); }
 .btn.sm { padding: 8px 12px; min-height: 36px; font-size: 13px; }
+
+/* v0.22 — PWA offline / update banners (App.tsx AppBanner) */
+.app-banner {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; font-size: .85rem; font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.app-banner .icon { flex-shrink: 0; }
+.app-banner span { flex: 1; }
+.app-banner .btn.sm { min-height: 44px; }
+.app-banner-offline { background: var(--gray-100); color: var(--ink-2); }
+[data-theme="dark"] .app-banner-offline { background: var(--gray-800); color: var(--ink-2); }
+.app-banner-update { background: var(--brand-50); color: var(--brand-800); }
+[data-theme="dark"] .app-banner-update { background: color-mix(in srgb, var(--brand-500) 18%, var(--surface)); color: var(--brand-300); }
 .btn.danger { background: var(--error-700); border-color: var(--error-700); }
 .btn.danger:hover { background: var(--error-500); border-color: var(--error-500); }
 
@@ -598,6 +624,35 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
 [data-theme="dark"] .badge.success { color: #75E0A7; border-color: rgba(117,224,167,.35); }
 [data-theme="dark"] .badge.warning { color: #FDB022; border-color: rgba(253,176,34,.35); }
 [data-theme="dark"] .badge.error   { color: #F97066; border-color: rgba(249,112,102,.35); }
+
+/* small secondary badge (infant marker on room occupant chips) — deliberately
+   quieter than .badge so it never competes with the capacity badge. */
+.badge.infant {
+  display: inline-flex; align-items: center; border-radius: 999px; font-size: 10px;
+  font-weight: 600; padding: 1px 7px; background: var(--gray-100); color: var(--gray-700);
+}
+[data-theme="dark"] .badge.infant { background: var(--gray-800); color: var(--gray-300); }
+
+/* v0.21 — Rooms card (People page, all trip roles) */
+.grid-2 .card.full { grid-column: 1 / -1; }
+.room-addstay { border: 1px solid var(--border); border-radius: var(--r-lg); padding: 12px; margin-bottom: 8px; }
+.room-stay { border-top: 1px solid var(--border); padding-top: 12px; }
+.room-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 10px; }
+.room-card { border: 1px solid var(--border); border-radius: var(--r-lg); padding: 10px 12px; min-width: 0; overflow-wrap: anywhere; }
+.room-occ {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 6px 3px 3px; font-size: .82rem; background: var(--surface);
+  max-width: 100%; overflow-wrap: anywhere;
+}
+.room-occ-x {
+  background: none; border: none; cursor: pointer; color: var(--ink-3); font-size: 14px;
+  line-height: 1; padding: 0 2px; min-width: 22px; min-height: 22px;
+}
+.room-occ-x:hover { color: var(--error-700); }
+[data-theme="dark"] .room-occ-x:hover { color: #F97066; }
+/* 44px touch target without growing the visual: expand the hit area */
+.room-occ-x { position: relative; }
+.room-occ-x::after { content: ''; position: absolute; inset: -11px; }
 
 /* page header (ported from prototype .pagehead) */
 .pagehead { margin-bottom: 24px; }
@@ -648,7 +703,7 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
 /* list rows: mobile-safe replacement for squished tables */
 .lrow { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--border); }
 .lrow:last-child { border-bottom: none; }
-.lrow .l-main { flex: 1; min-width: 0; }
+.lrow .l-main { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .lrow .l-main b { display: block; font-size: 14px; }
 .lrow .l-main small { display: block; color: var(--ink-3); font-size: 12px; margin-top: 1px; }
 .lrow .l-amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
@@ -1024,6 +1079,21 @@ html.side-min .trip-switch { justify-content: center; padding: 10px 0; }
   opacity: 0; transition: opacity 1.1s ease; display: grid; place-items: center; }
 .caro .ph.on { opacity: 1; }
 .caro .ph .scene { font-size: 80px; opacity: .35; filter: drop-shadow(0 4px 24px rgba(0,0,0,.35)); }
+/* v0.23 (Task 3) — Unsplash photo layer, painted UNDER .veil/.scene so the
+   gradient + emoji still show through as a decorative accent and the
+   caption stays legible; absent-key/offline default (no <img>) is
+   byte-identical to the pre-v0.23 gradient-only render. */
+.caro .ph .caro-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+.caro .ph .scene { position: relative; z-index: 1; }
+/* Rendered once per active slide (a sibling of .cap, not per-.ph — see
+   AuthCarousel.tsx) so it stacks above .veil and stays clickable, tucked
+   into the bottom-right corner within .veil's own darkened band below
+   .cap's bottom edge so it never collides with the caption/dots. */
+.caro-credit { position: absolute; right: 16px; bottom: 8px; z-index: 2; font-size: 10.5px; color: rgba(255,255,255,.85);
+  text-shadow: 0 1px 3px rgba(0,0,0,.65); text-align: right; pointer-events: auto; }
+.caro-credit a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+/* mobile banner: caption sits in the bottom band — move the credit to the top corner */
+@media (max-width: 1023px) { .caro-credit { bottom: auto; top: 8px; right: 8px; } }
 .caro .veil { position: absolute; inset: 0;
   background: linear-gradient(to top, rgba(8,20,18,.72) 0%, rgba(8,20,18,.12) 45%, rgba(8,20,18,.25) 100%); }
 .caro .brand { position: absolute; top: 28px; left: 32px; display: flex; align-items: center; gap: 10px; color: #fff; }

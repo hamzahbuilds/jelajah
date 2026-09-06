@@ -1,7 +1,286 @@
 # Jelajah — Build Status
 
-Updated: 6 Sep 2026 (v0.20 COMPLETE — trip covers · server-side theme ·
-mobile-chrome e2e · /join BM, e2e green)
+Updated: 6 Sep 2026 (v0.23 COMPLETE — mobile overflow fixes, walk icon, key-optional Unsplash, e2e green)
+
+## v0.23.0 — "Mobile overflow + key-optional Unsplash" (6 Sep 2026) — v0.23 COMPLETE
+
+Per `docs/11-spec-v0.23-unsplash-mobile.md` (approved): the mobile-overflow bug
+report plus a key-optional Unsplash integration (carousel photos, an
+auto-cover source, and a gallery picker) that degrades cleanly with zero
+`UNSPLASH_ACCESS_KEY` set — the state of every environment so far, this one
+included.
+
+**Shipped:**
+- **Mobile overflow fixes (evidence-based).** Reproduced first against real
+  adversarial data (an unbroken ~63-char vendor/participant name), not the
+  seeded demo data, which never triggers it. Found two sites: Ledger/
+  Payments/MySpend's shared `.lrow .l-main` row (long vendor/description
+  text) and `.chip` (long participant/member names) — both had `min-width:0`/
+  `flex-wrap:wrap` on their containers already, but no `overflow-wrap` on the
+  text-bearing element itself, so a single unbroken run of characters forced
+  the flex item — and everything above it up to `.shell` — wider than the
+  viewport. Two CSS-only fixes in `src/styles.css`: `overflow-wrap: anywhere`
+  added to `.lrow .l-main`, and `max-width: 100%; overflow-wrap: anywhere`
+  added to `.chip`. Re-scanned all 8 pages (Dashboard, Ledger, Payments,
+  MySpend, Plan, People, Settings, Admin) at 360×740 and 390×844 with the
+  same stress data still seeded: zero overflow anywhere, before-and-after
+  confirmed by `scrollWidth`. `scripts/e2e.mjs` now asserts
+  `document.scrollingElement.scrollWidth <= window.innerWidth + 1` on the
+  trip dashboard and on the ledger (via the mobile Money tab) at 390px, in
+  the existing 390×844 mobile-chrome context.
+- **Walk icon + emoji consistency.** Added a hand-drawn `walk` glyph (lucide-
+  style, 24px grid/stroke-2/round, matching the existing sprite) to
+  `src/components/iconDefs.ts`, and wired it into `Plan.tsx`'s
+  `RAIL_MODE_ICON` map so transit chips and the transport-card mode toggle/
+  leg badge render the sprite icon instead of falling back to the `🚶` emoji
+  (`shared/fares.ts`'s `MODE_ICON`) — 3 render sites, one map. `e2e.mjs`
+  asserts zero `🚶` anywhere in the Plan page DOM. `shared/fares.ts`'s
+  `MODE_ICON.walk` and `i18n.tsx`'s `walkTo()` walking-time caption were left
+  as plain-text emoji on purpose — different call sites (non-JSX / a
+  distinct "minutes to station" feature), out of this task's scope.
+- **Key-optional Unsplash** (`server/app.ts`, `server/env.d.ts`,
+  `src/components/AuthCarousel.tsx`, `src/pages/People.tsx`, `src/i18n.tsx`).
+  `UNSPLASH_ACCESS_KEY` is a Workers **secret** (never `wrangler.toml`/
+  `[vars]`/the repo) — every route checks it first and returns
+  `404 {error:'no_unsplash'}` before any external call:
+  - `GET /api/public/carousel` — the app's first intentionally-
+    unauthenticated data route besides `/join` (spec-sanctioned; public
+    Unsplash metadata only). One photo per fixed destination (Kyoto,
+    Santorini, Cappadocia, Banff, Kuala Lumpur), cached 24h in the existing
+    `app_settings` D1 small-JSON-config mechanism (no KV/R2 binding fits the
+    shape). `AuthCarousel` fetches it once on mount with a bare `fetch` (no
+    auth header — pre-auth page) and swallows any failure; on success each
+    slide's existing gradient keeps its emoji "scene" and gains a photo layer
+    underneath, plus bottom-right attribution (author + Unsplash links). With
+    no key, the response 404s and the carousel renders exactly as it always
+    has — gradients only, zero `.caro-photo`/`.caro-credit` in the DOM.
+  - `GET /trips/:id/unsplash?q=` (member) + `POST /trips/:id/cover/unsplash`
+    (leader) — the People-page "Choose from Unsplash" cover picker: search →
+    3×3 lazy thumb grid → tap → download-location trigger fired → downloaded/
+    validated/stored through the existing versioned cover pipeline
+    (`storeCover`, reused verbatim, same ≤600KB/MIME/SSRF guards as the v0.20
+    upload/auto-cover routes). The picker button is visible to the leader on
+    mount and only hides itself for the rest of that mount once a search
+    comes back `no_unsplash` (`People.tsx`'s `showUnsplashBtn`) — no point
+    leaving a button up that will always 404. `e2e.mjs` drives the real
+    sequence: button visible → click (auto-searches the trip's destination)
+    → `noUnsplashKey` toast → button gone.
+  - Trip-create auto-cover — best-effort `waitUntil` search + download +
+    store on `POST /trips`, silent-fail (Wikipedia/gradient fallback
+    untouched either way).
+  - **No live network calls to unsplash.com anywhere in `e2e.mjs`** — every
+    Unsplash assertion in the suite exercises this environment's own
+    keyless/404 path, matching spec §5's explicit instruction to skip live
+    Unsplash and assert key-absent behavior instead.
+- **e2e** (`scripts/e2e.mjs`): keyless-carousel 404 + gradient-only render
+  (login page, via `page.request` — no navigation, can't be mistaken for a
+  live call), the picker button visible→click→toast→hidden sequence (People
+  page, leader), the two 390px no-horizontal-scroll assertions, and the
+  no-🚶-in-Plan-DOM assertion, all wired into the flows that already execute
+  (not appended dead outside them). Marker → `E2E PASSED (Phase 1 + 2 +
+  v0.6-v0.23)`.
+- **Full ritual, reset from scratch, run twice:** `npx tsc --noEmit` clean ·
+  `npx vitest run` 167/167 · `npm run build` clean · `node scripts/e2e.mjs`
+  → `E2E PASSED (Phase 1 + 2 + v0.6-v0.23)` (both attempts, both clean).
+
+**Note:** every Unsplash-backed feature above (carousel photos, cover auto-
+fetch, the gallery picker) is fully implemented and wired end-to-end, but
+this environment has never had an `UNSPLASH_ACCESS_KEY`, so none of it has
+been exercised against the live API — only the keyless/404 path is verified
+here. All three degrade cleanly with no key set (confirmed): the carousel
+falls back to gradients-only, the picker button hides itself after one
+failed probe instead of staying up as dead weight, and trip creation still
+gets its Wikipedia/gradient cover as before. The features activate
+automatically the moment the secret is set — no code or deploy change
+needed — and should get one live pass once a key is provisioned.
+
+**Note:** after provisioning the key, the carousel may 404 for up to 10 minutes (negative cache) — not a provisioning failure.
+
+**Explicitly deferred (carried over, still untouched):**
+- **Offline write queueing (v2)** — reads only in v1 (PWA, v0.22); writes are
+  never intercepted by the service worker, by design.
+- **Push notifications** — needs its own spec.
+- **Room-cost splitting v2** — rooms are informational only (v0.21); linking
+  room assignment to the split engine is a distinct future spec.
+- **MySpend `CAT_EMOJI` consistency pass (optional)** — `MySpend.tsx`'s
+  category-icon map (`food`/`shopping`/`transport`/`entrance`/`other`) is
+  still plain-text emoji, not sprite icons like the rest of the app's iconography;
+  unrelated to this task's walk-icon scope, flagged as an optional future
+  cleanup, not a bug.
+
+## v0.22.0 — "PWA / read-only offline" (6 Sep 2026) — v0.22 COMPLETE
+
+Installable PWA + read-only offline support, per `docs/10-spec-v0.22-pwa.md`
+(approved). Offline write queueing, background sync, and push are explicitly
+out of scope — own specs, v2 candidates.
+
+**Shipped:**
+- **Installable manifest + icons.** `public/manifest.webmanifest` (name/
+  short_name "Jelajah", `start_url` "/", `display` "standalone",
+  `background_color` #F9F9F8, `theme_color` #0F766E, 192/512 "any" icons +
+  a 512 "maskable" icon). Icon art is a hand-written SVG pin glyph
+  (`public/icon.svg` on a rounded teal square, `public/icon-maskable.svg`
+  full-bleed for the OS mask), pre-rendered to PNGs once via a dev-only
+  Playwright script (`scripts/make-icons.mjs`, not a project dependency —
+  playwright stays out of `package.json`) and committed as static assets
+  (`public/icons/*.png`). `index.html` links the manifest, `theme-color`
+  meta, and an `apple-touch-icon`. No `vite.config.ts` change was needed —
+  `public/` already lands in `dist/` unmodified (verified against the
+  pre-existing `tess/` precedent).
+- **Service worker** (`public/sw.js`, hand-rolled, zero deps). The fetch
+  handler's first statement is a method check (`if (request.method !==
+  'GET') return;`) — writes and non-GET requests are **never** intercepted,
+  by construction, before any origin/path routing runs. Per-class routing:
+  same-origin `/assets/*` cache-first (`jl-assets-v1`); navigations
+  network-first with a 3s timeout falling back to a cached `'/'` shell
+  (late-arriving successful responses still update the shell cache via
+  `event.waitUntil`, independent of which side won the race); `/api/*` GET
+  (excluding `/api/auth` and `/api/mcp`) network-first → cache fallback
+  (`jl-api-v1`), with the fallback response wrapped to add
+  `X-Jelajah-Offline: 1` so the client can detect it; cover/document-file
+  GETs (`/cover`, `/file` suffix — matched against the real
+  `server/app.ts` route shapes) cache-on-fetch into `jl-files-v1`, FIFO-
+  trimmed at 40 entries; everything else passes through untouched.
+  `install` precaches `/`, the manifest, and the icon (log-and-continue per
+  entry, not all-or-nothing); `activate` deletes any stale `jl-*` cache not
+  in the current version set; `skipWaiting` is **not** automatic — a
+  waiting worker only activates when the client explicitly asks (via a
+  scoped `SKIP_WAITING` postMessage from the update banner's Refresh
+  button), keeping activation user-driven rather than a silent mid-flow
+  takeover. Cache version is a manual, documented `V` constant — no build
+  stamping.
+- **Client registration + banners** (`src/lib/pwa.ts`, `src/main.tsx`,
+  `src/api.ts`, `src/components/AppBanner.tsx`). Registration is
+  production-only (`import.meta.env.PROD` guard) and fully defensive — any
+  failure (unsupported browser, storage disabled) never breaks the app.
+  `api.ts` gained one additive line: every successful response is sniffed
+  for the `X-Jelajah-Offline` header and reported to a listener; existing
+  error-path semantics (401 redirect, `!res.ok` throw) are byte-identical
+  to before. A slim, non-blocking, dark-safe banner (`AppBanner`, mounted
+  above page content in `Chrome`) shows one of two mutually-exclusive
+  states — offline (auto-clears on the next fresh response) or update-
+  available (a Refresh button, takes priority over offline) — both EN+BM
+  (`offlineBanner`/`updateBanner`/`refresh` in `i18n.tsx`). Logout now
+  calls `clearApiCaches()` (best-effort `caches.delete` on `jl-api-*`/
+  `jl-files-*`) before navigating — mitigates a shared device retaining
+  another user's cached offline data; recorded limitation, not a full fix.
+- **e2e coverage** (`scripts/e2e.mjs`, steps 56–57, appended at the very end
+  of the suite in a brand-new browser context + fresh login). Rationale for
+  placement: the SW registers unconditionally once dist is served as a PROD
+  build (wrangler dev serves `npm run build` output), so an earlier-in-
+  suite SW could in principle serve cached responses to later assertions —
+  keeping the PWA section last, in its own context, means nothing above it
+  can be affected. Asserts: `GET /manifest.webmanifest` → 200 + `name ===
+  'Jelajah'`; `GET /sw.js` → 200 + `content-type` javascript;
+  `navigator.serviceWorker.ready` resolves after a fresh login (secure
+  localhost context + PROD build fire registration as expected); visiting
+  a trip plan page online populates the API cache; `context.setOffline
+  (true)` + reload renders the plan content from cache **and** shows the
+  offline banner; `setOffline(false)`; teardown unregisters the SW and
+  clears every `jl-*` cache so suite reruns start clean. **No downgrade
+  needed** — the spec's pre-authorized fallback (registration + cache-
+  population assertions only, dropping the offline-reload assertion) was
+  not exercised: two full from-scratch ritual attempts both passed the
+  offline-render step cleanly on the first try.
+- **Full ritual, reset from scratch, run twice:** `npx tsc --noEmit` clean ·
+  `npx vitest run` 167/167 · `npm run build` clean · `node scripts/e2e.mjs`
+  → `E2E PASSED (Phase 1 + 2 + v0.6-v0.22)` (both attempts).
+
+**Explicitly deferred (recorded, untouched — spec §5):**
+- **Offline write queueing (v2)** — reads only in v1; POST/PUT/PATCH/DELETE
+  are never intercepted by the service worker, by design. Queueing writes
+  made while offline for replay when connectivity returns is a distinct
+  future spec.
+- **Push notifications** — not attempted; needs its own spec (permission
+  UX, payload design, server-side subscription storage).
+- Licensed carousel/cover stock photos — still needs Sage's photo picks;
+  gradients and the Wikipedia auto-fetch remain the only cover sources.
+- **Room-cost splitting v2** — carried over from v0.21, still untouched.
+- ~~`docs/11-spec-v0.23-unsplash-mobile.md` exists (drafted, not started)~~ —
+  SHIPPED as v0.23 (see above); still blocked only on an `UNSPLASH_ACCESS_KEY`
+  secret being provisioned for the live-photo paths to activate.
+
+## v0.21.0 — "Rooms allocation" (6 Sep 2026) — v0.21 COMPLETE
+
+Per-stay room allocation (who sleeps where), the first backlog item off the
+v0.20 closeout list, per `docs/09-spec-v0.21-rooms.md`. No money coupling in
+v1 — the split engine is untouched; rooms are informational + AI-context only.
+
+**Shipped:**
+- **Schema.** `rooms` (`trip_id`, `stay_label`, `check_in`/`check_out`,
+  `name`, `capacity`, `sort`) and `room_occupants` (`room_id`,
+  `participant_id`, composite PK) — `CREATE TABLE IF NOT EXISTS` in both
+  `SCHEMA` and `UPGRADES` (inherently idempotent, no one-time migration
+  needed). `migrations/0001_init.sql` regenerated in the same pass (see
+  "Deferred, now resolved" below).
+- **API** (`server/app.ts`, all under `/api/trips/:id/rooms...`): `GET`
+  (member-gated, returns rooms + `occupant_ids` + `suggested_stays` derived
+  from the same accommodation-expense query the Plan page's `stays` field
+  uses — extracted into a shared `deriveStays()` helper), `POST`/`PATCH`/
+  `DELETE`/`PUT .../occupants` all `requireEditor`. The occupants endpoint
+  enforces **single-occupancy per stay group**: assigning a participant into
+  a room removes them from every sibling room sharing the same
+  `trip_id`+`stay_label`, via the pure `singleOccupancyBatch()` helper
+  (`shared/rooms.ts`, unit-tested) executed as one `DB.batch()`. Participant
+  ids are validated against trip membership (400 `unknown_participant`
+  otherwise, mirroring the existing members-PUT cross-tenant guard).
+  Trip-delete cascade grows from 20 to 22 tables (`room_occupants` then
+  `rooms`, FK-safe order).
+- **UI.** New `RoomsCard` on the People page, below the members card,
+  **visible to every trip role** — a deliberate IA change: `People` is no
+  longer leader-gated in `navModel.ts`/`TabBar.tsx`'s More sheet (nav label
+  unchanged), while the page's invite/trip-details/danger/visibility cards
+  stay `canLead`-gated internally. Stay groups render as sub-sections
+  (label + dates), a one-tap "suggested stay" picker or a free-text form add
+  new stays, per-stay "Add room" adds subsequent rooms. Room cards show an
+  occupancy badge (`occupancyLabel()` from `shared/rooms.ts`: `"3/4"`,
+  `"3+1/4"` with infants excluded from the capacity count) that turns
+  `.badge.warning` when over capacity — informational only, never blocks.
+  Editors/leaders get inline rename/capacity edit, a per-room person-picker
+  scoped to the stay group's unassigned pool, occupant removal, and a
+  destructive delete-room modal; viewers get the same read-only card with
+  zero action buttons. EN+BM strings throughout; `hotel`/`users`/`plus`/
+  `trash`/`edit` icons all pre-existed.
+- **MCP / AI context.** A compact rooms section (stay → room → occupant
+  names) now appears wherever trip notes reach a model: the Gemini/assistant
+  context builder and the MCP `get_itinerary` tool result (new `rooms:
+  string[]` field). Read-only — no MCP tool can write rooms.
+- **e2e** (`scripts/e2e.mjs`, new v0.21 section): leader adds a stay via the
+  free-text form + a second room via the per-stay mini-form (one room left
+  uncapped, one capacity 2); assigns 3 people into the capacity-2 room and
+  asserts the `.badge.warning` over-capacity badge (`"3/2"`); moves one of
+  them into the other room via the occupants endpoint directly and asserts
+  — both via the API and a UI reload — that they left the sibling room
+  (single-occupancy rule); an editor session (Hairuni, temporarily promoted)
+  sees the Rooms card fully interactive but confirms the invite/trip-details/
+  danger/visibility cards stay hidden; a viewer session sees the People nav
+  item and the same Rooms card fully read-only (zero buttons anywhere in the
+  card, including no occupant-remove control). The pre-existing trip-deletion
+  e2e step (danger card, cascade) passes unchanged against the now-22-table
+  cascade.
+- **Full ritual, reset from scratch:** `npx tsc --noEmit` clean · `npx
+  vitest run` 169/169 (was 163: +6 nav-role-widening rewrite, net unchanged
+  count since v0.21 added no new unit test file beyond T1's 10 `rooms.test.ts`
+  cases already counted at T1) · `npm run build` clean · `node scripts/e2e.mjs`
+  → `E2E PASSED (Phase 1 + 2 + v0.6-v0.21)`.
+
+**Deferred, now resolved (from the v0.20 closeout list):**
+- **`migrations/0001_init.sql` full regeneration** — done in this batch's
+  Task 1 (same esbuild+dynamic-import extraction pattern as prior batches),
+  validated against a scratch in-memory sqlite. The file is now current
+  through v0.21's two new tables; no more parked drift.
+
+**Still explicitly deferred:**
+- ~~MySpend fx race ticket~~ — RESOLVED in the v0.20 ticket batch (stale-response
+  guard on the fx effect; submit fetches the real rate or refuses to save — the
+  hardcoded 0.03 fallback is gone). The e2e `networkidle` wait before the
+  currency switch remains as belt-and-braces, no longer load-bearing.
+- PWA/offline — needs its own brainstorm+spec.
+- Licensed carousel/cover stock photos — needs Sage's photo picks; gradients
+  and the Wikipedia auto-fetch remain the only cover sources until then.
+- **Room-cost splitting v2** — rooms are informational only in v1 (no money
+  coupling, per spec); linking room assignment to the split engine (e.g.
+  per-room cost shares) is a distinct future spec, not started.
 
 ## v0.20.0 — "Covers, server theme, mobile e2e" (6 Sep 2026) — v0.20 COMPLETE
 

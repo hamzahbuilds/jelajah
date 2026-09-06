@@ -7,7 +7,13 @@ import { TripCtx, Participant } from './TripShell';
 import { useToast } from '../components/Toast';
 import PageHead from '../components/PageHead';
 import { Icon } from '../components/Icon';
+import Modal from '../components/Modal';
 import { resizeImageFile } from '../lib/image';
+import RoomsCard from '../components/RoomsCard';
+
+type UnsplashPhoto = {
+  id: string; thumb: string; regular: string; author_name: string; author_link: string; download_location: string;
+};
 
 type Invite = {
   id: number; code: string; url: string; role: 'editor' | 'viewer';
@@ -28,7 +34,7 @@ export default function People() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user, refresh } = useSession();
-  const { trip, tripId, members, reload, canLead } = useOutletContext<TripCtx>();
+  const { trip, tripId, members, reload, canLead, canEdit } = useOutletContext<TripCtx>();
   const [canEditPlan, setCanEditPlan] = useState<boolean>(!!(trip as any).member_can_edit_plan);
   const [all, setAll] = useState<Participant[]>([]);
   const [newName, setNewName] = useState('');
@@ -231,6 +237,65 @@ export default function People() {
     }
   };
 
+  // ---- Task 3 (v0.23) — Unsplash cover picker ----
+  // Hidden for the rest of this mount once a search comes back `no_unsplash`
+  // (key absent server-side) — no point showing a button that always 404s.
+  const [showUnsplashBtn, setShowUnsplashBtn] = useState(true);
+  const [unsplashModal, setUnsplashModal] = useState(false);
+  const [unsplashQuery, setUnsplashQuery] = useState('');
+  const [unsplashResults, setUnsplashResults] = useState<UnsplashPhoto[] | null>(null);
+  const [unsplashSearching, setUnsplashSearching] = useState(false);
+  const [unsplashSelecting, setUnsplashSelecting] = useState(false);
+
+  const searchUnsplash = async (q: string) => {
+    const query = q.trim();
+    if (!query) return;
+    setUnsplashSearching(true);
+    setUnsplashResults(null);
+    try {
+      const r = await api.get(`/trips/${tripId}/unsplash?q=${encodeURIComponent(query)}`);
+      setUnsplashResults(r.items ?? []);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'no_unsplash') {
+        setShowUnsplashBtn(false);
+        setUnsplashModal(false);
+        toast(t.noUnsplashKey, 'error');
+      } else {
+        toast(t.tSaveFailed, 'error');
+      }
+    } finally {
+      setUnsplashSearching(false);
+    }
+  };
+
+  const openUnsplash = () => {
+    const q = ((trip as any).destination || trip.name || '').trim();
+    setUnsplashQuery(q);
+    setUnsplashResults(null);
+    setUnsplashModal(true);
+    if (q) void searchUnsplash(q);
+  };
+
+  const selectUnsplash = async (photo: UnsplashPhoto) => {
+    setUnsplashSelecting(true);
+    try {
+      await api.post(`/trips/${tripId}/cover/unsplash`, {
+        regular_url: photo.regular,
+        download_location: photo.download_location,
+        author_name: photo.author_name,
+        author_link: photo.author_link,
+      });
+      toast(t.coverSet);
+      setUnsplashModal(false);
+      await reload();
+      await refresh();
+    } catch {
+      toast(t.tSaveFailed, 'error');
+    } finally {
+      setUnsplashSelecting(false);
+    }
+  };
+
   const copyInvite = async (code: string) => {
     const url = location.origin + '/join/' + code;
     await navigator.clipboard.writeText(url);
@@ -275,32 +340,38 @@ export default function People() {
     <div>
       <PageHead crumb={trip.name} title={t.people} />
       <div className="grid grid-2" style={{ alignItems: 'start' }}>
-      <div className="card">
-        <div className="cardhead"><h3><Icon name="eye" /> {t.visibility}</h3></div>
-        <p className="hint">{t.visibilityHint}</p>
-        {(['plan', 'documents', 'ledger', 'payments', 'assistant'] as const).map(f => (
-          <label key={f} className="row" style={{ gap: 8, padding: '4px 0' }}>
-            <input type="checkbox" checked={!hidden.includes(f)} onChange={() => toggleFeature(f)}
+      {canLead && (
+        <div className="card">
+          <div className="cardhead"><h3><Icon name="eye" /> {t.visibility}</h3></div>
+          <p className="hint">{t.visibilityHint}</p>
+          {(['plan', 'documents', 'ledger', 'payments', 'assistant'] as const).map(f => (
+            <label key={f} className="row" style={{ gap: 8, padding: '4px 0' }}>
+              <input type="checkbox" checked={!hidden.includes(f)} onChange={() => toggleFeature(f)}
+                style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
+              <span>{f === 'assistant' ? <><Icon name="chat" size={16} /> {t.assistantFeature}</> : (t as any)[f === 'ledger' ? 'ledger' : f]}</span>
+            </label>
+          ))}
+          <label className="row" style={{ gap: 8, padding: '10px 0 4px', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+            <input type="checkbox" checked={canEditPlan} onChange={toggleEditPlan}
               style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
-            <span>{f === 'assistant' ? <><Icon name="chat" size={16} /> {t.assistantFeature}</> : (t as any)[f === 'ledger' ? 'ledger' : f]}</span>
+            <span><Icon name="edit" size={16} /> {t.memberCanEditPlan}</span>
           </label>
-        ))}
-        <label className="row" style={{ gap: 8, padding: '10px 0 4px', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-          <input type="checkbox" checked={canEditPlan} onChange={toggleEditPlan}
-            style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
-          <span><Icon name="edit" size={16} /> {t.memberCanEditPlan}</span>
-        </label>
-      </div>
+        </div>
+      )}
       <div className="card">
         <div className="cardhead"><h3>{t.tripMembers}</h3><span className="badge gray">{members.length}</span></div>
-        <p className="hint">{t.memberHint}</p>
-        <div className="chips" style={{ marginBottom: 12 }}>
-          {all.map(p => (
-            <span key={p.id} className={`chip ${memberIds.has(p.id) ? 'on' : ''}`} onClick={() => toggleMember(p.id)}>
-              {p.name}{p.is_infant ? ` (${t.infant})` : ''}
-            </span>
-          ))}
-        </div>
+        {canLead && (
+          <>
+            <p className="hint">{t.memberHint}</p>
+            <div className="chips" style={{ marginBottom: 12 }}>
+              {all.map(p => (
+                <span key={p.id} className={`chip ${memberIds.has(p.id) ? 'on' : ''}`} onClick={() => toggleMember(p.id)}>
+                  {p.name}{p.is_infant ? ` (${t.infant})` : ''}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
         {members.length > 0 && (
           <div style={{ marginBottom: 12 }}>
             {members.map(m => (
@@ -328,14 +399,18 @@ export default function People() {
             ))}
           </div>
         )}
-        <form className="row" onSubmit={addParticipant}>
-          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder={t.addParticipant} style={{ flex: 1 }} />
-          <label className="row tiny" style={{ gap: 4 }}>
-            <input type="checkbox" checked={newInfant} onChange={e => setNewInfant(e.target.checked)} />{t.infant}
-          </label>
-          <button className="btn sm" type="submit">{t.add}</button>
-        </form>
+        {canLead && (
+          <form className="row" onSubmit={addParticipant}>
+            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder={t.addParticipant} style={{ flex: 1 }} />
+            <label className="row tiny" style={{ gap: 4 }}>
+              <input type="checkbox" checked={newInfant} onChange={e => setNewInfant(e.target.checked)} />{t.infant}
+            </label>
+            <button className="btn sm" type="submit">{t.add}</button>
+          </form>
+        )}
       </div>
+
+      <RoomsCard tripId={tripId} members={members} canEdit={canEdit} />
 
       {canLead && (
         <div className="card">
@@ -412,6 +487,11 @@ export default function People() {
                 onClick={() => coverInputRef.current?.click()}>
                 <Icon name="upload" size={16} /> {t.coverUpload}
               </button>
+              {showUnsplashBtn && (
+                <button type="button" className="btn ghost sm" disabled={coverBusy} onClick={openUnsplash}>
+                  <Icon name="search" size={16} /> {t.chooseFromUnsplash}
+                </button>
+              )}
               <button type="button" className="btn ghost sm" disabled={coverBusy} onClick={autoCover}>
                 <Icon name="camera" size={16} /> {t.coverAuto}
               </button>
@@ -424,6 +504,35 @@ export default function People() {
           </div>
         </div>
       )}
+
+      <Modal open={unsplashModal} onClose={() => setUnsplashModal(false)}
+        icon="search" title={t.chooseFromUnsplash} closeLabel={t.close}>
+        <div className="fld">
+          <label>{t.searchPhotos}</label>
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <input value={unsplashQuery} onChange={e => setUnsplashQuery(e.target.value)}
+              disabled={unsplashSearching || unsplashSelecting}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void searchUnsplash(unsplashQuery); } }} />
+            <button type="button" className="btn ghost sm" disabled={unsplashSearching || unsplashSelecting}
+              onClick={() => void searchUnsplash(unsplashQuery)}>
+              {unsplashSearching ? t.loading : t.searchBtn}
+            </button>
+          </div>
+        </div>
+        {!unsplashSearching && unsplashResults && unsplashResults.length === 0 && (
+          <p className="hint">{t.noPhotosFound}</p>
+        )}
+        {unsplashResults && unsplashResults.length > 0 && (
+          <div className="unsplash-grid">
+            {unsplashResults.map(p => (
+              <button type="button" key={p.id} className="unsplash-thumb"
+                disabled={unsplashSelecting} onClick={() => void selectUnsplash(p)}>
+                <img src={p.thumb} alt={p.author_name} loading="lazy" />
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
 
       {canLead && (
         <div className="card danger-card">

@@ -44,14 +44,18 @@ describe('navModel', () => {
     expect(ledgerAndPaymentsHidden.main.find(i => i.key === 'money')?.to).toBe('/trips/5/myspend');
   });
 
-  it('people is present only for the leader', () => {
+  // v0.21: People widened to all trip roles — the Rooms card must be visible
+  // to everyone, so the nav item itself is no longer leader-gated (the page
+  // still gates its leader-only cards internally). Was
+  // "people is present only for the leader" pre-v0.21.
+  it('people is present for every trip role', () => {
     const leader = navModel('/trips/5', { isAdmin: false, myRole: 'leader', hidden: new Set(), tripId: 5 });
     expect(leader.main.find(i => i.key === 'people')).toBeTruthy();
 
     const editor = navModel('/trips/5', { isAdmin: false, myRole: 'editor', hidden: new Set(), tripId: 5 });
-    expect(editor.main.find(i => i.key === 'people')).toBeUndefined();
+    expect(editor.main.find(i => i.key === 'people')).toBeTruthy();
 
     const viewer = navModel('/trips/5', { isAdmin: false, myRole: 'viewer', hidden: new Set(), tripId: 5 });
-    expect(viewer.main.find(i => i.key === 'people')).toBeUndefined();
+    expect(viewer.main.find(i => i.key === 'people')).toBeTruthy();
   });
 });

@@ -22,6 +22,29 @@ const fail = async (msg) => { console.error('FAIL:', msg); await shot('failure')
 
 // 1. login
 await page.goto(`${BASE}/login`);
+
+// v0.23 (T4) — keyless Unsplash: this sandbox env has NO UNSPLASH_ACCESS_KEY,
+// which is exactly the case spec §5 wants covered. /api/public/carousel must
+// 404 with {error:'no_unsplash'} (server/app.ts ~L940), and the login page's
+// AuthCarousel must still render byte-identical gradients-only slides (its
+// fetch to that endpoint fails/404s and is swallowed — see AuthCarousel's
+// catch). Checked via `page.request` (no navigation) so it can't be confused
+// with a live external call — this never leaves 127.0.0.1.
+const carouselRes = await page.request.get(`${BASE}/api/public/carousel`);
+if (carouselRes.status() !== 404) await fail(`/api/public/carousel should 404 keyless, got ${carouselRes.status()}`);
+const carouselJson = await carouselRes.json();
+if (carouselJson.error !== 'no_unsplash') await fail(`/api/public/carousel error should be no_unsplash, got "${carouselJson.error}"`);
+console.log('keyless unsplash: carousel endpoint 404s ok');
+
+await page.waitForSelector('.caro .ph.on');
+const caroSlideVisible = await page.isVisible('.caro .cap .place');
+if (!caroSlideVisible) await fail('login carousel: no slide caption visible');
+const caroPhotoCount = await page.locator('.caro-photo').count();
+if (caroPhotoCount !== 0) await fail(`login carousel: expected zero .caro-photo imgs (keyless), found ${caroPhotoCount}`);
+const caroCreditCount = await page.locator('.caro-credit').count();
+if (caroCreditCount !== 0) await fail(`login carousel: expected zero .caro-credit (keyless), found ${caroCreditCount}`);
+console.log('keyless unsplash: login carousel renders gradients only (no photos, no credit)');
+
 await page.fill('input[type=email]', 'admin@jelajah.local');
 await page.fill('input[type=password]', 'ubah-saya-123');
 await shot('01-login');
@@ -244,7 +267,10 @@ await page.click('.daypill:has-text("D2")');
 await page.waitForSelector('.leg-row');
 const legText = await page.textContent('body');
 if (!legText.includes('¥')) await fail('leg fare in ¥ missing');
-if (!/🚇|🚶/.test(legText)) await fail('leg mode icon missing');
+// v0.23: train/taxi/walk all render as sprite <use> icons now (no emoji text
+// left in the DOM for any of the three modes) — check the sprite ref instead.
+const legModeIcon = await page.$('.leg-row use[href="#i-train"], .leg-row use[href="#i-walk"], .leg-row use[href="#i-taxi"]');
+if (!legModeIcon) await fail('leg mode icon missing');
 await shot('16-plan-legs');
 console.log('legs ok (mode + ¥ fare)');
 
@@ -1229,6 +1255,112 @@ const deadPath = await fetch(`${BASE}/api/mcp/t/${mcpToken}`, {
 if (deadPath.status !== 401) await fail('revoked token must also die on the path endpoint');
 console.log('MCP revoke ok (token dead)');
 await shot('37-mcp-tokens');
+
+/* ================================================================== */
+/* v0.21 — rooms allocation (spec §e2e): leader adds a stay + 2 rooms  */
+/* (one capacity 2), assigns 3 people to the capacity-2 room (over-    */
+/* capacity badge), moves one of them into the other room via the      */
+/* occupants endpoint (single-occupancy-per-stay-group rule), then     */
+/* Hairuni (temporarily promoted to editor) sees the Rooms card fully  */
+/* interactive but not the leader-only invite/details/danger cards,    */
+/* and back as a viewer sees it read-only with zero action buttons.    */
+/* ================================================================== */
+await page.goto(`${BASE}/trips/1/people`);
+await page.waitForSelector('h3:has-text("Rooms")');
+
+// first stay + first room, via the free-text "Add stay" panel
+await page.click('button:has-text("Add stay")');
+await page.waitForSelector('.room-addstay');
+await page.fill('.room-addstay input[placeholder="Stay name"]', 'E2E Test Stay');
+await page.fill('.room-addstay input[placeholder="Room name"]', 'Room One');
+await page.click('.room-addstay button:has-text("Add room")');
+await page.waitForSelector('.toast:has-text("Room saved")');
+await page.waitForSelector('.room-stay:has-text("E2E Test Stay") .room-card:has-text("Room One")');
+console.log('room stay + first room created ok (free-text form)');
+
+// second room in the same stay, capacity 2, via the per-stay "Add room" mini-form
+await page.click('.room-stay:has-text("E2E Test Stay") button:has-text("Add room")');
+await page.waitForSelector('.room-stay:has-text("E2E Test Stay") form input[placeholder="Room name"]');
+await page.fill('.room-stay:has-text("E2E Test Stay") form input[placeholder="Room name"]', 'Room Two');
+await page.fill('.room-stay:has-text("E2E Test Stay") form input[placeholder="Capacity"]', '2');
+await page.click('.room-stay:has-text("E2E Test Stay") form button:has-text("Save")');
+await page.waitForSelector('.toast:has-text("Room saved")');
+await page.waitForSelector('.room-card:has(b:has-text("Room Two"))');
+console.log('second room (capacity 2) created ok');
+
+const roomOneCard = '.room-card:has(b:has-text("Room One"))';
+const roomTwoCard = '.room-card:has(b:has-text("Room Two"))';
+const roomPeople = parts.filter(p => !p.is_infant && p.name !== hairuni.name && p.name !== hamzah.name).slice(0, 3);
+if (roomPeople.length !== 3) await fail(`need 3 non-infant participants for room assignment, got ${roomPeople.length}`);
+
+for (const p of roomPeople) {
+  await page.click(`${roomTwoCard} button:has-text("Assign")`);
+  await page.click(`${roomTwoCard} .chip:has-text("${p.name}")`);
+  await page.waitForSelector('.toast:has-text("Occupants updated")');
+  await page.waitForSelector(`${roomTwoCard} .room-occ:has-text("${p.name}")`);
+}
+console.log('3 people assigned to the capacity-2 room ok');
+
+const overBadge = await page.$(`${roomTwoCard} .badge.warning`);
+if (!overBadge) await fail('over-capacity badge (.badge.warning) missing on Room Two after assigning 3 into a capacity-2 room');
+const overBadgeText = (await overBadge.textContent())?.trim();
+if (overBadgeText !== '3/2') await fail(`over-capacity badge text should read "3/2", got "${overBadgeText}"`);
+console.log('over-capacity warning badge ok (badge.warning, "3/2")');
+
+// move one of the three from Room Two into Room One via the occupants
+// endpoint directly ("via assign") — the server must enforce single
+// occupancy per stay group by removing them from the sibling room
+const moved = roomPeople[2];
+const roomsBeforeMove = await page.evaluate(() => fetch('/api/trips/1/rooms').then(r => r.json()));
+const roomOneId = roomsBeforeMove.rooms.find(r => r.name === 'Room One').id;
+const roomTwoBefore = roomsBeforeMove.rooms.find(r => r.name === 'Room Two');
+const moveSt = await page.evaluate(({ roomId, ids }) => fetch(`/api/trips/1/rooms/${roomId}/occupants`, {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ participant_ids: ids }),
+}).then(r => r.status), { roomId: roomOneId, ids: [moved.id] });
+if (moveSt !== 200) await fail(`assigning ${moved.name} into Room One should succeed, got ${moveSt}`);
+const roomsAfterMove = await page.evaluate(() => fetch('/api/trips/1/rooms').then(r => r.json()));
+const roomOneAfter = roomsAfterMove.rooms.find(r => r.name === 'Room One');
+const roomTwoAfter = roomsAfterMove.rooms.find(r => r.name === 'Room Two');
+if (!roomOneAfter.occupant_ids.includes(moved.id)) await fail(`${moved.name} should be in Room One after the move`);
+if (roomTwoAfter.occupant_ids.includes(moved.id)) await fail(`${moved.name} should have left Room Two (single-occupancy rule), still present: ${JSON.stringify(roomTwoAfter.occupant_ids)}`);
+if (roomTwoAfter.occupant_ids.length !== roomTwoBefore.occupant_ids.length - 1) await fail(`Room Two should have lost exactly one occupant, before ${roomTwoBefore.occupant_ids.length} after ${roomTwoAfter.occupant_ids.length}`);
+console.log(`single-occupancy rule ok (${moved.name} moved Room Two -> Room One via assign, left the sibling room)`);
+
+// reflect the API-driven move in the UI
+await page.reload();
+await page.waitForSelector(`${roomOneCard}:has-text("${moved.name}")`);
+if (await page.$(`${roomTwoCard}:has-text("${moved.name}")`)) await fail(`UI still shows ${moved.name} in Room Two after the move`);
+console.log('single-occupancy rule reflected in UI (moved person gone from Room Two card)');
+await shot('39-rooms');
+
+// editor (Hairuni, promoted temporarily): Rooms card fully interactive,
+// but the leader-only invite/details/danger/visibility cards stay hidden
+roleSt = await setRole(hairuni.id, 'editor');
+if (roleSt !== 200) await fail(`PATCH member role to editor (rooms visibility check) failed: ${roleSt}`);
+await p5.goto(`${BASE}/trips/1/people`);
+await p5.waitForSelector('h3:has-text("Rooms")');
+if (!(await p5.$('button:has-text("Add stay")'))) await fail('editor should see the Rooms card "Add stay" control');
+if (!(await p5.$(`${roomTwoCard} button:has-text("Assign")`))) await fail('editor should see per-room Assign controls');
+if (await p5.$('.card.danger-card')) await fail('editor should not see the danger card on the People page');
+if (await p5.$('h3:has-text("Invite links")')) await fail('editor should not see the invite card on the People page');
+if (await p5.$('h3:has-text("Trip details")')) await fail('editor should not see the trip-details card on the People page');
+if (await p5.$('h3:has-text("Member visibility")')) await fail('editor should not see the visibility card on the People page');
+console.log('editor People-page visibility ok (Rooms card + controls visible; invite/details/danger/visibility cards hidden)');
+
+// viewer (Hairuni, restored to viewer as the role ladder above left her):
+// Rooms card renders read-only, zero action buttons anywhere in it
+roleSt = await setRole(hairuni.id, 'viewer');
+if (roleSt !== 200) await fail(`PATCH member role back to viewer (rooms visibility check) failed: ${roleSt}`);
+await p5.goto(`${BASE}/trips/1/people`);
+await p5.waitForSelector('.sidebar a.nav-item:has-text("People")'); // proves the item is present, not just absent-so-far
+const viewerRoomsCard = '.card:has(h3:has-text("Rooms"))';
+await p5.waitForSelector(`${viewerRoomsCard}:has-text("Room One")`);
+if (await p5.$(`${viewerRoomsCard} button`)) await fail('viewer should see zero action buttons on the Rooms card (no add/assign/edit/delete controls)');
+if (await p5.$('.room-occ-x')) await fail('viewer should not see any occupant remove (×) control');
+console.log('viewer Rooms card ok (read-only, zero action buttons)');
+await shot('40-rooms-viewer');
+
 await ctx5.close();
 
 /* ================================================================== */
@@ -1729,9 +1861,17 @@ console.log('mobile chrome ok (tabbar visible, sidebar hidden)');
 // instead, per navModel.ts)
 await p9.goto(`${BASE}/trips/1`);
 await p9.waitForSelector('.hero');
+// v0.23 (T1): no horizontal scroll on the trip dashboard at 390px — the
+// reported overflow (Money + FxWidget currencies) was a real-data issue
+// (unbreakable long descriptions/vendor names/participant names), not
+// visible on the empty seed, so this is a regression guard, not a repro.
+const dashHScroll = await p9.evaluate(() => document.scrollingElement.scrollWidth > window.innerWidth + 1);
+if (dashHScroll) await fail('horizontal scroll on trip dashboard at 390px');
 await p9.click('.tabbar .tab:has-text("Money")');
 await p9.waitForURL(/\/trips\/1\/ledger/);
-console.log('mobile Money tab ok (-> ledger)');
+const ledgerHScroll = await p9.evaluate(() => document.scrollingElement.scrollWidth > window.innerWidth + 1);
+if (ledgerHScroll) await fail('horizontal scroll on ledger at 390px');
+console.log('mobile Money tab ok (-> ledger, no horizontal scroll)');
 
 // long-press (pointerdown, 600ms wait, pointerup) on the Plan tab -> trip switcher sheet
 const planTab = p9.locator('.tabbar .tab:has-text("Plan")');
@@ -1769,6 +1909,15 @@ await p9.waitForTimeout(300);
 const dataThemeLight = await p9.getAttribute('html', 'data-theme');
 if (dataThemeLight !== '') await fail(`theme: expected html[data-theme=""] after switching back to Light, got "${dataThemeLight}"`);
 console.log('mobile theme reset ok (back to Light)');
+
+// v0.23 (T1): walk icon — the Plan page's transit chips + transport card mode
+// map used to fall back to the 🚶 emoji (shared/fares' MODE_ICON) for the walk
+// mode; it now renders the sprite's i-walk icon like train/taxi do.
+await p9.goto(`${BASE}/trips/1/plan`);
+await p9.waitForSelector('.daypills');
+const planHasWalkEmoji = await p9.evaluate(() => document.body.textContent.includes('🚶'));
+if (planHasWalkEmoji) await fail('🚶 emoji still present in Plan DOM (should be the walk icon)');
+console.log('mobile no-walk-emoji ok');
 await ctx9.close();
 
 // 55. covers: leader (admin) on trip 1's People page uploads a tiny fixture
@@ -1782,6 +1931,21 @@ await page.setViewportSize({ width: 1280, height: 900 });
 await page.goto(`${BASE}/trips/1/people`);
 const tripDetailsCard = '.card:has(h3:has-text("Trip details"))';
 await page.waitForSelector(`${tripDetailsCard} .cover-block`);
+
+// v0.23 (T4) — keyless Unsplash: leader sees "Choose from Unsplash" on
+// mount (People.tsx `showUnsplashBtn` starts true); it only hides once a
+// search probe comes back `no_unsplash` (People.tsx searchUnsplash's catch,
+// ~L259) — so the correct sequence is click -> modal auto-searches (trip's
+// destination) -> 404 -> noUnsplashKey toast -> button hidden. Never touches
+// unsplash.com; the 404 comes from this env's own missing access key.
+const unsplashBtn = `${tripDetailsCard} .cover-block button:has-text("Choose from Unsplash")`;
+await page.waitForSelector(unsplashBtn);
+console.log('keyless unsplash: "Choose from Unsplash" button visible initially');
+await page.click(unsplashBtn);
+await page.waitForSelector('.toast:has-text("Unsplash isn\'t set up yet.")', { timeout: 15000 });
+console.log('keyless unsplash: search probe toast ok (no_unsplash)');
+await page.waitForSelector(unsplashBtn, { state: 'detached' });
+console.log('keyless unsplash: "Choose from Unsplash" button hidden after failed probe');
 // 1x1 transparent PNG, inline — the smallest valid fixture; uploadCover's
 // resizeImageFile canvas-redraws it to JPEG client-side regardless of the
 // source format, so a 1x1 source is enough to exercise the whole path.
@@ -1808,5 +1972,72 @@ const coverImgGone = await page.$('a.tripcard img[src*="/cover"]');
 if (coverImgGone) await fail('cover remove: Trips card should fall back to the gradient, still found a cover img');
 console.log('cover remove ok (gradient fallback restored)');
 
+// ---------------------------------------------------------------------
+// v0.22 (T3) — installable PWA + read-only offline (spec §4). Runs in a
+// FRESH browser context appended at the very END of the suite: the SW
+// registers unconditionally once dist is served as a PROD build (wrangler
+// dev serves `npm run build` output, and registerSW's only gate is
+// import.meta.env.PROD), so keeping this section last — and its own
+// context/session — means no earlier assertion in the suite above can be
+// confused by SW-cached responses. SW is unregistered and jl-* caches
+// cleared at the end of this section so reruns of the whole suite start
+// clean too.
+// ---------------------------------------------------------------------
+
+// 56. manifest + sw.js served correctly (plain HTTP, no browser needed)
+const manifestRes = await fetch(`${BASE}/manifest.webmanifest`);
+if (manifestRes.status !== 200) await fail(`manifest.webmanifest should be 200, got ${manifestRes.status}`);
+const manifestJson = await manifestRes.json();
+if (manifestJson.name !== 'Jelajah') await fail(`manifest name should be "Jelajah", got "${manifestJson.name}"`);
+console.log('pwa: manifest ok (200, name=Jelajah)');
+
+const swRes = await fetch(`${BASE}/sw.js`);
+if (swRes.status !== 200) await fail(`sw.js should be 200, got ${swRes.status}`);
+const swContentType = swRes.headers.get('content-type') ?? '';
+if (!/javascript/.test(swContentType)) await fail(`sw.js content-type should be javascript, got "${swContentType}"`);
+console.log('pwa: sw.js ok (200, content-type javascript)');
+
+// 57. SW registration + read-only offline render — fresh context, fresh login.
+const ctx10 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const p10 = await ctx10.newPage();
+p10.setDefaultTimeout(25000);
+await blockExternal(p10);
+
+await p10.goto(`${BASE}/login`);
+await p10.fill('input[type=email]', 'admin@jelajah.local');
+await p10.fill('input[type=password]', 'kata-laluan-baru-99');
+await p10.click('.login-card button');
+await p10.waitForURL(`${BASE}/`);
+console.log('pwa: login ok');
+
+// registration works: localhost is a secure context and the dist wrangler
+// serves is a PROD build, so import.meta.env.PROD gates true.
+await p10.evaluate(() => navigator.serviceWorker.ready);
+console.log('pwa: service worker ready');
+
+// visit a trip plan page while online — populates the jl-api cache (plan
+// data) and jl-assets cache (already warm from the app shell load above).
+await p10.goto(`${BASE}/trips/1/plan`);
+await p10.waitForSelector('.daypills');
+await p10.waitForTimeout(500); // let the SW's async cache.put land
+console.log('pwa: trip plan loaded online (api cache populated)');
+
+await ctx10.setOffline(true);
+await p10.reload();
+await p10.waitForSelector('.daypills', { timeout: 15000 });
+await p10.waitForSelector('.app-banner-offline', { timeout: 15000 });
+console.log('pwa: offline render ok (plan content cached, offline banner visible)');
+await ctx10.setOffline(false);
+
+// teardown: unregister SW + clear jl-* caches so reruns of the suite start clean
+await p10.evaluate(async () => {
+  const regs = await navigator.serviceWorker.getRegistrations();
+  await Promise.all(regs.map((r) => r.unregister()));
+  const names = await caches.keys();
+  await Promise.all(names.filter((n) => n.startsWith('jl-')).map((n) => caches.delete(n)));
+});
+await ctx10.close();
+console.log('pwa: SW unregistered + jl-* caches cleared');
+
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.20)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.23)');

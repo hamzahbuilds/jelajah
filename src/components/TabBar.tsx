@@ -32,7 +32,6 @@ export default function TabBar() {
 
   const tripId = nav?.trip?.id;
   const myRole = nav?.myRole;
-  const canLead = myRole === 'leader';
   const hidden = nav?.hidden ?? new Set<string>();
   const isAdmin = user.role === 'admin';
 
@@ -176,7 +175,7 @@ export default function TabBar() {
             <Icon name="chev-r" size={16} />
           </button>
         )}
-        {tripId != null && canLead && (
+        {tripId != null && (
           <button className="srow" onClick={() => { setMoreOpen(false); navigate(`/trips/${tripId}/people`); }}>
             <span className="em"><Icon name="users" size={20} /></span>
             <div className="t"><b>{t.people}</b></div>

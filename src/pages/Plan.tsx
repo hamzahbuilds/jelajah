@@ -29,9 +29,8 @@ function downloadCsv(filename: string, content: string) {
 
 const KIND_ICON: Record<string, IconName> = { flight: 'plane', checkin: 'key', checkout: 'bag' };
 // v0.19 rail transit chip: mode → Icon name, UI layer only (shared/fares' MODE_ICON
-// emoji map is untouched). No 1:1 icon for "walk" in the icon set, so that mode keeps
-// the MODE_ICON emoji instead of forcing an unrelated glyph onto it.
-const RAIL_MODE_ICON: Partial<Record<Mode, IconName>> = { train: 'train', intercity: 'train', taxi: 'car' };
+// emoji map is untouched, still used as the fallback for any mode not listed here).
+const RAIL_MODE_ICON: Partial<Record<Mode, IconName>> = { train: 'train', intercity: 'train', taxi: 'car', walk: 'walk' };
 
 interface ChainPt { ref: string; name: string; lat: number; lng: number; station?: Station | null }
 export interface Leg {
@@ -765,7 +764,7 @@ export default function Plan() {
                   </div>
                   {leg.rail && (
                     <div className="tiny" style={{ marginTop: 2 }}>
-                      {t.walkTo(leg.rail.walkFrom)} → 🚇 <strong>{leg.rail.fromStation.name}</strong> → <strong>{leg.rail.toStation.name}</strong> ({t.minsLabel(leg.rail.rideMin)}) → {t.walkTo(leg.rail.walkTo)}
+                      {t.walkTo(leg.rail.walkFrom)} → <Icon name="train" size={16} /> <strong>{leg.rail.fromStation.name}</strong> → <strong>{leg.rail.toStation.name}</strong> ({t.minsLabel(leg.rail.rideMin)}) → {t.walkTo(leg.rail.walkTo)}
                     </div>
                   )}
                   <div className="row" style={{ gap: 4, marginTop: 3 }}>
@@ -1097,7 +1096,7 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
                     {sts.map((s, i2) => (
                       <button type="button" key={i2} className={`chip ${(d.station_idx ?? 0) === i2 ? 'on' : ''}`}
                         onClick={() => set({ station_idx: i2 })}>
-                        🚇 {s.name} · {t.walkTo(Math.max(1, Math.round((s.distM / 1000) * 1.3 * 12)))}
+                        <Icon name="train" size={16} /> {s.name} · {t.walkTo(Math.max(1, Math.round((s.distM / 1000) * 1.3 * 12)))}
                       </button>
                     ))}
                   </div>

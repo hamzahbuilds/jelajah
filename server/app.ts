@@ -11,6 +11,7 @@ import { migratedRole, TripRole, atLeast } from './lib/roles';
 import { FX_WINDOWS, FxWindow, analyzeRates } from '../shared/fxband';
 import { checkInvite, newInviteCode } from '../shared/invites';
 import { fillDays, lastNDaysUtc } from '../shared/metrics';
+import { singleOccupancyBatch } from '../shared/rooms';
 
 type Vars = { user: SessionUser };
 const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
@@ -188,7 +189,9 @@ app.use('*', async (c, next) => {
   if (c.req.path === '/api/auth/login' || c.req.path === '/api/health'
     || c.req.path.startsWith('/api/setup')
     || (c.req.path.startsWith('/api/join/') && c.req.method === 'GET')
-    || (c.req.path.startsWith('/api/join/') && c.req.method === 'POST' && !c.req.path.endsWith('/accept'))) return next();
+    || (c.req.path.startsWith('/api/join/') && c.req.method === 'POST' && !c.req.path.endsWith('/accept'))
+    // Login-page carousel: pre-auth (rendered before anyone has a session), no member data.
+    || (c.req.path === '/api/public/carousel' && c.req.method === 'GET')) return next();
   if (c.req.path.startsWith('/api/mcp')) return next(); // MCP authenticates with its own token (header or path)
   const user = await getSessionUser(c.env, getCookie(c, 'sid'));
   if (!user) return bad(c, 'unauthorized', 401);
@@ -429,6 +432,24 @@ app.post('/trips', async c => {
     `INSERT OR IGNORE INTO trip_members (trip_id, participant_id, role) VALUES (?, ?, 'leader')`,
   ).bind(tripId, participantId).run();
   await audit(c.env, user.id, 'trip_create', 'trip', tripId);
+
+  // Auto-cover: key-optional, fire-and-forget, every failure silent (the
+  // Wikipedia auto endpoint / a gradient stays the fallback the client already
+  // renders). waitUntil keeps this off the response's critical path.
+  const unsplashKey = c.env.UNSPLASH_ACCESS_KEY;
+  const destStr = destination ? String(destination).trim() : '';
+  if (unsplashKey && destStr) {
+    c.executionCtx.waitUntil((async () => {
+      try {
+        const photo = await unsplashSearchOne(unsplashKey, `${destStr} travel`);
+        if (!photo) return;
+        const shot = await fetchUnsplashCoverBytes(unsplashKey, photo);
+        if (!shot) return;
+        await storeCover(c.env, Number(tripId), null, shot.buf, shot.contentType, shot.credit);
+      } catch { /* silent: gradient/Wikipedia fallback remains */ }
+    })());
+  }
+
   return c.json({ id: tripId });
 });
 
@@ -596,6 +617,8 @@ app.delete('/trips/:id', requireLeader, async c => {
     DB.prepare(`DELETE FROM day_settings WHERE trip_id = ?`).bind(tripId),
     DB.prepare(`DELETE FROM day_budgets WHERE trip_id = ?`).bind(tripId),
     DB.prepare(`DELETE FROM day_notes WHERE trip_id = ?`).bind(tripId),
+    DB.prepare(`DELETE FROM room_occupants WHERE room_id IN (SELECT id FROM rooms WHERE trip_id = ?)`).bind(tripId),
+    DB.prepare(`DELETE FROM rooms WHERE trip_id = ?`).bind(tripId),
     DB.prepare(`DELETE FROM checklist_items WHERE trip_id = ?`).bind(tripId),
     DB.prepare(`DELETE FROM leg_overrides WHERE trip_id = ?`).bind(tripId),
     DB.prepare(`DELETE FROM import_profiles WHERE trip_id = ?`).bind(tripId),
@@ -712,6 +735,21 @@ app.delete('/documents/:id', async c => {
 // bytes into the same KV namespace under the same content-type.
 const ALLOWED_COVER_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
+/** Shared versioned-cover-write pipeline (PUT /cover and /cover/auto predate
+ *  this extraction and stay as-is; the Unsplash routes below — added after —
+ *  reuse this instead of a third copy). */
+async function storeCover(
+  env: Env, tripId: number, oldKey: string | null, buf: ArrayBuffer, contentType: string, credit: string | null,
+): Promise<string> {
+  const key = `cover/${tripId}/${Date.now()}`;
+  await filesPut(env, key, buf, contentType);
+  await env.DB.prepare('UPDATE trips SET cover_key = ?, cover_credit = ? WHERE id = ?').bind(key, credit, tripId).run();
+  if (oldKey) {
+    try { await filesDelete(env, oldKey); } catch { /* best-effort */ }
+  }
+  return key;
+}
+
 app.get('/trips/:id/cover', async c => {
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id) || id <= 0) return bad(c, 'not_found', 404);
@@ -825,6 +863,232 @@ app.delete('/trips/:id/cover', requireLeader, async c => {
   await c.env.DB.prepare('UPDATE trips SET cover_key = NULL, cover_credit = NULL WHERE id = ?').bind(id).run();
   await audit(c.env, c.get('user').id, 'cover_delete', 'trip', id);
   return c.json({ ok: true });
+});
+
+/* ---------------- unsplash (key-optional: 404 no_unsplash w/o UNSPLASH_ACCESS_KEY) ---------------- */
+
+const UNSPLASH_SEARCH_URL = 'https://api.unsplash.com/search/photos';
+const CAROUSEL_DESTINATIONS = ['Kyoto', 'Santorini', 'Cappadocia', 'Banff', 'Kuala Lumpur'];
+const CAROUSEL_CACHE_KEY = 'unsplash_carousel';
+const CAROUSEL_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Unsplash API guidelines: identify the app via Client-ID + a pinned API version. */
+function unsplashHeaders(key: string): Record<string, string> {
+  return { Authorization: `Client-ID ${key}`, 'Accept-Version': 'v1' };
+}
+
+/** Hostname-validates an Unsplash-derived link (author profile / photo page)
+ *  before it leaves the server or gets persisted. Returns the link only if it
+ *  is https and points at unsplash.com (or a subdomain); otherwise '' so
+ *  callers can drop it rather than store/forward an arbitrary URL. */
+function safeUnsplashLink(u: string | undefined | null): string {
+  if (!u) return '';
+  try {
+    const parsed = new URL(u);
+    if (parsed.protocol !== 'https:') return '';
+    if (parsed.hostname !== 'unsplash.com' && !parsed.hostname.endsWith('.unsplash.com')) return '';
+    return u;
+  } catch {
+    return '';
+  }
+}
+
+/** Append query params to a URL only where not already present (e.g. Unsplash's
+ *  own `urls.regular` already carries sizing params most of the time). */
+function withUnsplashParams(url: string, params: Record<string, string>): string {
+  try {
+    const u = new URL(url);
+    for (const [k, v] of Object.entries(params)) {
+      if (!u.searchParams.has(k)) u.searchParams.set(k, v);
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+async function unsplashSearchOne(key: string, query: string): Promise<any | null> {
+  try {
+    const res = await fetch(
+      `${UNSPLASH_SEARCH_URL}?query=${encodeURIComponent(query)}&orientation=landscape&per_page=1`,
+      { headers: unsplashHeaders(key) },
+    );
+    if (!res.ok) return null;
+    const json: any = await res.json();
+    return json?.results?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Downloads an Unsplash photo's `regular` rendition (capped/typed like the
+ *  rest of the cover pipeline) and fires the guideline-required download
+ *  trigger. Returns null on any failure — every caller treats that as silent. */
+async function fetchUnsplashCoverBytes(
+  key: string, photo: any,
+): Promise<{ buf: ArrayBuffer; contentType: string; credit: string } | null> {
+  const regularUrl: string | undefined = photo?.urls?.regular;
+  if (!regularUrl) return null;
+  // Guideline-required "download" event — fired (and awaited, so it actually
+  // goes out before the isolate can recycle) whenever a photo is used, not
+  // just when a human explicitly downloads it via the picker.
+  if (photo.links?.download_location) {
+    try { await fetch(photo.links.download_location, { headers: unsplashHeaders(key) }); } catch { /* best-effort */ }
+  }
+  let imgRes: Response;
+  try {
+    imgRes = await fetch(withUnsplashParams(regularUrl, { w: '1280', q: '80' }), { redirect: 'error' });
+  } catch {
+    return null;
+  }
+  const contentType = (imgRes.headers.get('content-type') || '').split(';')[0].trim();
+  if (!imgRes.ok || !ALLOWED_COVER_TYPES.has(contentType)) return null;
+  if (Number(imgRes.headers.get('content-length') || 0) > 600_000) return null;
+  const buf = await imgRes.arrayBuffer();
+  if (buf.byteLength > 600_000) return null;
+  const authorName = photo.user?.name ?? 'Unsplash';
+  const authorLink = photo.user?.links?.html ?? '';
+  return { buf, contentType, credit: `${authorName} · Unsplash · ${authorLink}` };
+}
+
+// NO auth (see the bypass alongside the /join public routes in the auth
+// middleware above) — rendered on the pre-auth login page.
+app.get('/public/carousel', async c => {
+  const key = c.env.UNSPLASH_ACCESS_KEY;
+  if (!key) return bad(c, 'no_unsplash', 404);
+
+  // Cache choice: the only KV-ish binding is FILES, which is also a valid
+  // R2 bucket at runtime (no TTL support there) and is meant for file bytes,
+  // not small JSON blobs. app_settings (D1, via get/setSettingJSON) already
+  // exists as the generic small-JSON-config store, so the carousel cache
+  // lives there with a manual `cached_at` field standing in for KV's
+  // expirationTtl (checked against CAROUSEL_TTL_MS below).
+  // F4: a D1 read failure degrades to a cache miss rather than a bare 500 on
+  // this unauthenticated route.
+  let cached: { cached_at: number; items: any[] } | null = null;
+  try {
+    cached = await getSettingJSON<{ cached_at: number; items: any[] }>(c.env, CAROUSEL_CACHE_KEY);
+  } catch { /* treat as no cache */ }
+  if (cached?.items?.length && Date.now() - cached.cached_at < CAROUSEL_TTL_MS) {
+    return c.json({ items: cached.items }, 200, { 'Cache-Control': 'public, max-age=3600' });
+  }
+  // negative cache: this endpoint is unauthenticated — without it, an outage
+  // or invalid key turns every stranger's request into 5 outbound calls.
+  const FAIL_TTL_MS = 10 * 60 * 1000;
+  if (cached && !cached.items?.length && Date.now() - cached.cached_at < FAIL_TTL_MS) {
+    return bad(c, 'no_unsplash', 404);
+  }
+
+  const items: any[] = [];
+  for (const destination of CAROUSEL_DESTINATIONS) {
+    const photo = await unsplashSearchOne(key, `${destination} travel`);
+    if (!photo?.urls?.regular) continue; // per-destination failures tolerated
+    items.push({
+      destination,
+      url: withUnsplashParams(photo.urls.regular, { w: '1600', q: '80' }),
+      author_name: photo.user?.name ?? '',
+      author_link: safeUnsplashLink(photo.user?.links?.html),
+      photo_link: safeUnsplashLink(photo.links?.html),
+    });
+  }
+  if (!items.length) {
+    // F3: a single transient failure must not clobber a last-known-good
+    // cache — the stale images.unsplash.com URLs it holds still resolve
+    // (they're served straight from Unsplash's CDN), so serving them stale
+    // beats the gradient fallback the client shows on a 404. Only write the
+    // negative marker when there was no prior successful fetch to protect.
+    if (cached?.items?.length) {
+      return c.json({ items: cached.items }, 200, { 'Cache-Control': 'public, max-age=3600' });
+    }
+    try {
+      await setSettingJSON(c.env, CAROUSEL_CACHE_KEY, { cached_at: Date.now(), items: [] }); // negative cache (10 min)
+    } catch { /* write failure: nothing to protect, fall through to 404 */ }
+    return bad(c, 'no_unsplash', 404); // all 5 searches failed
+  }
+  try {
+    await setSettingJSON(c.env, CAROUSEL_CACHE_KEY, { cached_at: Date.now(), items });
+  } catch { /* F4: cache write failure — still return the freshly fetched items */ }
+  return c.json({ items }, 200, { 'Cache-Control': 'public, max-age=3600' });
+});
+
+app.get('/trips/:id/unsplash', async c => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'not_found', 404);
+  if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
+  const key = c.env.UNSPLASH_ACCESS_KEY;
+  if (!key) return bad(c, 'no_unsplash', 404);
+  const q = (c.req.query('q') || '').trim();
+  if (!q || q.length > 80) return bad(c, 'invalid_query');
+  let json: any;
+  try {
+    const res = await fetch(
+      `${UNSPLASH_SEARCH_URL}?query=${encodeURIComponent(q)}&orientation=landscape&per_page=9`,
+      { headers: unsplashHeaders(key) },
+    );
+    if (!res.ok) return bad(c, 'search_failed', 502);
+    json = await res.json();
+  } catch {
+    return bad(c, 'search_failed', 502);
+  }
+  const items = (json?.results ?? []).map((p: any) => ({
+    id: p.id,
+    thumb: p.urls?.small,
+    regular: p.urls?.regular,
+    author_name: p.user?.name ?? '',
+    author_link: safeUnsplashLink(p.user?.links?.html),
+    download_location: p.links?.download_location,
+  }));
+  await trackUsage(c.env, c.get('user').id, 'unsplash_search');
+  return c.json({ items });
+});
+
+app.post('/trips/:id/cover/unsplash', requireLeader, async c => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'not_found', 404);
+  const key = c.env.UNSPLASH_ACCESS_KEY;
+  if (!key) return bad(c, 'no_unsplash', 404);
+  const trip = await c.env.DB.prepare('SELECT cover_key FROM trips WHERE id = ?').bind(id).first<any>();
+  if (!trip) return bad(c, 'not_found', 404);
+
+  const body = await c.req.json<any>().catch(() => ({}));
+  const { regular_url, download_location, author_name, author_link } = body ?? {};
+  if (!regular_url || !download_location || !author_name || !author_link) return bad(c, 'missing_fields');
+
+  let regularUrl: URL, downloadUrl: URL;
+  try { regularUrl = new URL(regular_url); } catch { return bad(c, 'invalid_url'); }
+  try { downloadUrl = new URL(download_location); } catch { return bad(c, 'invalid_url'); }
+  // Same SSRF-pinning approach as /cover/auto (Wikimedia there, Unsplash's
+  // own CDN/API hosts here) — the client only ever supplies a hostname we trust.
+  if (regularUrl.protocol !== 'https:' || regularUrl.hostname !== 'images.unsplash.com') return bad(c, 'invalid_url');
+  if (downloadUrl.protocol !== 'https:' || downloadUrl.hostname !== 'api.unsplash.com') return bad(c, 'invalid_url');
+  // F6: author_link is client-supplied and gets persisted verbatim into
+  // cover_credit, which People.tsx renders as a live link — reject rather
+  // than store a non-Unsplash destination.
+  const safeAuthorLink = safeUnsplashLink(author_link);
+  if (!safeAuthorLink) return bad(c, 'invalid_url');
+
+  // Unsplash API guideline: trigger the download event when a photo is used
+  // (attribution/tracking compliance) — failure-tolerant, but awaited so it's
+  // actually sent before the isolate can recycle.
+  try { await fetch(downloadUrl.toString(), { headers: unsplashHeaders(key) }); } catch { /* best-effort */ }
+
+  let imgRes: Response;
+  try {
+    imgRes = await fetch(withUnsplashParams(regularUrl.toString(), { w: '1280', q: '80' }), { redirect: 'error' });
+  } catch {
+    return bad(c, 'no_photo', 404);
+  }
+  const imgType = (imgRes.headers.get('content-type') || '').split(';')[0].trim();
+  if (!imgRes.ok || !ALLOWED_COVER_TYPES.has(imgType)) return bad(c, 'no_photo', 404);
+  if (Number(imgRes.headers.get('content-length') || 0) > 600_000) return bad(c, 'no_photo', 404);
+  const buf = await imgRes.arrayBuffer();
+  if (buf.byteLength > 600_000) return bad(c, 'no_photo', 404);
+
+  const credit = `${author_name} · Unsplash · ${safeAuthorLink}`;
+  const coverKey = await storeCover(c.env, id, trip.cover_key, buf, imgType, credit);
+  await audit(c.env, c.get('user').id, 'cover_set', 'trip', id);
+  await trackUsage(c.env, c.get('user').id, 'cover_set');
+  return c.json({ ok: true, credit, cover_key: coverKey });
 });
 
 /* -------- expense payload helpers -------- */
@@ -1120,6 +1384,14 @@ interface AutoEvent {
   participant_ids?: number[]; // who is on this booking (from expense shares)
 }
 
+/** Accommodation-expense-derived "stays" — used both by the plan payload's
+ *  `stays` field and as GET /trips/:id/rooms's `suggested_stays` (v0.21). */
+function deriveStays(exps: any[]) {
+  return exps
+    .filter(e => e.category === 'accommodation')
+    .map(e => ({ expense_id: e.id, description: e.description, location: e.location, lat: e.lat, lng: e.lng, checkin: e.expense_date, checkout: e.end_date }));
+}
+
 app.get('/trips/:id/plan', async c => {
   const id = Number(c.req.param('id'));
   if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
@@ -1215,9 +1487,7 @@ app.get('/trips/:id/plan', async c => {
     membersByGroup.get(r.group_id)!.push(r.participant_id);
   }
 
-  const stays = (exps.results as any[])
-    .filter(e => e.category === 'accommodation')
-    .map(e => ({ expense_id: e.id, description: e.description, location: e.location, lat: e.lat, lng: e.lng, checkin: e.expense_date, checkout: e.end_date }));
+  const stays = deriveStays(exps.results as any[]);
   const daySettings = await c.env.DB.prepare('SELECT * FROM day_settings WHERE trip_id = ?').bind(id).all();
   const legOverrides = await c.env.DB.prepare('SELECT * FROM leg_overrides WHERE trip_id = ?').bind(id).all();
   const dayBudgets = await c.env.DB.prepare('SELECT * FROM day_budgets WHERE trip_id = ? ORDER BY day').bind(id).all();
@@ -1234,6 +1504,174 @@ app.get('/trips/:id/plan', async c => {
     daySettings: daySettings.results,
     legOverrides: legOverrides.results,
   });
+});
+
+/* ---------------- rooms (v0.21) ---------------- */
+
+/** 400s unless every id in `participantIds` is a member of the trip — mirrors
+ *  the cross-tenant guard used by PUT /trips/:id/members. */
+async function participantsBelongToTrip(env: Env, tripId: number, participantIds: number[]): Promise<boolean> {
+  if (!participantIds.length) return true;
+  const placeholders = participantIds.map(() => '?').join(',');
+  const rows = await env.DB.prepare(
+    `SELECT participant_id FROM trip_members WHERE trip_id = ? AND participant_id IN (${placeholders})`,
+  ).bind(tripId, ...participantIds).all<any>();
+  const known = new Set((rows.results as any[]).map(r => r.participant_id));
+  return participantIds.every(pid => known.has(pid));
+}
+
+app.get('/trips/:id/rooms', async c => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'not_found', 404);
+  if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
+  const trip = await c.env.DB.prepare('SELECT id FROM trips WHERE id = ?').bind(id).first<any>();
+  if (!trip) return bad(c, 'not_found', 404);
+
+  const rooms = await c.env.DB.prepare(
+    'SELECT * FROM rooms WHERE trip_id = ? ORDER BY stay_label, sort, id',
+  ).bind(id).all();
+  const occ = await c.env.DB.prepare(
+    `SELECT ro.* FROM room_occupants ro JOIN rooms r ON r.id = ro.room_id WHERE r.trip_id = ?`,
+  ).bind(id).all();
+  const occByRoom = new Map<number, number[]>();
+  for (const r of occ.results as any[]) {
+    if (!occByRoom.has(r.room_id)) occByRoom.set(r.room_id, []);
+    occByRoom.get(r.room_id)!.push(r.participant_id);
+  }
+  const hidden = await hiddenFor(c, id);
+  let suggested_stays: Array<{ label: any; check_in: any; check_out: any }> = [];
+  if (!hidden.has('plan')) {
+    const exps = await c.env.DB.prepare(
+      `SELECT id, description, location, lat, lng, expense_date, end_date, category FROM expenses
+       WHERE trip_id = ? AND category = 'accommodation'`,
+    ).bind(id).all();
+    suggested_stays = deriveStays(exps.results as any[])
+      .map(s => ({ label: s.description, check_in: s.checkin, check_out: s.checkout }));
+  }
+
+  await trackUsage(c.env, c.get('user').id, 'rooms_view');
+  return c.json({
+    rooms: (rooms.results as any[]).map(r => ({ ...r, occupant_ids: occByRoom.get(r.id) ?? [] })),
+    suggested_stays,
+  });
+});
+
+app.post('/trips/:id/rooms', requireEditor, async c => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'not_found', 404);
+  const trip = await c.env.DB.prepare('SELECT id FROM trips WHERE id = ?').bind(id).first<any>();
+  if (!trip) return bad(c, 'not_found', 404);
+  const b = await c.req.json<any>();
+  if (!b.stay_label?.trim() || !b.name?.trim()) return bad(c, 'missing_fields');
+  if (b.capacity != null && (!Number.isInteger(b.capacity) || b.capacity < 0 || b.capacity > 99)) return bad(c, 'bad_capacity');
+  const r = await c.env.DB.prepare(
+    `INSERT INTO rooms (trip_id, stay_label, check_in, check_out, name, capacity) VALUES (?,?,?,?,?,?)`,
+  ).bind(id, b.stay_label.trim(), b.check_in ?? null, b.check_out ?? null, b.name.trim(), b.capacity ?? null).run();
+  const rid = Number(r.meta.last_row_id);
+  await audit(c.env, c.get('user').id, 'room_create', 'room', rid);
+  return c.json({ id: rid });
+});
+
+/** Loads a room and 400s (404) unless it belongs to trip `tripId`. */
+async function loadRoomInTrip(env: Env, tripId: number, roomId: number): Promise<any | null> {
+  if (!Number.isInteger(roomId) || roomId <= 0) return null;
+  const row = await env.DB.prepare('SELECT * FROM rooms WHERE id = ? AND trip_id = ?').bind(roomId, tripId).first<any>();
+  return row ?? null;
+}
+
+app.patch('/trips/:id/rooms/:roomId', requireEditor, async c => {
+  const id = Number(c.req.param('id'));
+  const roomId = Number(c.req.param('roomId'));
+  const room = await loadRoomInTrip(c.env, id, roomId);
+  if (!room) return bad(c, 'not_found', 404);
+  const b = await c.req.json<any>();
+  const cols = (['stay_label', 'check_in', 'check_out', 'name', 'capacity'] as const).filter(k => k in b);
+  if (!cols.length) return bad(c, 'nothing_to_update');
+  if ('capacity' in b && b.capacity != null && (!Number.isInteger(b.capacity) || b.capacity < 0 || b.capacity > 99)) return bad(c, 'bad_capacity');
+  const vals = cols.map(k => (k === 'stay_label' || k === 'name' ? String(b[k]).trim() : b[k] ?? null));
+  await c.env.DB.prepare(
+    `UPDATE rooms SET ${cols.map(k => `${k} = ?`).join(', ')} WHERE id = ?`,
+  ).bind(...vals, roomId).run();
+
+  // Moving a room to a different stay_label group can leave its occupants
+  // double-booked in the destination group. Re-run the single-occupancy rule:
+  // the moved room's occupants win, so they're removed from every sibling
+  // room of the NEW group.
+  if ('stay_label' in b) {
+    const newStayLabel = String(b.stay_label).trim();
+    if (newStayLabel !== room.stay_label) {
+      const occ = await c.env.DB.prepare(
+        'SELECT participant_id FROM room_occupants WHERE room_id = ?',
+      ).bind(roomId).all<any>();
+      const occupantIds = (occ.results as any[]).map(r => r.participant_id);
+      if (occupantIds.length) {
+        const siblings = await c.env.DB.prepare(
+          `SELECT id FROM rooms WHERE trip_id = ? AND stay_label = ? AND id != ?`,
+        ).bind(id, newStayLabel, roomId).all<any>();
+        const siblingRoomIds = (siblings.results as any[]).map(r => r.id);
+        const { deleteFrom } = singleOccupancyBatch(roomId, occupantIds, siblingRoomIds);
+        if (deleteFrom.length) {
+          const placeholders = occupantIds.map(() => '?').join(',');
+          await c.env.DB.batch(deleteFrom.map(sid => c.env.DB.prepare(
+            `DELETE FROM room_occupants WHERE room_id = ? AND participant_id IN (${placeholders})`,
+          ).bind(sid, ...occupantIds)));
+        }
+      }
+    }
+  }
+
+  await audit(c.env, c.get('user').id, 'room_update', 'room', roomId);
+  return c.json({ ok: true });
+});
+
+app.delete('/trips/:id/rooms/:roomId', requireEditor, async c => {
+  const id = Number(c.req.param('id'));
+  const roomId = Number(c.req.param('roomId'));
+  const room = await loadRoomInTrip(c.env, id, roomId);
+  if (!room) return bad(c, 'not_found', 404);
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM room_occupants WHERE room_id = ?').bind(roomId),
+    c.env.DB.prepare('DELETE FROM rooms WHERE id = ?').bind(roomId),
+  ]);
+  await audit(c.env, c.get('user').id, 'room_delete', 'room', roomId);
+  return c.json({ ok: true });
+});
+
+app.put('/trips/:id/rooms/:roomId/occupants', requireEditor, async c => {
+  const id = Number(c.req.param('id'));
+  const roomId = Number(c.req.param('roomId'));
+  const room = await loadRoomInTrip(c.env, id, roomId);
+  if (!room) return bad(c, 'not_found', 404);
+  const { participant_ids } = await c.req.json<{ participant_ids: number[] }>();
+  if (!Array.isArray(participant_ids)) return bad(c, 'ids_required');
+  const incoming = [...new Set(participant_ids.map(Number))];
+  if (incoming.length > 100) return bad(c, 'ids_required');
+  if (!incoming.every(pid => Number.isInteger(pid) && pid > 0)) return bad(c, 'ids_required');
+  if (!(await participantsBelongToTrip(c.env, id, incoming))) return bad(c, 'unknown_participant', 400);
+
+  // Single-occupancy-per-stay-group rule: pull the incoming participants out
+  // of every OTHER room in the same trip_id + stay_label group first, in the
+  // same D1 batch as the replace, so it's one atomic move.
+  const siblings = await c.env.DB.prepare(
+    `SELECT id FROM rooms WHERE trip_id = ? AND stay_label = ? AND id != ?`,
+  ).bind(id, room.stay_label, roomId).all<any>();
+  const siblingRoomIds = (siblings.results as any[]).map(r => r.id);
+  const { deleteFrom } = singleOccupancyBatch(roomId, incoming, siblingRoomIds);
+
+  const stmts = [];
+  for (const sid of deleteFrom) {
+    const placeholders = incoming.map(() => '?').join(',');
+    stmts.push(c.env.DB.prepare(
+      `DELETE FROM room_occupants WHERE room_id = ? AND participant_id IN (${placeholders})`,
+    ).bind(sid, ...incoming));
+  }
+  stmts.push(c.env.DB.prepare('DELETE FROM room_occupants WHERE room_id = ?').bind(roomId));
+  for (const pid of incoming) {
+    stmts.push(c.env.DB.prepare('INSERT OR IGNORE INTO room_occupants (room_id, participant_id) VALUES (?,?)').bind(roomId, pid));
+  }
+  await c.env.DB.batch(stmts);
+  await audit(c.env, c.get('user').id, 'room_occupants_set', 'room', roomId);
+  return c.json({ ok: true });
 });
 
 /* ---- day start/end settings & leg overrides (admin) ---- */
@@ -2299,6 +2737,36 @@ function tripDays(start?: string | null, end?: string | null): string[] {
   return out;
 }
 
+/** Compact "stay label → room name → occupant names" lines for the MCP/AI
+ *  trip context (v0.21). Read-only; no room ids or capacity — just what a
+ *  planning assistant needs to answer "who's rooming with whom". */
+async function compactRoomsLines(env: Env, tripId: number): Promise<string[]> {
+  const rooms = await env.DB.prepare(
+    'SELECT id, stay_label, name FROM rooms WHERE trip_id = ? ORDER BY stay_label, sort, id',
+  ).bind(tripId).all();
+  if (!rooms.results.length) return [];
+  const occ = await env.DB.prepare(
+    `SELECT ro.room_id, p.name FROM room_occupants ro
+     JOIN rooms r ON r.id = ro.room_id JOIN participants p ON p.id = ro.participant_id
+     JOIN trip_members tm ON tm.trip_id = r.trip_id AND tm.participant_id = ro.participant_id
+     WHERE r.trip_id = ?`,
+  ).bind(tripId).all();
+  const namesByRoom = new Map<number, string[]>();
+  for (const r of occ.results as any[]) {
+    if (!namesByRoom.has(r.room_id)) namesByRoom.set(r.room_id, []);
+    namesByRoom.get(r.room_id)!.push(r.name);
+  }
+  const byStay = new Map<string, string[]>();
+  for (const r of rooms.results as any[]) {
+    const occupants = namesByRoom.get(r.id) ?? [];
+    const stay = String(r.stay_label).slice(0, 160);
+    const roomName = String(r.name).slice(0, 160);
+    if (!byStay.has(stay)) byStay.set(stay, []);
+    byStay.get(stay)!.push(`${roomName}: ${occupants.length ? occupants.join(', ') : '(empty)'}`);
+  }
+  return [...byStay.entries()].map(([stay, roomLines]) => `${stay}:\n  ${roomLines.join('\n  ')}`);
+}
+
 /** Build the text context the model sees — mirrors what THIS user can see in the UI. */
 async function tripContext(c: any, tripId: number, includeMoney: boolean): Promise<string> {
   const env: Env = c.env;
@@ -2350,6 +2818,10 @@ async function tripContext(c: any, tripId: number, includeMoney: boolean): Promi
     if (bookings.results.length) {
       blocks.push(`BOOKINGS:\n${(bookings.results as any[]).map(b =>
         `${b.category} ${b.expense_date ?? ''}${b.end_date ? '→' + b.end_date : ''} ${b.description}${b.location ? ` @ ${b.location}` : ''}`).join('\n')}`);
+    }
+    const roomLines = await compactRoomsLines(env, tripId);
+    if (roomLines.length) {
+      blocks.push(`ROOMS (who's sleeping where, read-only):\n${roomLines.join('\n')}`);
     }
     const budgets = await env.DB.prepare('SELECT * FROM day_budgets WHERE trip_id = ? ORDER BY day').bind(tripId).all();
     if (budgets.results.length) {
@@ -2670,6 +3142,7 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       const noteQ = env.DB.prepare(
         `SELECT id, day, content, is_check, done FROM day_notes WHERE trip_id = ?${dayFilter} ORDER BY day, sort, id`);
       const notes = await (dayFilter ? noteQ.bind(args.trip_id, args.day) : noteQ.bind(args.trip_id)).all();
+      const roomLines = await compactRoomsLines(env, args.trip_id);
       return {
         activities: acts.results, bookings: bookings.results, day_budgets: budgets.results,
         day_titles: titles.results,
@@ -2677,6 +3150,7 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
           id: n.id, day: n.day, content: n.content,
           is_checklist: !!n.is_check, done: n.is_check ? !!n.done : null,
         })),
+        rooms: roomLines,
       };
     }
     case 'get_balances': {

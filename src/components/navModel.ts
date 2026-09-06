@@ -60,7 +60,6 @@ export function navModel(path: string, opts: NavOpts): NavModel {
 
   if (tripId != null) {
     const base = `/trips/${tripId}`;
-    const isLeader = myRole === 'leader';
 
     main.push({ key: 'overview', to: base, icon: 'home', label: 'overview', on: path === base });
 
@@ -74,9 +73,10 @@ export function navModel(path: string, opts: NavOpts): NavModel {
       main.push({ key: 'documents', to: `${base}/documents`, icon: 'file', label: 'documents', on: path.startsWith(`${base}/documents`) });
     }
 
-    if (isLeader) {
-      main.push({ key: 'people', to: `${base}/people`, icon: 'users', label: 'people', on: path === `${base}/people` });
-    }
+    // v0.21: People is open to every trip role — the page itself gates its
+    // leader-only cards (invites/details/danger) while showing a read-only
+    // member list + the Rooms card to editors/viewers.
+    main.push({ key: 'people', to: `${base}/people`, icon: 'users', label: 'people', on: path === `${base}/people` });
   }
 
   return { main, foot };

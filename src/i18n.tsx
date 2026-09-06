@@ -17,6 +17,10 @@ const en = {
   setupGo: 'Create & start',
   language: 'Language', changePassword: 'Change password', newPassword: 'New password (min 8 chars)',
   mustChange: 'Please set a new password to replace the temporary one.',
+  // v0.22 — PWA offline / update banners
+  offlineBanner: 'Offline — showing last synced data',
+  updateBanner: 'A new version is ready.',
+  refresh: 'Refresh',
   // join / invite
   joinTitle: 'Join Jelajah', joinTripTitle: (trip: string) => `Join “${trip}”`,
   joinInvitedBy: (name: string) => `Invited by ${name}`,
@@ -100,7 +104,7 @@ const en = {
   wholePayment: 'Whole payment', forWhom: 'For',
   // v0.10
   nearestStations: 'Nearest stations', changeStation: 'Change station',
-  walkTo: (n: number) => `🚶 ${n} min`, viaStation: 'via',
+  walkTo: (n: number) => `${n} min`, viaStation: 'via',
   moveUp: 'Move up', moveDown: 'Move down', undoReflow: 'Undo reorder',
   reflowed: 'Times reflowed for the new order',
   journey: 'Journey', places: 'places', stays: 'stays', flights: 'flights',
@@ -328,6 +332,12 @@ const en = {
   noPhotoFound: 'No photo found for this destination — try uploading one instead.',
   coverSet: 'Cover photo updated',
   coverRemoved: 'Cover photo removed',
+  // v0.23 — Unsplash cover picker
+  chooseFromUnsplash: 'Choose from Unsplash',
+  searchPhotos: 'Search photos',
+  noUnsplashKey: "Unsplash isn't set up yet.",
+  noPhotosFound: 'No photos found — try another search.',
+  photoBy: 'Photo:',
   // v0.18 — A3 admin dashboard
   mDashboard: 'Dashboard',
   mSignups30: 'Signups (30d)',
@@ -371,6 +381,17 @@ const en = {
   settingsSub: 'Appearance, language, your referral link and connected tools',
   settingsCrumb: 'Your account',
   languageTitle: 'Language',
+  // v0.21 — rooms card (People page, all trip roles)
+  roomsTitle: 'Rooms', roomsHint: 'Group travellers into rooms for each stay.',
+  addStay: 'Add stay', addRoom: 'Add room', roomName: 'Room name', roomOne: 'Room 1', capacity: 'Capacity',
+  unassigned: 'Unassigned', assign: 'Assign', removeFromRoom: 'Remove from room',
+  overCapacity: 'Over capacity', noStaysYet: 'No stays yet.',
+  stayDates: (ci: string, co: string) => `${ci} – ${co}`,
+  suggestedStays: 'Suggested stays', orManually: 'Or enter manually',
+  stayLabel: 'Stay name', noRoomsInStay: 'No rooms yet.',
+  editRoomTitle: 'Edit room', deleteRoomTitle: 'Delete this room?',
+  deleteRoomHint: 'Occupants are unassigned. This cannot be undone.',
+  tRoomSaved: 'Room saved', tRoomDeleted: 'Room deleted', tOccupantsSaved: 'Occupants updated',
 };
 
 const ms: typeof en = {
@@ -388,6 +409,10 @@ const ms: typeof en = {
   setupGo: 'Cipta & mula',
   language: 'Bahasa', changePassword: 'Tukar kata laluan', newPassword: 'Kata laluan baharu (min 8 aksara)',
   mustChange: 'Sila tetapkan kata laluan baharu menggantikan yang sementara.',
+  // v0.22 — PWA offline / update banners
+  offlineBanner: 'Luar talian — data terakhir disegerak',
+  updateBanner: 'Versi baharu tersedia.',
+  refresh: 'Muat semula',
   // join / invite
   joinTitle: 'Sertai Jelajah', joinTripTitle: (trip: string) => `Sertai “${trip}”`,
   joinInvitedBy: (name: string) => `Dijemput oleh ${name}`,
@@ -460,7 +485,7 @@ const ms: typeof en = {
   addSpend: 'Tambah belanja', noSpend: 'Belum ada rekod.',
   wholePayment: 'Bayaran penuh', forWhom: 'Untuk',
   nearestStations: 'Stesen terdekat', changeStation: 'Tukar stesen',
-  walkTo: (n: number) => `🚶 ${n} min`, viaStation: 'melalui',
+  walkTo: (n: number) => `${n} min`, viaStation: 'melalui',
   moveUp: 'Naik', moveDown: 'Turun', undoReflow: 'Buat asal susunan',
   reflowed: 'Masa disusun semula mengikut urutan baharu',
   journey: 'Perjalanan', places: 'tempat', stays: 'penginapan', flights: 'penerbangan',
@@ -680,6 +705,12 @@ const ms: typeof en = {
   noPhotoFound: 'Tiada gambar dijumpai untuk destinasi ini — cuba muat naik satu.',
   coverSet: 'Gambar kulit dikemas kini',
   coverRemoved: 'Gambar kulit dibuang',
+  // v0.23 — pemilih gambar kulit Unsplash
+  chooseFromUnsplash: 'Pilih dari Unsplash',
+  searchPhotos: 'Cari foto',
+  noUnsplashKey: 'Unsplash belum disediakan.',
+  noPhotosFound: 'Tiada foto dijumpai — cuba carian lain.',
+  photoBy: 'Foto:',
   // v0.18 — papan pemuka admin A3
   mDashboard: 'Papan pemuka',
   mSignups30: 'Pendaftaran (30h)',
@@ -723,6 +754,17 @@ const ms: typeof en = {
   settingsSub: 'Paparan, bahasa, pautan rujukan anda dan alat yang disambungkan',
   settingsCrumb: 'Akaun anda',
   languageTitle: 'Bahasa',
+  // v0.21 — kad bilik (halaman Ahli, semua peranan perjalanan)
+  roomsTitle: 'Bilik', roomsHint: 'Kumpulkan pengembara ke dalam bilik bagi setiap penginapan.',
+  addStay: 'Tambah penginapan', addRoom: 'Tambah bilik', roomName: 'Nama bilik', roomOne: 'Bilik 1', capacity: 'Kapasiti',
+  unassigned: 'Belum ditetapkan', assign: 'Tetapkan', removeFromRoom: 'Keluarkan dari bilik',
+  overCapacity: 'Melebihi kapasiti', noStaysYet: 'Belum ada penginapan.',
+  stayDates: (ci: string, co: string) => `${ci} – ${co}`,
+  suggestedStays: 'Cadangan penginapan', orManually: 'Atau masukkan secara manual',
+  stayLabel: 'Nama penginapan', noRoomsInStay: 'Belum ada bilik.',
+  editRoomTitle: 'Sunting bilik', deleteRoomTitle: 'Padam bilik ini?',
+  deleteRoomHint: 'Penghuni bilik ini akan dikeluarkan. Tindakan ini tidak boleh dibatalkan.',
+  tRoomSaved: 'Bilik disimpan', tRoomDeleted: 'Bilik dipadam', tOccupantsSaved: 'Penghuni dikemas kini',
 };
 
 export type Dict = typeof en;

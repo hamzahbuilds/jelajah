@@ -3,7 +3,7 @@
 // design/ui-refresh/icons.js. Pure module (no JSX) so it can be imported
 // from both Icon.tsx and the vitest node tests without pulling in React.
 
-export const ICON_NAMES = ['home','calendar','wallet','receipt','coins','user','users','file','files','settings','shield','pin','plane','hotel','train','car','food','ticket','camera','temple','spark','plus','chev-d','chev-r','check','clock','alert','arrow-r','copy','trash','edit','moon','folder','link','chart','more','globe','logout','upload','gift','key','swap','chat','search','flag','eye','download','grip','bag'] as const;
+export const ICON_NAMES = ['home','calendar','wallet','receipt','coins','user','users','file','files','settings','shield','pin','plane','hotel','train','car','food','ticket','camera','temple','spark','plus','chev-d','chev-r','check','clock','alert','arrow-r','copy','trash','edit','moon','folder','link','chart','more','globe','logout','upload','gift','key','swap','chat','search','flag','eye','download','grip','bag','walk'] as const;
 export type IconName = typeof ICON_NAMES[number];
 
 export const DEFS = `
@@ -57,4 +57,5 @@ export const DEFS = `
 <g id="i-download"><path d="M12 3v9M8.5 8.5 12 12l3.5-3.5"/><path d="M4.5 16v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></g>
 <g id="i-grip"><path d="M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01" stroke-width="2.8"/></g>
 <g id="i-bag"><path d="M6 7.5 7.5 4h9L18 7.5"/><rect x="4" y="7.5" width="16" height="13" rx="2"/><path d="M9 11.5a3 3 0 0 0 6 0"/></g>
+<g id="i-walk"><circle cx="13" cy="4" r="2"/><path d="M13 7l-2 5 3 3 1 6"/><path d="M11 12l-3 2-1 5"/><path d="M13 8l3 2 2-1"/></g>
 </defs>`;
