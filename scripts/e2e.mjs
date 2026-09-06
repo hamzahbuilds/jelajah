@@ -222,7 +222,7 @@ await page.waitForSelector('.cal-grid');
 await shot('13-plan-month');
 
 // 13. hide Ledger+Payments from members; Accounts card moved off People onto /admin (v0.17 Addendum 2)
-await page.click('.sidebar a.nav-item:has-text("People")');
+await page.click('.sidebar a.nav-item:has-text("Trip Settings")'); // v0.27: People tab renamed
 await page.waitForSelector('text=Member visibility');
 await page.uncheck(`label:has-text("Ledger") input`);
 await page.waitForTimeout(300);
@@ -1390,7 +1390,7 @@ console.log('editor People-page visibility ok (Rooms card + controls visible; in
 roleSt = await setRole(hairuni.id, 'viewer');
 if (roleSt !== 200) await fail(`PATCH member role back to viewer (rooms visibility check) failed: ${roleSt}`);
 await p5.goto(`${BASE}/trips/1/people`);
-await p5.waitForSelector('.sidebar a.nav-item:has-text("People")'); // proves the item is present, not just absent-so-far
+await p5.waitForSelector('.sidebar a.nav-item:has-text("Trip Settings")'); // proves the item is present, not just absent-so-far (v0.27 rename)
 const viewerRoomsCard = '.card:has(h3:has-text("Rooms"))';
 await p5.waitForSelector(`${viewerRoomsCard}:has-text("Room One")`);
 if (await p5.$(`${viewerRoomsCard} button`)) await fail('viewer should see zero action buttons on the Rooms card (no add/assign/edit/delete controls)');
@@ -2333,7 +2333,8 @@ console.log('mobile trip switcher escape-close ok');
 // More sheet -> Settings
 await p9.click('.tabbar .tab:has-text("More")');
 await p9.waitForSelector('.sheet:has-text("More")');
-await p9.click('.sheet .srow:has-text("Settings")');
+// v0.27: exact match — sheet also has a "Trip Settings" row (People renamed)
+await p9.click('.sheet .srow:has(b:text-is("Settings"))');
 await p9.waitForURL(`${BASE}/settings`);
 console.log('mobile More sheet -> Settings ok');
 
@@ -2521,5 +2522,41 @@ await p10.evaluate(async () => {
 await ctx10.close();
 console.log('pwa: SW unregistered + jl-* caches cleared');
 
+/* -------------------------------------------------------------------- */
+/* v0.27 — spacing polish, admin activity pagination, Trip Settings      */
+/* rename (spec docs/16-spec-v0.27-spacing-audit-polish.md)              */
+/* -------------------------------------------------------------------- */
+
+// container top padding restored (home/new-trip no longer flush to top)
+await page.goto(`${BASE}/`);
+await page.waitForSelector('.pagehead h1');
+const padTop = await page.evaluate(() => getComputedStyle(document.querySelector('.container')).paddingTop);
+if (padTop !== '24px') await fail(`.container paddingTop should be 24px, got ${padTop}`);
+console.log('v0.27 container top padding ok (24px)');
+
+// admin activity feed: 5 rows by default, "Show more" reveals more.
+// The suite has generated well over 5 audit rows (logins, trip edits…).
+await page.goto(`${BASE}/admin`);
+const feedCard = '.card:has(h3:has-text("Recent activity"))';
+await page.waitForSelector(`${feedCard} .lrow`);
+const feedRows = await page.$$eval(`${feedCard} .lrow`, els => els.length);
+if (feedRows > 5) await fail(`activity feed should show at most 5 rows by default, got ${feedRows}`);
+const showMoreBtn = `${feedCard} button:has-text("Show more")`;
+if (!(await page.$(showMoreBtn))) await fail('activity feed should offer a Show more button (suite generated >5 audit rows)');
+await page.click(showMoreBtn);
+// (plain DOM predicate — Playwright's :has-text isn't valid in-page)
+await page.waitForFunction(() => {
+  const h3 = [...document.querySelectorAll('.card h3')].find(h => h.textContent.includes('Recent activity'));
+  return !!h3 && h3.closest('.card').querySelectorAll('.lrow').length > 5;
+});
+const feedRows2 = await page.$$eval(`${feedCard} .lrow`, els => els.length);
+console.log(`v0.27 activity feed pagination ok (5 default -> ${feedRows2} after Show more)`);
+
+// Trip Settings rename: sidebar item label (clicked as "Trip Settings" in
+// step 13 above already proves the sidebar; assert the page title too)
+await page.goto(`${BASE}/trips/1/people`);
+await page.waitForSelector('.pagehead h1:has-text("Trip Settings")');
+console.log('v0.27 Trip Settings rename ok (sidebar + page title)');
+
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.26)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.27)');

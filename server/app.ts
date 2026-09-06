@@ -2855,16 +2855,38 @@ app.get('/admin/stats', requireAdmin, async c => {
   ).bind(s30, e30).all();
   const features = (featureRows.results as any[]).map(r => ({ feature: r.feature, n: Number(r.n) }));
 
+  // v0.27: `id` included so the client can page further via GET /admin/audit
   const auditRows = await DB.prepare(
-    `SELECT a.action AS action, u.name AS user, a.at AS at FROM audit_log a
+    `SELECT a.id AS id, a.action AS action, u.name AS user, a.at AS at FROM audit_log a
      LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 20`,
   ).all();
-  const audit = (auditRows.results as any[]).map(r => ({ action: r.action, user: r.user ?? null, at: r.at }));
+  const audit = (auditRows.results as any[]).map(r => ({ id: Number(r.id), action: r.action, user: r.user ?? null, at: r.at }));
 
   return c.json({
     signups, active7: Number(active7), active7Prev: Number(active7Prev), active30: Number(active30),
     trips: Number(trips), mcp30: Number(mcp30), features, audit,
   });
+});
+
+// v0.27: cursor-paged audit history for the admin activity feed. Read-only,
+// same shape as /admin/stats' audit rows plus `id`; cursor is the smallest
+// id already shown (rows strictly older are returned).
+app.get('/admin/audit', requireAdmin, async c => {
+  const LIMIT = 20;
+  const rawCursor = c.req.query('cursor');
+  const cursor = rawCursor != null && /^\d+$/.test(rawCursor) ? Number(rawCursor) : null;
+  const rows = cursor != null
+    ? await c.env.DB.prepare(
+        `SELECT a.id AS id, a.action AS action, u.name AS user, a.at AS at FROM audit_log a
+         LEFT JOIN users u ON u.id = a.user_id WHERE a.id < ? ORDER BY a.id DESC LIMIT ?`,
+      ).bind(cursor, LIMIT).all()
+    : await c.env.DB.prepare(
+        `SELECT a.id AS id, a.action AS action, u.name AS user, a.at AS at FROM audit_log a
+         LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT ?`,
+      ).bind(LIMIT).all();
+  const items = (rows.results as any[]).map(r => ({ id: Number(r.id), action: r.action, user: r.user ?? null, at: r.at }));
+  const next_cursor = items.length === LIMIT ? items[items.length - 1].id : null;
+  return c.json({ items, next_cursor });
 });
 
 app.get('/admin/referrals', requireAdmin, async c => {

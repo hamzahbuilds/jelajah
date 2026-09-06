@@ -104,7 +104,8 @@ export default function Review() {
       ))}
 
       <div className="grid grid-2">
-        <div>
+        {/* v0.27: column stack gets .grid so consecutive cards don't touch */}
+        <div className="grid">
           <div className="card">
             <h3>{doc.filename}</h3>
             {/^image\//.test(doc.mime ?? '') || /\.(png|jpe?g|webp)$/i.test(doc.filename)

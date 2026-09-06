@@ -1,6 +1,33 @@
 # Jelajah — Build Status
 
-Updated: 6 Sep 2026 (v0.26 COMPLETE — per-night room splits, e2e green)
+Updated: 7 Sep 2026 (v0.27 COMPLETE — spacing audit + activity pagination + Trip Settings rename, e2e green)
+
+## v0.27.0 — spacing audit, activity pagination, Trip Settings rename (7 Sep 2026) — v0.27 COMPLETE
+
+Spec: docs/16-spec-v0.27-spacing-audit-polish.md. Feedback batch, no money-path files touched.
+
+- **Card spacing fixed everywhere**: `.card` has no own margin; spacing comes from a
+  `.grid` (16px gap) wrapper. Bare column divs left cards touching on Plan (both
+  `.plan-cols` columns), Payments (both columns), MySpend (right column), Review
+  (left column) — all now `className="grid"`. Admin's top-level blocks (stats row,
+  chart grid, quota card, referrals/feed grid) wrapped in `.grid`; trailing
+  AI/accounts grid gets `marginTop: 16`. Audited OK, untouched: Dashboard, People
+  (cards are direct grid-2 children), Settings, Documents, Ledger.
+- **Top-of-page gap**: `.container` now `padding: 24px 16px 48px` (mobile
+  `16px 10px 40px`) — Home's PageHead/"New trip" no longer flush to the top;
+  TripShell dropped its own `marginTop: 18` to avoid doubling.
+- **Admin "Recent activity" pagination** (audit-history purpose): shows 5 rows by
+  default; "Show more" reveals +10 from the local buffer, then pages older rows via
+  new `GET /admin/audit?cursor=<id>` (requireAdmin, 20/page, `{items, next_cursor}`);
+  `/admin/stats` audit rows now include `id`. i18n `showMore` en/ms.
+- **People tab → "Trip Settings"**: label-only rename (i18n `people` key: en
+  "Trip Settings", ms "Tetapan Trip"); route `/people`, nav keys, icon unchanged.
+  Covers sidebar, mobile More sheet, page title. e2e sidebar selectors updated;
+  More-sheet "Settings" click switched to exact match (`b:text-is`) since the sheet
+  now contains both "Trip Settings" and "Settings".
+- Verified: tsc clean, 223 unit tests pass, full ritual
+  `E2E PASSED (Phase 1 + 2 + v0.6-v0.27)` incl. new checks (container padding 24px,
+  feed 5-default → 15 after Show more, Trip Settings title).
 
 ## v0.26.0 — per-night room splits, nights-as-weights (6 Sep 2026) — v0.26 COMPLETE
 

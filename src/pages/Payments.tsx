@@ -89,7 +89,8 @@ export default function Payments() {
       <PageHead crumb={trip.name} title={t.money} sub={t.moneySub} />
       <MoneyTabs />
       <div className="grid grid-2" style={{ alignItems: 'start' }}>
-      <div>
+      {/* v0.27: column stacks get .grid so consecutive cards don't touch */}
+      <div className="grid">
         <div className="card">
           <div className="cardhead"><h3>{t.balances}</h3></div>
           {!bal && <p className="muted">{t.loading}</p>}
@@ -126,7 +127,7 @@ export default function Payments() {
         </div>
       </div>
 
-      <div>
+      <div className="grid">
         {canLead && (
           <form className="card" onSubmit={record}>
             <h3>{t.recordPayment}</h3>

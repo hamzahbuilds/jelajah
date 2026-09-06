@@ -48,7 +48,7 @@ a { color: var(--brand-700); text-decoration: none; }
 [data-theme="dark"] a { color: var(--brand-300); }
 p { margin: .3rem 0; }
 
-.container { max-width: 1040px; margin: 0 auto; padding: 0 16px 48px; }
+.container { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
 
 /* ---------- header / nav ---------- */
 .topbar {
@@ -389,7 +389,7 @@ img, iframe, .preview { max-width: 100%; }
 @media (max-width: 620px) {
   .hide-sm { display: none; }
   .barlist .barrow { grid-template-columns: 90px 1fr 80px; }
-  .container { padding: 0 10px 40px; }
+  .container { padding: 16px 10px 40px; }
   .hero { padding: 16px; }
   .hero .big { font-size: 1.5rem; }
   h1 { font-size: 1.25rem; }

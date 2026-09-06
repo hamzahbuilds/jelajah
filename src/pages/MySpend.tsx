@@ -226,7 +226,8 @@ export default function MySpend() {
           <button className="btn" disabled={busy}>{t.add}</button>
         </form>
 
-        <div>
+        {/* v0.27: column stack gets .grid so consecutive cards don't touch */}
+        <div className="grid">
           <div className="card">
             {items.length === 0 && (
               <Empty icon="eye" title={t.myspendEmpty} sub={t.myspendEmptySub}

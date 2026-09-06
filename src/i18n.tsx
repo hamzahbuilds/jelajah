@@ -66,7 +66,7 @@ const en = {
   today: 'Today',
   // tabs
   dashboard: 'Dashboard', documents: 'Documents', ledger: 'Ledger',
-  payments: 'Payments', people: 'People', plan: 'Plan',
+  payments: 'Payments', people: 'Trip Settings', plan: 'Plan',
   // v-nav: sidebar (T6)
   home: 'Home', overview: 'Overview', money: 'Money',
   collapseNav: 'Collapse sidebar', switchTrip: 'Switch trip', youChip: 'You',
@@ -380,6 +380,7 @@ const en = {
   mSourceUsage: 'usage_daily, all tracked events',
   mSourceQuota: 'Cloudflare Workers/D1/KV free-tier docs',
   mFeed: 'Recent activity',
+  showMore: 'Show more',
   settingsSub: 'Appearance, language, your referral link and connected tools',
   settingsCrumb: 'Your account',
   languageTitle: 'Language',
@@ -474,7 +475,7 @@ const ms: typeof en = {
   daysSince: (n: number) => `${n} hari selepas perjalanan`,
   today: 'Hari ini',
   dashboard: 'Papan pemuka', documents: 'Dokumen', ledger: 'Lejar',
-  payments: 'Bayaran', people: 'Ahli', plan: 'Rancangan',
+  payments: 'Bayaran', people: 'Tetapan Trip', plan: 'Rancangan',
   home: 'Utama', overview: 'Ringkasan', money: 'Wang',
   collapseNav: 'Kecilkan menu', switchTrip: 'Tukar perjalanan', youChip: 'Anda',
   more: 'Lagi', allTrips: 'Semua perjalanan',
@@ -772,6 +773,7 @@ const ms: typeof en = {
   mSourceUsage: 'usage_daily, semua peristiwa yang dijejak',
   mSourceQuota: 'Dokumen tahap percuma Cloudflare Workers/D1/KV',
   mFeed: 'Aktiviti terkini',
+  showMore: 'Tunjuk lagi',
   settingsSub: 'Paparan, bahasa, pautan rujukan anda dan alat yang disambungkan',
   settingsCrumb: 'Akaun anda',
   languageTitle: 'Bahasa',

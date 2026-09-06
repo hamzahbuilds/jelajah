@@ -32,8 +32,9 @@ type Stats = {
   active7: number; active7Prev: number; active30: number;
   trips: number; mcp30: number;
   features: Array<{ feature: string; n: number }>;
-  audit: Array<{ action: string; user: string | null; at: string }>;
+  audit: Array<{ id: number; action: string; user: string | null; at: string }>;
 };
+type AuditRow = Stats['audit'][number];
 type Referral = { user_id: number; name: string; referred: number; first_at: string };
 
 // Static reference values — NOT live-metered. GET /admin/stats has no Cloudflare
@@ -182,6 +183,24 @@ export default function Admin() {
   // ---- Dashboard (Task 5, charts restyled Task 4 of the UI-refresh plan) ----
   const [stats, setStats] = useState<Stats | null>(null);
   const [referrals, setReferrals] = useState<Referral[]>([]);
+  // v0.27 activity-feed pagination: 5 shown by default; "Show more" reveals
+  // +10 from the local buffer, then pages older rows from GET /admin/audit.
+  const [auditExtra, setAuditExtra] = useState<AuditRow[]>([]);
+  const [auditShown, setAuditShown] = useState(5);
+  const [auditDone, setAuditDone] = useState(false);
+  const [auditBusy, setAuditBusy] = useState(false);
+  const showMoreAudit = async (list: AuditRow[]) => {
+    if (auditShown < list.length) { setAuditShown(s => s + 10); return; }
+    if (auditDone || auditBusy || list.length === 0) return;
+    setAuditBusy(true);
+    try {
+      const res = await api.get(`/admin/audit?cursor=${list[list.length - 1].id}`);
+      setAuditExtra(x => x.concat(res.items));
+      if (!res.next_cursor) setAuditDone(true);
+      if (res.items.length > 0) setAuditShown(s => s + 10);
+    } catch { /* leave the button; a retry re-fetches */ }
+    finally { setAuditBusy(false); }
+  };
   const loadStats = async () => setStats(await api.get('/admin/stats'));
   const loadReferrals = async () => setReferrals(await api.get('/admin/referrals'));
 
@@ -207,8 +226,12 @@ export default function Admin() {
           key: f.feature, label: (t as any)[FEATURE_LABELS[f.feature]] ?? f.feature, value: f.n,
         }));
         return (
-          <>
-            <div className="stats">
+          // v0.27: .grid wrapper spaces the sibling blocks (stats row, chart
+          // grid, quota card, referrals/feed grid) — they touched before.
+          // .stats keeps its Dashboard margin; neutralized here so the grid
+          // gap doesn't double.
+          <div className="grid">
+            <div className="stats" style={{ marginBottom: 0 }}>
               <div className="card stat">
                 <span className="k"><span className="tile sm"><Icon name="user" /></span>{t.mSignups30}</span>
                 <span className="v">{signups30}</span>
@@ -289,20 +312,36 @@ export default function Admin() {
               <div className="card">
                 <div className="cardhead"><h3>{t.mFeed}</h3></div>
                 {stats.audit.length === 0 && <p className="muted">—</p>}
-                {stats.audit.map((a, i) => (
-                  <div className="lrow" key={i}>
-                    <span className="tile sm"><Icon name="spark" /></span>
-                    <div className="l-main"><b>{a.user ?? '—'}</b><small>{a.action}</small></div>
-                    <div className="l-end"><span className="tiny muted">{new Date(a.at).toLocaleString()}</span></div>
-                  </div>
-                ))}
+                {(() => {
+                  const list = stats.audit.concat(auditExtra);
+                  // server pages are 20 rows; a list not on a 20-boundary is
+                  // already complete, no fetch needed
+                  const mayHaveMore = !auditDone && list.length > 0 && list.length % 20 === 0;
+                  return (
+                    <>
+                      {list.slice(0, auditShown).map(a => (
+                        <div className="lrow" key={a.id}>
+                          <span className="tile sm"><Icon name="spark" /></span>
+                          <div className="l-main"><b>{a.user ?? '—'}</b><small>{a.action}</small></div>
+                          <div className="l-end"><span className="tiny muted">{new Date(a.at).toLocaleString()}</span></div>
+                        </div>
+                      ))}
+                      {(auditShown < list.length || mayHaveMore) && (
+                        <button className="btn ghost sm" style={{ marginTop: 10 }} disabled={auditBusy}
+                          onClick={() => showMoreAudit(list)}>
+                          {auditBusy ? '…' : t.showMore}
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
-          </>
+          </div>
         );
       })()}
 
-      <div className="grid grid-2" style={{ alignItems: 'start' }}>
+      <div className="grid grid-2" style={{ alignItems: 'start', marginTop: 16 }}>
         <div className="card">
           <div className="cardhead"><h3><Icon name="chat" /> {t.aiProvider}</h3></div>
           <div className="row" style={{ marginBottom: 10 }}>

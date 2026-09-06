@@ -571,7 +571,9 @@ export default function Plan() {
             ))}
           </div>
           <div className="plan-cols">
-            <div>
+            {/* v0.27: column stacks get .grid — .card has no own margin,
+                so bare column divs left consecutive cards touching */}
+            <div className="grid">
             <div className="card">
               <div className="row-between">
                 <h3 style={{ minWidth: 0 }}>
@@ -833,7 +835,7 @@ export default function Plan() {
               ))}
             </div>
             </div>
-            <div>
+            <div className="grid">
               <div className="card">
                 <div className="cardhead">
                   <h3><Icon name="pin" size={16} /> {t.dayMap}</h3>

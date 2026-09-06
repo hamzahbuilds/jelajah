@@ -83,7 +83,7 @@ export default function TripShell() {
       ['--accent' as any]: accent,
       ['--brand-600' as any]: accent, ['--brand-700' as any]: accent,
     } as any) : undefined}>
-      <div className="trip-header" style={{ marginTop: 18 }}>
+      <div className="trip-header">
         {data.trip.cover_key && (
           <div className="trip-header-backdrop" aria-hidden="true">
             <img src={`/api/trips/${tripId}/cover?v=${encodeURIComponent(data.trip.cover_key ?? '')}`} alt="" loading="lazy" />
