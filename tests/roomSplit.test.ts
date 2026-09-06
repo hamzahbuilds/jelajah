@@ -355,3 +355,191 @@ describe('roomShares — zero-amount room with occupants', () => {
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// v0.26 additions (docs/14-spec-v0.26-per-night.md §2) — occupantWeights.
+// APPEND ONLY below this line; everything above is the frozen v0.25 suite.
+// ---------------------------------------------------------------------------
+
+describe('roomShares — occupantWeights (v0.26 weighted split)', () => {
+  it('RM400.00, one room, weights {A:4,B:4,C:2} → 160.00/160.00/80.00', () => {
+    const input = {
+      totalMyr: 400.0,
+      rooms: [
+        {
+          id: 1,
+          amountMyr: 400.0,
+          occupantIds: [1, 2, 3], // A=1, B=2, C=3
+          occupantWeights: { 1: 4, 2: 4, 3: 2 },
+        },
+      ],
+      infantIds: new Set<number>(),
+    };
+    const out = roomShares(input);
+    const byId = new Map(out.map(r => [r.participant_id, r.amount_myr]));
+    expect(byId.get(1)).toBe(160.0);
+    expect(byId.get(2)).toBe(160.0);
+    expect(byId.get(3)).toBe(80.0);
+    expect(sumMyr(out)).toBe(400.0);
+  });
+
+  it('odd-sen weighted: RM100.01 weights {1:3,2:1} → 75.01/25.00 (hand-computed)', () => {
+    // Hand computation:
+    //   amountSen = 10001, sumWeights = 4
+    //   raw[1] = 10001 * 3 / 4 = 7500.75  -> base 7500, frac 0.75
+    //   raw[2] = 10001 * 1 / 4 = 2500.25  -> base 2500, frac 0.25
+    //   sum(base) = 10000, remainder = 10001 - 10000 = 1 sen
+    //   remainder goes to the largest fractional remainder: id 1 (0.75 > 0.25)
+    //   => id 1 = 7500 + 1 = 7501 sen = 75.01 MYR
+    //   => id 2 = 2500 sen        = 25.00 MYR
+    //   check: 7501 + 2500 = 10001 = 100.01 MYR ✓
+    const input = {
+      totalMyr: 100.01,
+      rooms: [
+        { id: 1, amountMyr: 100.01, occupantIds: [1, 2], occupantWeights: { 1: 3, 2: 1 } },
+      ],
+      infantIds: new Set<number>(),
+    };
+    const out = roomShares(input);
+    const byId = new Map(out.map(r => [r.participant_id, r.amount_myr]));
+    expect(byId.get(1)).toBe(75.01);
+    expect(byId.get(2)).toBe(25.0);
+    expect(sumMyr(out)).toBe(100.01);
+  });
+
+  it('randomized property-style loop (~50 seeded cases) with random positive-int weights: conservation + non-negativity', () => {
+    const rand = mulberry32(20260926);
+    for (let trial = 0; trial < 50; trial++) {
+      const roomCount = 1 + Math.floor(rand() * 4); // 1..4 rooms
+      let nextId = 1;
+      const rooms: RoomSplitRoom[] = [];
+      const infantIds = new Set<number>();
+      const roomAmountsSen: number[] = [];
+
+      for (let r = 0; r < roomCount; r++) {
+        const occCount = 1 + Math.floor(rand() * 6); // 1..6 occupants
+        const occupantIds: number[] = [];
+        const occupantWeights: Record<number, number> = {};
+        for (let o = 0; o < occCount; o++) {
+          const id = nextId++;
+          occupantIds.push(id);
+          if (rand() < 0.15 && !(occCount === 1)) infantIds.add(id);
+          // random positive integer weight 1..10 (infants may get one too — ignored)
+          occupantWeights[id] = 1 + Math.floor(rand() * 10);
+        }
+        if (occupantIds.every(id => infantIds.has(id))) infantIds.delete(occupantIds[0]);
+
+        const amountSen = Math.floor(rand() * 100000); // 0..999.99 in sen
+        roomAmountsSen.push(amountSen);
+        rooms.push({ id: r + 1, amountMyr: amountSen / 100, occupantIds, occupantWeights });
+      }
+
+      const totalSen = roomAmountsSen.reduce((a, b) => a + b, 0);
+      const input = { totalMyr: totalSen / 100, rooms, infantIds };
+      const out = roomShares(input);
+      expect(sumMyr(out)).toBe(totalSen / 100);
+      expect(out.every(r => r.amount_myr >= 0)).toBe(true);
+    }
+  });
+
+  it('infants in weighted rooms → 0-rows, weights ignored', () => {
+    const input = {
+      totalMyr: 100.0,
+      rooms: [
+        {
+          id: 1,
+          amountMyr: 100.0,
+          occupantIds: [1, 2, 3],
+          // infant 3 has a (nonsensical) weight entry — must be ignored
+          occupantWeights: { 1: 1, 2: 1, 3: 999 },
+        },
+      ],
+      infantIds: new Set<number>([3]),
+    };
+    const out = roomShares(input);
+    const byId = new Map(out.map(r => [r.participant_id, r.amount_myr]));
+    expect(byId.get(3)).toBe(0);
+    expect(byId.get(1)).toBe(50.0);
+    expect(byId.get(2)).toBe(50.0);
+    expect(sumMyr(out)).toBe(100.0);
+  });
+
+  it('infant omitted entirely from occupantWeights map is still fine (0-row, ignored)', () => {
+    const input = {
+      totalMyr: 100.0,
+      rooms: [
+        {
+          id: 1,
+          amountMyr: 100.0,
+          occupantIds: [1, 2, 3],
+          occupantWeights: { 1: 1, 2: 1 }, // 3 (infant) omitted
+        },
+      ],
+      infantIds: new Set<number>([3]),
+    };
+    const out = roomShares(input);
+    const byId = new Map(out.map(r => [r.participant_id, r.amount_myr]));
+    expect(byId.get(3)).toBe(0);
+    expect(byId.get(1)).toBe(50.0);
+    expect(byId.get(2)).toBe(50.0);
+  });
+
+  describe('invalid weights throw invalid_weight', () => {
+    const cases: Array<[string, number]> = [
+      ['zero', 0],
+      ['negative', -1],
+      ['non-integer', 2.5],
+      ['NaN', NaN],
+      ['Infinity', Infinity],
+    ];
+    for (const [label, badWeight] of cases) {
+      it(`weight ${label} (${badWeight}) throws invalid_weight`, () => {
+        const input = {
+          totalMyr: 10.0,
+          rooms: [
+            { id: 1, amountMyr: 10.0, occupantIds: [1, 2], occupantWeights: { 1: badWeight, 2: 1 } },
+          ],
+          infantIds: new Set<number>(),
+        };
+        try {
+          roomShares(input);
+          expect.unreachable();
+        } catch (e) {
+          expect((e as RoomSplitError).code).toBe('invalid_weight');
+        }
+      });
+    }
+
+    it('missing weight entry for a non-infant occupant throws invalid_weight', () => {
+      const input = {
+        totalMyr: 10.0,
+        rooms: [
+          { id: 1, amountMyr: 10.0, occupantIds: [1, 2], occupantWeights: { 1: 1 } }, // 2 missing
+        ],
+        infantIds: new Set<number>(),
+      };
+      try {
+        roomShares(input);
+        expect.unreachable();
+      } catch (e) {
+        expect((e as RoomSplitError).code).toBe('invalid_weight');
+      }
+    });
+  });
+
+  it('absent occupantWeights map ⇒ same outputs as an explicit equal-weight map', () => {
+    const base = {
+      totalMyr: 100.01,
+      rooms: [{ id: 1, amountMyr: 100.01, occupantIds: [3, 1, 2] }],
+      infantIds: new Set<number>(),
+    };
+    const withEqualWeights = {
+      totalMyr: 100.01,
+      rooms: [
+        { id: 1, amountMyr: 100.01, occupantIds: [3, 1, 2], occupantWeights: { 1: 1, 2: 1, 3: 1 } },
+      ],
+      infantIds: new Set<number>(),
+    };
+    expect(roomShares(withEqualWeights)).toEqual(roomShares(base));
+  });
+});

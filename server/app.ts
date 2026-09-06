@@ -13,6 +13,7 @@ import { checkInvite, newInviteCode } from '../shared/invites';
 import { fillDays, lastNDaysUtc } from '../shared/metrics';
 import { singleOccupancyBatch } from '../shared/rooms';
 import { roomShares, RoomSplitError, RoomSplitRoom } from '../shared/roomSplit';
+import { daysBetween } from '../shared/days';
 
 type Vars = { user: SessionUser };
 const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
@@ -1132,6 +1133,43 @@ function validExpense(p: ExpensePayload): string | null {
   return null;
 }
 
+/** A room's dates, the minimal shape `stayGroupNights` needs. */
+type RoomDatesRow = { id: number; check_in: any; check_out: any };
+
+/** nights derived from one room's own check_in/check_out pair, or null when
+ *  either is missing or the range is degenerate (reversed/same-day — see
+ *  F8: `daysBetween` returns fewer than 2 days for those). daysBetween caps
+ *  at 90 calendar days (shared/days.ts), so a stay longer than 90 days
+ *  derives a LOWER nights count than the true stay — fail-safe direction,
+ *  never a silently-too-generous bound. */
+function nightsFromDates(checkIn: any, checkOut: any): number | null {
+  if (!checkIn || !checkOut) return null;
+  const days = daysBetween(String(checkIn), String(checkOut));
+  if (days.length < 2) return null;
+  return days.length - 1;
+}
+
+/** F4 — the ONE stayNights derivation, shared by resolveRoomsSplit, the
+ *  occupants-PUT nights bound, and the PATCH-dates nights_conflict check
+ *  (spec docs/14-spec-v0.26-per-night.md §3). For each room: its OWN
+ *  check_in/check_out when both are set; else the first SIBLING room in the
+ *  same stay group — ordered by ascending room id, deterministic — that has
+ *  both dates set; else null (no bound). Callers pass every room row in the
+ *  group (including the one whose nights the caller cares about); the
+ *  returned map covers every room id passed in. */
+function stayGroupNights(rooms: RoomDatesRow[]): Map<number, number | null> {
+  const byIdAsc = [...rooms].sort((a, b) => Number(a.id) - Number(b.id));
+  const fallback = byIdAsc
+    .map(r => nightsFromDates(r.check_in, r.check_out))
+    .find((n): n is number => n != null) ?? null;
+  const out = new Map<number, number | null>();
+  for (const r of rooms) {
+    const own = nightsFromDates(r.check_in, r.check_out);
+    out.set(Number(r.id), own ?? fallback);
+  }
+  return out;
+}
+
 /** Validates + resolves a `split: { mode:'rooms', stay_label, room_amounts }` payload into
  *  engine-generated shares + the split_json to persist. Caller must only invoke this when
  *  `p.split?.mode === 'rooms'` — any other/absent split is handled by the caller as a plain
@@ -1147,11 +1185,16 @@ async function resolveRoomsSplit(
   if (!stayLabel) return { error: 'unknown_stay' };
 
   const roomsRes = await env.DB.prepare(
-    'SELECT id FROM rooms WHERE trip_id = ? AND stay_label = ?',
+    'SELECT id, check_in, check_out FROM rooms WHERE trip_id = ? AND stay_label = ?',
   ).bind(tripId, stayLabel).all<any>();
-  const roomIds = (roomsRes.results as any[]).map(r => Number(r.id));
+  const roomRows = roomsRes.results as any[];
+  const roomIds = roomRows.map(r => Number(r.id));
   if (!roomIds.length) return { error: 'unknown_stay' };
   const roomIdSet = new Set(roomIds);
+
+  // stayNights per room (spec docs/14-spec-v0.26-per-night.md §3, F4): one
+  // shared derivation — see stayGroupNights above.
+  const stayNightsByRoom = stayGroupNights(roomRows as RoomDatesRow[]);
 
   const roomAmounts = split.room_amounts && typeof split.room_amounts === 'object' ? split.room_amounts : {};
   for (const key of Object.keys(roomAmounts)) {
@@ -1166,25 +1209,57 @@ async function resolveRoomsSplit(
   if (sumSen !== totalSen) return { error: 'sum_mismatch' };
 
   const occRes = await env.DB.prepare(
-    `SELECT ro.room_id, ro.participant_id, p.is_infant FROM room_occupants ro
+    `SELECT ro.room_id, ro.participant_id, ro.nights, p.is_infant FROM room_occupants ro
      JOIN participants p ON p.id = ro.participant_id
      JOIN trip_members tm ON tm.trip_id = ? AND tm.participant_id = ro.participant_id
      WHERE ro.room_id IN (${roomIds.map(() => '?').join(',')})`,
   ).bind(tripId, ...roomIds).all<any>();
 
   const occByRoom = new Map<number, number[]>();
+  const nightsByRoom = new Map<number, Map<number, number | null>>();
   const infantIds = new Set<number>();
   for (const row of occRes.results as any[]) {
     if (!occByRoom.has(row.room_id)) occByRoom.set(row.room_id, []);
     occByRoom.get(row.room_id)!.push(row.participant_id);
+    if (!nightsByRoom.has(row.room_id)) nightsByRoom.set(row.room_id, new Map());
+    nightsByRoom.get(row.room_id)!.set(row.participant_id, row.nights ?? null);
     if (row.is_infant) infantIds.add(row.participant_id);
   }
 
-  const engineRooms: RoomSplitRoom[] = roomIds.map(rid => ({
-    id: rid,
-    amountMyr: Number(roomAmounts[String(rid)]),
-    occupantIds: occByRoom.get(rid) ?? [],
-  }));
+  // weights = nights ?? stayNights per non-infant occupant (spec §3). Only
+  // attach occupantWeights for a room when at least one of its occupants has
+  // an explicit (non-null) nights value — otherwise every occupant defaults
+  // to the same weight and we omit the map entirely so the engine takes its
+  // proven-byte-identical equal-weight (v0.25) path.
+  //
+  // F1 (fail-closed, never guess money): explicit nights are on the
+  // ABSOLUTE nights scale (e.g. "2 of 4"). The old default of `?? 1` for the
+  // other occupants was on a DIFFERENT scale the instant stayNights becomes
+  // underivable (dated sibling deleted, dates cleared, reversed dates —
+  // F8) — silently mixing an absolute weight against a scale-1 default in
+  // one allocation. Never guess: refuse instead.
+  const engineRooms: RoomSplitRoom[] = [];
+  for (const rid of roomIds) {
+    const occIds = occByRoom.get(rid) ?? [];
+    const roomNights = nightsByRoom.get(rid) ?? new Map<number, number | null>();
+    const stayNights = stayNightsByRoom.get(rid) ?? null;
+    const hasExplicit = occIds.some(pid => !infantIds.has(pid) && roomNights.get(pid) != null);
+    let occupantWeights: Record<number, number> | undefined;
+    if (hasExplicit) {
+      if (stayNights == null) return { error: 'stale_nights' };
+      occupantWeights = {};
+      for (const pid of occIds) {
+        if (infantIds.has(pid)) continue;
+        occupantWeights[pid] = roomNights.get(pid) ?? stayNights;
+      }
+    }
+    engineRooms.push({
+      id: rid,
+      amountMyr: Number(roomAmounts[String(rid)]),
+      occupantIds: occIds,
+      occupantWeights,
+    });
+  }
 
   let shares: Array<{ participant_id: number; amount_myr: number }>;
   try {
@@ -1194,11 +1269,27 @@ async function resolveRoomsSplit(
     throw e;
   }
 
-  const occupantsSnapshot: Record<string, number[]> = {};
-  for (const rid of roomIds) occupantsSnapshot[String(rid)] = occByRoom.get(rid) ?? [];
+  // split_json occupants snapshot (spec §3): {roomId: [{id, nights}]} — nights
+  // is the resolved-or-null STORED value, never the derived weight.
+  //
+  // F3 — drift completeness: also snapshot each room's RESOLVED stayNights
+  // (number|null) alongside its occupants, in `room_stay_nights`. This is
+  // additive: snapshots saved before this fix have no such field, and
+  // roomsDrift.ts treats that as "no date-drift" (tolerant) rather than
+  // false-positiving every pre-existing expense.
+  const occupantsSnapshot: Record<string, Array<{ id: number; nights: number | null }>> = {};
+  const roomStayNightsSnapshot: Record<string, number | null> = {};
+  for (const rid of roomIds) {
+    const roomNights = nightsByRoom.get(rid) ?? new Map<number, number | null>();
+    occupantsSnapshot[String(rid)] = (occByRoom.get(rid) ?? []).map(pid => ({
+      id: pid, nights: roomNights.get(pid) ?? null,
+    }));
+    roomStayNightsSnapshot[String(rid)] = stayNightsByRoom.get(rid) ?? null;
+  }
 
   const splitJson = JSON.stringify({
-    mode: 'rooms', stay_label: stayLabel, room_amounts: roomAmounts, occupants: occupantsSnapshot,
+    mode: 'rooms', stay_label: stayLabel, room_amounts: roomAmounts,
+    occupants: occupantsSnapshot, room_stay_nights: roomStayNightsSnapshot,
   });
 
   return { shares, splitJson };
@@ -1641,9 +1732,12 @@ app.get('/trips/:id/rooms', async c => {
     `SELECT ro.* FROM room_occupants ro JOIN rooms r ON r.id = ro.room_id WHERE r.trip_id = ?`,
   ).bind(id).all();
   const occByRoom = new Map<number, number[]>();
+  const occupantsByRoom = new Map<number, Array<{ participant_id: number; nights: number | null }>>();
   for (const r of occ.results as any[]) {
     if (!occByRoom.has(r.room_id)) occByRoom.set(r.room_id, []);
     occByRoom.get(r.room_id)!.push(r.participant_id);
+    if (!occupantsByRoom.has(r.room_id)) occupantsByRoom.set(r.room_id, []);
+    occupantsByRoom.get(r.room_id)!.push({ participant_id: r.participant_id, nights: r.nights ?? null });
   }
   const hidden = await hiddenFor(c, id);
   let suggested_stays: Array<{ label: any; check_in: any; check_out: any }> = [];
@@ -1658,7 +1752,11 @@ app.get('/trips/:id/rooms', async c => {
 
   await trackUsage(c.env, c.get('user').id, 'rooms_view');
   return c.json({
-    rooms: (rooms.results as any[]).map(r => ({ ...r, occupant_ids: occByRoom.get(r.id) ?? [] })),
+    rooms: (rooms.results as any[]).map(r => ({
+      ...r,
+      occupant_ids: occByRoom.get(r.id) ?? [],
+      occupants: occupantsByRoom.get(r.id) ?? [],
+    })),
     suggested_stays,
   });
 });
@@ -1695,6 +1793,37 @@ app.patch('/trips/:id/rooms/:roomId', requireEditor, async c => {
   const cols = (['stay_label', 'check_in', 'check_out', 'name', 'capacity'] as const).filter(k => k in b);
   if (!cols.length) return bad(c, 'nothing_to_update');
   if ('capacity' in b && b.capacity != null && (!Number.isInteger(b.capacity) || b.capacity < 0 || b.capacity > 99)) return bad(c, 'bad_capacity');
+
+  // F2 (fail-closed, never guess money): check_in/check_out changing (or
+  // clearing) can shrink or erase the stay's derivable night count out from
+  // under occupant nights that were validated against the OLD dates. Both
+  // checks run BEFORE the UPDATE so a rejected PATCH never partially writes.
+  const datesChanging = cols.includes('check_in') || cols.includes('check_out');
+  if (datesChanging) {
+    const effCheckIn = 'check_in' in b ? b.check_in : room.check_in;
+    const effCheckOut = 'check_out' in b ? b.check_out : room.check_out;
+    if (effCheckIn && effCheckOut && String(effCheckOut) <= String(effCheckIn)) return bad(c, 'bad_dates');
+
+    const groupRows = await c.env.DB.prepare(
+      `SELECT id, check_in, check_out FROM rooms WHERE trip_id = ? AND stay_label = ?`,
+    ).bind(id, room.stay_label).all<any>();
+    const rows = (groupRows.results as RoomDatesRow[]).map(r =>
+      Number(r.id) === roomId ? { id: r.id, check_in: effCheckIn ?? null, check_out: effCheckOut ?? null } : r);
+    const stayNightsByRoom = stayGroupNights(rows.length ? rows : [{ id: roomId, check_in: effCheckIn ?? null, check_out: effCheckOut ?? null }]);
+    const groupRoomIds = rows.map(r => Number(r.id));
+
+    const occRows = await c.env.DB.prepare(
+      `SELECT room_id, participant_id, nights FROM room_occupants WHERE room_id IN (${groupRoomIds.map(() => '?').join(',') || 'NULL'})`,
+    ).bind(...groupRoomIds).all<any>();
+    const offenders = new Set<number>();
+    for (const r of occRows.results as any[]) {
+      if (r.nights == null) continue;
+      const stayNights = stayNightsByRoom.get(Number(r.room_id)) ?? null;
+      if (stayNights != null && (r.nights < 1 || r.nights > stayNights)) offenders.add(r.participant_id);
+    }
+    if (offenders.size) return c.json({ error: 'nights_conflict', participants: [...offenders] }, 400);
+  }
+
   const vals = cols.map(k => (k === 'stay_label' || k === 'name' ? String(b[k]).trim() : b[k] ?? null));
   await c.env.DB.prepare(
     `UPDATE rooms SET ${cols.map(k => `${k} = ?`).join(', ')} WHERE id = ?`,
@@ -1744,17 +1873,48 @@ app.delete('/trips/:id/rooms/:roomId', requireEditor, async c => {
   return c.json({ ok: true });
 });
 
+/** stayNights for a room's stay group (spec docs/14-spec-v0.26-per-night.md §3,
+ *  F4): loads every room in `room`'s trip_id + stay_label group and defers to
+ *  the shared `stayGroupNights` derivation. */
+async function stayNightsForRoom(env: Env, tripId: number, room: any): Promise<number | null> {
+  const groupRows = await env.DB.prepare(
+    `SELECT id, check_in, check_out FROM rooms WHERE trip_id = ? AND stay_label = ?`,
+  ).bind(tripId, room.stay_label).all<any>();
+  const rows = groupRows.results as RoomDatesRow[];
+  const map = stayGroupNights(rows.length ? rows : [{ id: room.id, check_in: room.check_in, check_out: room.check_out }]);
+  return map.get(Number(room.id)) ?? null;
+}
+
 app.put('/trips/:id/rooms/:roomId/occupants', requireEditor, async c => {
   const id = Number(c.req.param('id'));
   const roomId = Number(c.req.param('roomId'));
   const room = await loadRoomInTrip(c.env, id, roomId);
   if (!room) return bad(c, 'not_found', 404);
-  const { participant_ids } = await c.req.json<{ participant_ids: number[] }>();
+  const { participant_ids, nights } = await c.req.json<{ participant_ids: number[]; nights?: Record<string, number | null> }>();
   if (!Array.isArray(participant_ids)) return bad(c, 'ids_required');
   const incoming = [...new Set(participant_ids.map(Number))];
   if (incoming.length > 100) return bad(c, 'ids_required');
   if (!incoming.every(pid => Number.isInteger(pid) && pid > 0)) return bad(c, 'ids_required');
   if (!(await participantsBelongToTrip(c.env, id, incoming))) return bad(c, 'unknown_participant', 400);
+
+  // v0.26 per-night weights (spec docs/14-spec-v0.26-per-night.md §3): every
+  // key in `nights` must be one of the submitted participant ids; each value
+  // must be null (defer to stay-length default) or a positive integer, and
+  // when the stay group has known dates, bounded by 1..stayNights.
+  const incomingSet = new Set(incoming);
+  const nightsByPid = new Map<number, number | null>();
+  if (nights !== undefined) {
+    if (typeof nights !== 'object' || nights === null || Array.isArray(nights)) return bad(c, 'invalid_nights');
+    const stayNights = await stayNightsForRoom(c.env, id, room);
+    for (const [key, val] of Object.entries(nights)) {
+      const pid = Number(key);
+      if (!Number.isInteger(pid) || !incomingSet.has(pid)) return bad(c, 'invalid_nights');
+      if (val === null) { nightsByPid.set(pid, null); continue; }
+      if (!(typeof val === 'number' && Number.isFinite(val) && Number.isInteger(val) && val > 0)) return bad(c, 'invalid_nights');
+      if (stayNights != null && (val < 1 || val > stayNights)) return bad(c, 'invalid_nights');
+      nightsByPid.set(pid, val);
+    }
+  }
 
   // Single-occupancy-per-stay-group rule: pull the incoming participants out
   // of every OTHER room in the same trip_id + stay_label group first, in the
@@ -1774,7 +1934,8 @@ app.put('/trips/:id/rooms/:roomId/occupants', requireEditor, async c => {
   }
   stmts.push(c.env.DB.prepare('DELETE FROM room_occupants WHERE room_id = ?').bind(roomId));
   for (const pid of incoming) {
-    stmts.push(c.env.DB.prepare('INSERT OR IGNORE INTO room_occupants (room_id, participant_id) VALUES (?,?)').bind(roomId, pid));
+    stmts.push(c.env.DB.prepare('INSERT OR IGNORE INTO room_occupants (room_id, participant_id, nights) VALUES (?,?,?)')
+      .bind(roomId, pid, nightsByPid.has(pid) ? nightsByPid.get(pid) : null));
   }
   await c.env.DB.batch(stmts);
   await audit(c.env, c.get('user').id, 'room_occupants_set', 'room', roomId);

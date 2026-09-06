@@ -5,6 +5,7 @@ import { useToast } from './Toast';
 import { Participant } from '../pages/TripShell';
 import { allocateByWeight, ROOM_SPLIT_ERROR_CODES } from '../../shared/roomSplit';
 import { occupancyLabel } from '../../shared/rooms';
+import { daysBetween } from '../../shared/days';
 
 /** v0.25 F2c — server-side codes a rooms-split submit can be rejected with:
  *  the resolveRoomsSplit-level codes plus every engine RoomSplitError code.
@@ -13,6 +14,10 @@ import { occupancyLabel } from '../../shared/rooms';
  *  inline `err` callout as before. */
 const KNOWN_ROOMS_SPLIT_ERROR_CODES = new Set<string>([
   'sum_mismatch', 'unknown_room', 'unknown_stay', 'missing_room', 'rooms_split_category',
+  // F1 (fail-closed) — a room has explicit occupant nights but the stay's
+  // night count isn't derivable (no dated room in the group): the server
+  // refuses to mix an absolute-nights weight against a scale-1 default.
+  'stale_nights',
   ...Object.values(ROOM_SPLIT_ERROR_CODES),
 ]);
 
@@ -53,8 +58,64 @@ export function emptyDraft(): ExpenseDraft {
 type RoomRow = {
   id: number; stay_label: string; check_in: string | null; check_out: string | null;
   name: string; capacity: number | null; occupant_ids: number[];
+  /** v0.26 (T2 API) — per-occupant nights; absent on pre-T2 payloads. */
+  occupants?: Array<{ participant_id: number; nights: number | null }>;
 };
 type RoomGroup = { stay_label: string; check_in: string | null; check_out: string | null; rooms: RoomRow[] };
+
+/** v0.26 stayNights for a room (spec §3/§4), mirrored client-side to match
+ *  the SERVER's stayNightsForRoom (server/app.ts, ~1806-1831) and
+ *  RoomsCard.tsx's client copy exactly: the room's own check_in/check_out
+ *  when both are set, else SEARCH every sibling room in the stay group,
+ *  ORDERED BY ASCENDING ROOM ID (F4 — matches the server's stayGroupNights
+ *  exactly, not render order), for the first one with both dates set,
+ *  else null (no known stay length — every occupant defaults to weight 1).
+ *  Review fix (task-3-review.md finding 3): this used to fall back to
+ *  `group.check_in`/`check_out`, which groupRoomsByStay seeds from only the
+ *  FIRST room encountered — if that first room had no dates while a later
+ *  sibling did, the prefill silently diverged from what resolveRoomsSplit
+ *  (and the badge) would actually compute. Must search all siblings, same
+ *  as the other two implementations, so the prefill preview never disagrees
+ *  with the saved split. */
+function stayNightsForRoom(room: RoomRow, group: RoomGroup): number | null {
+  const fromDates = (ci: string | null, co: string | null): number | null => {
+    if (!ci || !co) return null;
+    const days = daysBetween(ci, co);
+    if (days.length < 2) return null;
+    return days.length - 1;
+  };
+  const own = fromDates(room.check_in, room.check_out);
+  if (own != null) return own;
+  const byIdAsc = [...group.rooms].sort((a, b) => a.id - b.id);
+  for (const sib of byIdAsc) {
+    if (sib.id === room.id) continue;
+    const n = fromDates(sib.check_in, sib.check_out);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/** v0.26 — total person-nights for a room's non-infant occupants: each
+ *  occupant's explicit nights, or the stay's night count, or 1 as the final
+ *  fallback (spec §4: "weight = nights ?? stayNights ?? 1"). Used both as
+ *  the room's prefill weight (bigger person-nights ⇒ proportionally more of
+ *  the total) and to detect/format the person-nights occupancy label. */
+function personNightsForRoom(room: RoomRow, infantIds: Set<number>, stayNights: number | null): number {
+  const nightsByPid = new Map((room.occupants ?? []).map(o => [o.participant_id, o.nights]));
+  return room.occupant_ids
+    .filter(id => !infantIds.has(id))
+    .reduce((sum, id) => sum + (nightsByPid.get(id) ?? stayNights ?? 1), 0);
+}
+
+/** True when any of the room's NON-INFANT occupants carries an explicit
+ *  (non-null) nights value — the trigger for showing "X person-nights"
+ *  instead of the plain headcount label. F6: infants are excluded from the
+ *  money weighting entirely (server filters them out of occupantWeights),
+ *  so an infant-only nights edit must not flip the label — it has zero
+ *  money effect. */
+function hasExplicitNights(room: RoomRow, infantIds: Set<number>): boolean {
+  return (room.occupants ?? []).some(o => o.nights != null && !infantIds.has(o.participant_id));
+}
 
 function groupRoomsByStay(rooms: RoomRow[]): RoomGroup[] {
   const groups: RoomGroup[] = [];
@@ -85,17 +146,16 @@ function pickBestStayGroup(groups: RoomGroup[], expenseDate: string, endDate: st
   return best;
 }
 
-/** Non-infant occupant count for a room — the prefill weight. */
-function nonInfantCount(room: RoomRow, infantIds: Set<number>): number {
-  return room.occupant_ids.filter(id => !infantIds.has(id)).length;
-}
-
-/** Proportional prefill by non-infant occupant count, summing to totalMyr
- *  EXACTLY via shared/roomSplit's allocateByWeight (same largest-remainder
- *  discipline the engine uses, exported for this purpose — see that file). */
+/** Proportional prefill by person-nights (v0.26 — weight = nights ??
+ *  stayNights ?? 1 per non-infant occupant; equal-weight/all-null-nights
+ *  reduces to the v0.25 headcount weighting exactly, since every occupant's
+ *  weight is then stayNights ?? 1, a constant per room, so ratios between
+ *  rooms are unchanged), summing to totalMyr EXACTLY via shared/roomSplit's
+ *  allocateByWeight (same largest-remainder discipline the engine uses,
+ *  exported for this purpose — see that file). */
 function prefillRoomAmounts(group: RoomGroup, totalMyr: number, infantIds: Set<number>): Record<string, number> {
   const totalSen = Math.round(totalMyr * 100);
-  const weights = group.rooms.map(r => nonInfantCount(r, infantIds));
+  const weights = group.rooms.map(r => personNightsForRoom(r, infantIds, stayNightsForRoom(r, group)));
   const sens = allocateByWeight(totalSen, weights);
   const out: Record<string, number> = {};
   group.rooms.forEach((r, i) => { out[String(r.id)] = sens[i] / 100; });
@@ -453,9 +513,20 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
               {activeGroup.rooms.map(r => {
                 const infants = r.occupant_ids.filter(id => infantIds.has(id)).length;
                 const count = r.occupant_ids.length - infants;
+                // v0.26 — when any occupant has an explicit nights value,
+                // show person-nights alongside the headcount so the label
+                // reflects what the server will actually weight the split
+                // by (spec §4).
+                const explicitNights = hasExplicitNights(r, infantIds);
+                const personNights = explicitNights
+                  ? personNightsForRoom(r, infantIds, stayNightsForRoom(r, activeGroup))
+                  : null;
                 return (
                   <div className="room-split-row" key={r.id}>
-                    <span>{r.name} <span className="tiny">({occupancyLabel(count, infants, r.capacity)})</span></span>
+                    <span>{r.name} <span className="tiny">
+                      ({occupancyLabel(count, infants, r.capacity)}
+                      {personNights != null && ` · ${t.personNights(personNights)}`})
+                    </span></span>
                     <input type="number" step="0.01" min="0" value={d.roomsSplit!.amounts[String(r.id)] ?? 0}
                       onChange={e => setRoomAmount(r.id, Number(e.target.value))} />
                   </div>

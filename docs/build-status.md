@@ -1,6 +1,143 @@
 # Jelajah — Build Status
 
-Updated: 6 Sep 2026 (v0.25 COMPLETE — room-cost splitting, e2e green)
+Updated: 6 Sep 2026 (v0.26 COMPLETE — per-night room splits, e2e green)
+
+## v0.26.0 — per-night room splits, nights-as-weights (6 Sep 2026) — v0.26 COMPLETE
+
+Per `docs/14-spec-v0.26-per-night.md` (approved): MONEY-CRITICAL extension
+of v0.25 — a room's cost splits unequally among its non-infant occupants
+when they stay different numbers of nights, instead of always splitting
+evenly. Conservation (`Σ shares === amount_myr`) and byte-identical v0.25
+output on the all-null-nights path are the automatic-fail checks; both hold.
+
+**Shipped (T1–T4):**
+- **Engine** (`shared/roomSplit.ts`, additive) — `RoomSplitRoom` gains an
+  optional `occupantWeights?: Record<participantId, number>`. Absent ⇒ every
+  non-infant occupant weighted equally, reproducing the v0.25 output
+  bit-for-bit (proven in-code: multiplying by weight 1 is a no-op in
+  IEEE754, so the internal weighted largest-remainder allocator
+  `weightedShares()` collapses to the old base/remainder arithmetic exactly
+  when every weight is 1). Present ⇒ every non-infant occupant of that room
+  MUST have a finite positive integer weight or the engine throws
+  `invalid_weight` (`ROOM_SPLIT_ERROR_CODES.INVALID_WEIGHT`) — no silent
+  default substitution inside the engine; weight resolution (`nights ??
+  stayNights ?? 1`) is the CALLER's job (server), because a mixed
+  explicit+default-weight room needs stay context the engine doesn't have.
+  Rounding is still largest-remainder over whole sens, ties broken by
+  ascending participant_id — identical rule to v0.25, just weighted. All
+  existing v0.25 tests pass byte-unchanged (proves the freeze); new tests
+  cover weighted conservation (incl. the exact RM400 @ 4:4:2 → 160/160/80
+  case the e2e suite also exercises), odd-sen weighted remainders, mixed
+  infant+weighted rooms, and every `invalid_weight` rejection (0, negative,
+  NaN, non-integer). `allocateByWeight` (UI-prefill-only, already generic
+  over arbitrary weights) needed no change — T3 just started passing it
+  nights weights instead of headcounts.
+- **Schema + routes** (`server/app.ts`) — `room_occupants.nights INTEGER`
+  nullable (SCHEMA + UPGRADES, idempotent); `NULL` = whole stay (today's
+  v0.25 behavior). Occupants `PUT /trips/:id/rooms/:roomId/occupants` gains
+  an optional `nights: Record<participantId, number|null>` body key:
+  every key must be one of the submitted `participant_ids`
+  (`invalid_nights` otherwise), each value `null` or a positive integer,
+  and — when the stay group has known `check_in`/`check_out` dates —
+  bounded `1 ≤ nights ≤ stayNights` (also `invalid_nights`). A submitted
+  participant with no `nights` entry is treated the same as an explicit
+  `null` (defer to the whole-stay default). `resolveRoomsSplit()` now
+  computes `stayNightsForRoom` (a room's own dates when both set, else the
+  first sibling room in the same `trip_id`+`stay_label` group that has
+  both dates — same fallback rule implemented identically on server and
+  client) and passes `occupantWeights[pid] = nights ?? stayNights ?? 1` to
+  the engine per non-infant occupant. `split_json`'s `occupants` snapshot
+  shape extends from a plain id array to `[{id, nights}]`
+  (`MIGRATION NOTE`: old snapshots stay plain id arrays forever — the drift
+  helper below is explicitly both-shape tolerant, not a one-time
+  migration). `GET .../rooms` keeps `occupant_ids` for compatibility and
+  adds `occupants: [{participant_id, nights}]` per room.
+- **Client** (`src/components/RoomsCard.tsx`, `src/components/ExpenseForm.tsx`) —
+  RoomsCard: each occupant chip shows a `.nights-badge` ("n/N") whenever
+  the stay group has resolvable dates (no dates ⇒ no badge ⇒ weights
+  default equal, per spec); editors/leaders get a small `.nights-popover`
+  stepper (−/+ within `1..stayNights`, plus an "All nights" reset to
+  `null`) that saves on every click (PUT + reload, same
+  "refetch-after-every-mutation" convention as assign/unassign); viewers
+  see the same badge as a read-only `<span>` with no popover ever
+  rendered. Fixed a latent regression while wiring this up: `assign` and
+  `unassign` were PUTting `participant_ids` without a `nights` key at all,
+  which the server treats as "reset every submitted occupant's nights to
+  null" — both now send the full current nights map
+  (`nightsMapFor(room)`) alongside every occupants mutation so an
+  unrelated assign/unassign can no longer silently wipe someone else's
+  nights. Documented (not fixed, ruled deliberate): moving a participant
+  into a room they weren't already in resets their nights to `null` for
+  that room — nights is stored per `room_occupants` row (room-scoped), a
+  room move can plausibly change how many nights they're actually in, and
+  any saved split it affects is caught by the drift chip. ExpenseForm: the
+  room-split editor's occupancy label appends "N person-nights" only when
+  a room has at least one occupant with an explicit (non-null) nights
+  value (so an all-default-nights room renders identically to v0.25 —
+  freeze preserved); the per-room amount prefill now weights by
+  person-nights (`Σ nights ?? stayNights ?? 1` per non-infant occupant)
+  instead of raw headcount, collapsing back to the v0.25 headcount ratio
+  exactly when every occupant is on the default.
+- **Drift** (`src/lib/roomsDrift.ts`) — the saved `split_json.occupants`
+  snapshot is now either shape (`number[]` from pre-T2 saves, or
+  `Array<{id, nights}>`); `occupantsDrifted()` always compares the
+  occupant SET first (order-insensitive, both shapes), then additionally
+  compares nights values ONLY when both the snapshot is new-shape and the
+  current room row carries `occupants[]` — an old-shape snapshot is
+  "blind" to nights and correctly reports no drift from a nights-only
+  change it has no way to see. 4 new both-shape tests
+  (`tests/roomsDrift.test.ts`, now 18 total); all 14 pre-existing tests
+  pass unchanged.
+- **i18n**: `nightsBadgeTitle`, `allNights`, `personNights(n)` in en+ms.
+
+**Conservation, verified exactly (sen-precise) in unit + e2e alike:**
+`Σ per-person shares === amount_myr` on every weighted split, including
+the odd-remainder case (RM350 @ weights 4:2 → RM133.33/RM66.67, 1 sen
+largest-remainder tie resolved to the heavier fractional remainder) and
+the exact-division case (RM400 @ weights 4:4:2 → RM160.00/RM160.00/RM80.00,
+divides evenly, no rounding). **v0.25 path frozen**: every room in this
+run with no explicit nights (Room Two throughout, and Room One before the
+nights steps run) still split equally — those assertions execute BEFORE
+any nights-touching code in `scripts/e2e.mjs`, so their continuing to pass
+in the same run IS the regression guard, not a separate check.
+**Move-resets-nights** is documented, deliberate behavior (see Client
+above), not a bug — flagging here because it's easy to mistake for one.
+
+e2e (`scripts/e2e.mjs`, extends the v0.25 rooms-split section in place):
+dates the fixture "E2E Test Stay" (Room One → 2026-11-01..2026-11-05, 4
+nights; Room Two/Three inherit via sibling fallback); nights badge default
+(4/4) and stepper (step to 2/4, saves via popover) as leader/editor; a
+concurrent viewer session sees the badge read-only with zero popover/
+stepper DOM anywhere on the page; a nights-ONLY change (occupant set
+unchanged) fires the "Rooms changed since this split" drift chip on the
+existing v0.25 expense, distinct from the occupant-swap drift v0.25's own
+section already covers; Re-apply recomputes RM133.33/RM66.67/RM150.00
+(sum 350, conserved); a dedicated Room Three with 3 fresh occupants at
+4/4/2 nights and a new RM400.00 expense split entirely onto it asserts the
+headline case RM160.00/RM160.00/RM80.00 exactly (sum 400, conserved) —
+weights 4:4:2 of RM400.00 in 40000 sen: `40000×4/10=16000`,
+`40000×4/10=16000`, `40000×2/10=8000`, all exact, no remainder. Marker
+updated to `E2E PASSED (Phase 1 + 2 + v0.6-v0.26)`.
+
+Tests: 218 unit (unchanged count from v0.25 — T1/T2 tests were already
+landed and counted there; this task's own verification pass re-ran them
+green) + full e2e suite green (2 consecutive clean runs). `npx tsc --noEmit`
+clean.
+
+No manual SQL — `room_occupants.nights` auto-adds on first load (idempotent
+UPGRADES, same pattern as every prior schema change).
+
+### Deferred (not in v0.26 scope)
+- Offline writes v2 (the PWA is still read-only offline; write queueing/sync
+  is a bigger separate design, not attempted here).
+- Push notifications.
+- Rooms-split-at-confirm (resolving the room split at the moment an OCR/
+  import expense is confirmed, rather than only via the manual expense
+  form) — noted as a possible future UX shortcut, not required by spec v0.26.
+- `functions/lib/schema.ts` + `functions/api/[[path]].ts` dead-code cleanup
+  — confirmed unreachable in the actual deploy (Task 2's self-review),
+  never wired into any route; safe to delete in a future housekeeping pass,
+  left alone here to keep this task's diff scoped to per-night splits.
 
 ## v0.25.0 — room-cost splitting (6 Sep 2026) — v0.25 COMPLETE
 

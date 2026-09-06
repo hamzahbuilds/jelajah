@@ -704,6 +704,36 @@ img.preview { width: 100%; height: auto; max-height: 480px; object-fit: contain;
 .room-occ-x { position: relative; }
 .room-occ-x::after { content: ''; position: absolute; inset: -11px; }
 
+/* v0.26 — per-night nights badge + stepper popover on room occupant chips */
+.nights-wrap { position: relative; display: inline-flex; }
+.nights-badge {
+  font-size: 10px; font-weight: 600; padding: 1px 7px; line-height: 1.5;
+  background: var(--gray-100); color: var(--gray-700); border-color: transparent;
+}
+[data-theme="dark"] .nights-badge { background: var(--gray-800); color: var(--gray-300); }
+button.nights-badge { cursor: pointer; border: 1px solid transparent; }
+button.nights-badge:hover { border-color: var(--border); }
+.nights-popover {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+  display: flex; align-items: center; gap: 6px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+  box-shadow: 0 4px 16px rgba(0,0,0,.12); white-space: nowrap;
+}
+.nights-step {
+  min-width: 44px; min-height: 44px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--tile, var(--surface)); color: var(--ink); font-size: 16px; font-weight: 700;
+  cursor: pointer; line-height: 1;
+}
+.nights-step:hover { background: var(--gray-100); }
+[data-theme="dark"] .nights-step:hover { background: var(--gray-800); }
+.nights-popover-value { font-size: .82rem; font-weight: 600; color: var(--ink-2); padding: 0 2px; }
+.nights-all {
+  min-height: 44px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: none; color: var(--ink-2); font-size: .78rem; cursor: pointer;
+}
+.nights-all:hover { background: var(--gray-100); color: var(--ink); }
+[data-theme="dark"] .nights-all:hover { background: var(--gray-800); }
+
 /* page header (ported from prototype .pagehead) */
 .pagehead { margin-bottom: 24px; }
 .pagehead .crumb { font-size: 13px; color: var(--ink-3); font-weight: 500; margin-bottom: 4px; }

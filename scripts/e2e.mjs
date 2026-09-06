@@ -1568,6 +1568,245 @@ console.log('rooms-split category negative check ok (400 rooms_split_category)')
 await shot('41-rooms-split');
 
 /* ================================================================== */
+/* v0.26 — per-night room splits, nights-as-weights                    */
+/* (spec docs/14-spec-v0.26-per-night.md). Reuses "E2E Test Stay"       */
+/* (Room One / Room Two) and the "E2E Room Split Stay" RM350 expense    */
+/* from the v0.25 section directly above — those assertions (200/75/75 */
+/* then 100/100/150 after drift+re-apply, all-null nights = equal      */
+/* split) ran BEFORE anything below touches nights, so their passing   */
+/* already IS the v0.25-regression guard required by the brief: a room */
+/* with no explicit nights in this run still split equally, proven by  */
+/* code that executed earlier in this same file, in this same order.   */
+/* ================================================================== */
+
+// 47. give the fixture stay real dates so nights badges render at all (no
+// dates ⇒ no badge, weights default equal, per spec §4). PATCHing Room
+// One is enough — Room Two and the new Room Three below have no dates of
+// their own and fall back to the first dated sibling in the same
+// trip_id+stay_label group (server + client both implement this fallback
+// identically, per task-3-report.md). 2026-11-01 -> 2026-11-05 is 5
+// calendar days inclusive = 4 nights (daysBetween().length - 1).
+const nightsRoomsBefore = await page.evaluate(() => fetch('/api/trips/1/rooms').then(r => r.json()));
+const nightsRoomOneId = nightsRoomsBefore.rooms.find(r => r.name === 'Room One').id;
+const datePatchSt = await page.evaluate(({ roomId }) => fetch(`/api/trips/1/rooms/${roomId}`, {
+  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ check_in: '2026-11-01', check_out: '2026-11-05' }),
+}).then(r => r.status), { roomId: nightsRoomOneId });
+if (datePatchSt !== 200) await fail(`PATCH Room One check_in/check_out should succeed, got ${datePatchSt}`);
+console.log('fixture stay dated ok (Room One 2026-11-01 -> 2026-11-05, 4 nights)');
+
+// 48. nights badge + stepper (leader/editor view): Room One holds `moved`
+// and roomPeople[1] (v0.25 section's final state, reconfirmed there at
+// the top of that section). Neither has an explicit nights value yet, so
+// both default to the full stay length — badge reads "4/4".
+await page.goto(`${BASE}/trips/1/people`);
+await page.waitForSelector('h3:has-text("Rooms")');
+const movedOcc = `${roomOneCard} .room-occ:has-text("${moved.name}")`;
+await page.waitForSelector(`${movedOcc} .nights-badge`);
+let movedBadgeText = (await page.textContent(`${movedOcc} .nights-badge`))?.trim();
+if (movedBadgeText !== '4/4') await fail(`Room One occupant (${moved.name}) nights badge should read "4/4" before any nights change, got "${movedBadgeText}"`);
+console.log('nights badge defaults to full stay length ok (4/4)');
+
+// step roomPeople[1] down from the default 4 nights to 2, two clicks of
+// "-" (each click saves via PUT + reload + closes the popover, per
+// RoomsCard.tsx's saveNights — same "refetch after every mutation"
+// convention as assign/unassign), reopening the popover between clicks.
+const stepPeopleOcc = `${roomOneCard} .room-occ:has-text("${roomPeople[1].name}")`;
+await page.click(`${stepPeopleOcc} .nights-badge`);
+await page.waitForSelector(`${stepPeopleOcc} .nights-popover`);
+await page.click(`${stepPeopleOcc} .nights-step[aria-label="-"]`);
+await page.waitForSelector('.toast:has-text("Occupants updated")');
+await page.waitForSelector(`${stepPeopleOcc} .nights-badge:has-text("3/4")`);
+console.log('nights stepper: first "-" click ok (4/4 -> 3/4)');
+await page.click(`${stepPeopleOcc} .nights-badge`);
+await page.waitForSelector(`${stepPeopleOcc} .nights-popover`);
+await page.click(`${stepPeopleOcc} .nights-step[aria-label="-"]`);
+await page.waitForSelector('.toast:has-text("Occupants updated")');
+await page.waitForSelector(`${stepPeopleOcc} .nights-badge:has-text("2/4")`);
+console.log('nights stepper: second "-" click ok (3/4 -> 2/4), saved via popover');
+
+// 49. viewer session (Hairuni, still 'viewer' from the v0.21 section —
+// no role change happens between there and here): sees the badge
+// read-only, and the popover/stepper controls never render at all
+// (RoomsCard.tsx's canEdit branch renders a plain <span>, not a
+// <button>, so there is nothing to click open in the first place).
+const ctxNights = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const pNights = await ctxNights.newPage();
+pNights.setDefaultTimeout(25000);
+await blockExternal(pNights);
+await pNights.goto(`${BASE}/login`);
+await pNights.fill('input[type=email]', 'hairuni@family.local');
+await pNights.fill('input[type=password]', temp);
+await pNights.click('.login-card button');
+await pNights.waitForURL(`${BASE}/`);
+await pNights.goto(`${BASE}/trips/1/people`);
+await pNights.waitForSelector('h3:has-text("Rooms")');
+const viewerStepPeopleOcc = `${roomOneCard} .room-occ:has-text("${roomPeople[1].name}")`;
+await pNights.waitForSelector(`${viewerStepPeopleOcc} .nights-badge`);
+const viewerBadgeText = (await pNights.textContent(`${viewerStepPeopleOcc} .nights-badge`))?.trim();
+if (viewerBadgeText !== '2/4') await fail(`viewer should see the saved nights badge "2/4", got "${viewerBadgeText}"`);
+const viewerBadgeTag = await pNights.$eval(`${viewerStepPeopleOcc} .nights-badge`, el => el.tagName);
+if (viewerBadgeTag === 'BUTTON') await fail('viewer nights badge should be a read-only <span>, not a clickable <button>');
+if (await pNights.$('.nights-popover')) await fail('viewer should not see any nights stepper popover anywhere on the page');
+if (await pNights.$('.nights-step')) await fail('viewer should not see any nights stepper +/- controls anywhere on the page');
+console.log('viewer nights UI ok (badge visible read-only "2/4", no popover/stepper)');
+await ctxNights.close();
+
+// 50. drift fires from a NIGHTS-ONLY change (occupant set unchanged) —
+// distinct from the occupant-swap drift already exercised in the v0.25
+// section above. roomPeople[1]'s nights just changed null -> 2 with no
+// change to who occupies which room, so the saved "E2E Room Split Stay"
+// split_json occupants snapshot (captured at the v0.25 section's
+// re-apply, with all nights null) no longer matches current room state
+// purely on the nights field (roomsDrift.ts's both-shape, nights-aware
+// comparison — task-3-report.md).
+await page.goto(`${BASE}/trips/1/ledger`);
+await page.waitForSelector(roomsSplitRow);
+await page.waitForSelector(`${roomsSplitRow} .badge.warning:has-text("Rooms changed since this split")`);
+console.log('drift chip fires from a nights-only change ok (occupant set unchanged)');
+
+// 51. re-apply: editor reopens with the SAVED room amounts (200/150,
+// unchanged) but current occupancy — Room One's row now also shows a
+// person-nights suffix since one of its occupants has an explicit value
+// (spec §4: hasExplicitNights -> show "N person-nights" alongside the
+// headcount). Room One: moved (nights=null -> default 4) + roomPeople[1]
+// (nights=2) = 4 + 2 = 6 person-nights.
+await page.click(`${roomsSplitRow} button:has-text("Re-apply")`);
+await page.waitForSelector('.modal');
+await page.waitForSelector('.room-split-row');
+await page.waitForSelector(`.room-split-row:has-text("Room One"):has-text("6 person-nights")`);
+console.log('re-apply occupancy label shows person-nights ok (Room One: 6 person-nights)');
+await page.click('.modal form button[type=submit]');
+await page.waitForSelector('.toast:has-text("Expense saved")');
+await page.waitForSelector('.modal', { state: 'detached' });
+console.log('re-apply (nights-drift) save ok');
+
+// HAND-COMPUTED weighted shares after the nights-only drift + re-apply
+// (same 200/150 room amounts as before, now weighted by nights):
+//   Room One RM200.00 = 20000 sen, weights moved=4 (default) : roomPeople[1]=2, sum=6
+//     moved:        floor(20000*4/6) = floor(13333.33..) = 13333 sen, frac .333..
+//     roomPeople[1]: floor(20000*2/6) = floor(6666.66..)  = 6666 sen,  frac .666..
+//     base sum = 19999, 1 sen remainder -> largest fractional remainder = roomPeople[1] (.667 > .333)
+//     moved = 13333 sen = RM133.33, roomPeople[1] = 6667 sen = RM66.67
+//   Room Two RM150.00 = 15000 sen, sole occupant roomPeople[0] (unaffected by nights, no other occupant to weight against) = RM150.00 exactly
+//   Conservation: 133.33 + 66.67 + 150.00 = 350.00 = amount_myr ✓ (unchanged total, unchanged from v0.25's own re-apply total)
+const afterNightsReapply = await page.evaluate(() => fetch('/api/trips/1/expenses').then(r => r.json()));
+const nightsReappliedShares = afterNightsReapply.shares.filter(s => s.expense_id === splitExpense.id);
+if (shareFor(nightsReappliedShares, moved.id) !== 133.33) await fail(`after nights-drift re-apply, Room One occupant (${moved.name}, weight 4) share should be exactly 133.33, got ${shareFor(nightsReappliedShares, moved.id)}`);
+if (shareFor(nightsReappliedShares, roomPeople[1].id) !== 66.67) await fail(`after nights-drift re-apply, Room One occupant (${roomPeople[1].name}, weight 2) share should be exactly 66.67, got ${shareFor(nightsReappliedShares, roomPeople[1].id)}`);
+if (shareFor(nightsReappliedShares, roomPeople[0].id) !== 150) await fail(`after nights-drift re-apply, Room Two occupant (${roomPeople[0].name}) share should be exactly 150, got ${shareFor(nightsReappliedShares, roomPeople[0].id)}`);
+const nightsReSum = nightsReappliedShares.reduce((a, s) => a + s.amount_myr, 0);
+if (nightsReSum !== 350) await fail(`nights-weighted re-applied shares must still sum to 350 (conservation), got ${nightsReSum}`);
+console.log('nights-weighted shares exact via API ok: 133.33 / 66.67 / 150, sum 350 (conserved)');
+
+await page.reload();
+await page.waitForSelector(roomsSplitRow);
+if (await page.$(`${roomsSplitRow} .badge.warning:has-text("Rooms changed since this split")`)) await fail('drift chip should be gone after the nights-drift re-apply');
+console.log('drift chip gone after nights-drift re-apply ok');
+await shot('42-nights-drift');
+
+// 52. the core weighted-split assertion: a dedicated Room Three with 3
+// occupants at nights 4/4/2 (weights 4:4:2) and a fresh RM400.00
+// accommodation expense split entirely onto that room. Uses 3 participants
+// untouched by any earlier rooms/e2e section (parts.slice(3,6) after the
+// same is_infant/Hairuni/Hamzah filter roomPeople used), so this is fully
+// isolated from the v0.25 fixture's occupancy/drift state above.
+await page.goto(`${BASE}/trips/1/people`);
+await page.waitForSelector('h3:has-text("Rooms")');
+await page.click('.room-stay:has-text("E2E Test Stay") button:has-text("Add room")');
+await page.waitForSelector('.room-stay:has-text("E2E Test Stay") form input[placeholder="Room name"]');
+await page.fill('.room-stay:has-text("E2E Test Stay") form input[placeholder="Room name"]', 'Room Three');
+await page.fill('.room-stay:has-text("E2E Test Stay") form input[placeholder="Capacity"]', '3');
+await page.click('.room-stay:has-text("E2E Test Stay") form button:has-text("Save")');
+await page.waitForSelector('.toast:has-text("Room saved")');
+await page.waitForSelector('.room-card:has(b:has-text("Room Three"))');
+console.log('Room Three created ok (3rd room, same "E2E Test Stay" group)');
+
+const nightsPeople = parts.filter(p => !p.is_infant && p.name !== hairuni.name && p.name !== hamzah.name).slice(3, 6);
+if (nightsPeople.length !== 3) await fail(`need 3 more distinct non-infant participants for the weighted-split room, got ${nightsPeople.length}`);
+const roomsForNightsSplit = await page.evaluate(() => fetch('/api/trips/1/rooms').then(r => r.json()));
+const roomThreeId = roomsForNightsSplit.rooms.find(r => r.name === 'Room Three').id;
+// single occupants PUT assigns all 3 AND sets their nights in one call:
+// nightsPeople[0]/[1] omitted from the map (server treats a submitted-but-
+// keyless participant the same as an explicit null: defer to the 4-night
+// stay default), nightsPeople[2] explicit 2 -> weights 4:4:2.
+const assignThreeSt = await page.evaluate(({ roomId, ids, nights }) => fetch(`/api/trips/1/rooms/${roomId}/occupants`, {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ participant_ids: ids, nights }),
+}).then(r => r.status), {
+  roomId: roomThreeId,
+  ids: nightsPeople.map(p => p.id),
+  nights: { [nightsPeople[2].id]: 2 },
+});
+if (assignThreeSt !== 200) await fail(`assigning 3 occupants + nights into Room Three should succeed, got ${assignThreeSt}`);
+console.log(`Room Three occupants + nights set ok (${nightsPeople[0].name}=4 default, ${nightsPeople[1].name}=4 default, ${nightsPeople[2].name}=2 explicit)`);
+
+// reflect in UI: badges read 4/4, 4/4, 2/4
+await page.reload();
+const roomThreeCard = '.room-card:has(b:has-text("Room Three"))';
+await page.waitForSelector(`${roomThreeCard}:has-text("${nightsPeople[2].name}")`);
+for (const [p, expected] of [[nightsPeople[0], '4/4'], [nightsPeople[1], '4/4'], [nightsPeople[2], '2/4']]) {
+  const txt = (await page.textContent(`${roomThreeCard} .room-occ:has-text("${p.name}") .nights-badge`))?.trim();
+  if (txt !== expected) await fail(`Room Three occupant (${p.name}) nights badge should read "${expected}", got "${txt}"`);
+}
+console.log('Room Three nights badges ok (4/4, 4/4, 2/4)');
+
+// RM400.00 accommodation expense, split by rooms, entirely onto Room
+// Three (Room One / Room Two get 0 — a 0-amount room with occupants is
+// valid, per shared/roomSplit.ts: only a NONZERO amount on an
+// occupant-less room throws 'empty_room_nonzero').
+await page.goto(`${BASE}/trips/1/ledger`);
+await page.waitForSelector('.lrow');
+await page.click('button:has-text("Add expense")');
+await page.waitForSelector('.modal');
+await page.selectOption('.modal .form-grid select >> nth=0', 'accommodation');
+await page.fill('.modal .form-grid input[required] >> nth=0', 'E2E Nights Weighted Split');
+await page.fill('.modal .form-grid input[required] >> nth=1', '400');
+await page.selectOption('.modal .form-grid select[required]', { label: 'Hamzah Bin Hamizan' });
+await page.waitForSelector('.room-split-editor');
+await page.click('.room-split-editor label:has-text("Split by rooms")');
+await page.waitForSelector(`.room-split-row:has-text("Room Three"):has-text("10 person-nights")`);
+console.log('weighted room-split editor shows person-nights ok (Room Three: 10 person-nights = 4+4+2)');
+await page.fill('.room-split-row:has-text("Room One") input[type=number]', '0');
+await page.fill('.room-split-row:has-text("Room Two") input[type=number]', '0');
+await page.fill('.room-split-row:has-text("Room Three") input[type=number]', '400');
+await page.waitForTimeout(150);
+const remainderText2 = (await page.textContent('.room-split-remainder'))?.trim();
+if (!/0\.00/.test(remainderText2 ?? '')) await fail(`weighted rooms-split remainder should read 0.00 left to assign, got "${remainderText2}"`);
+console.log('weighted rooms-split remainder reached 0 ok:', remainderText2);
+await page.click('.modal form button[type=submit]');
+await page.waitForSelector('.toast:has-text("Expense saved")');
+await page.waitForSelector('.modal', { state: 'detached' });
+console.log('weighted rooms-split expense saved ok');
+
+// HAND-COMPUTED expected per-person shares — weights 4:4:2 of RM400.00
+// (40000 sen), sum of weights = 10:
+//   nightsPeople[0] (weight 4): 40000 * 4/10 = 16000 sen exactly = RM160.00
+//   nightsPeople[1] (weight 4): 40000 * 4/10 = 16000 sen exactly = RM160.00
+//   nightsPeople[2] (weight 2): 40000 * 2/10 =  8000 sen exactly = RM80.00
+//   (40000 divides evenly by 10, so every weight-share is an exact integer
+//   number of sen — no largest-remainder rounding is exercised here, unlike
+//   step 51 above; both paths are covered across this file.)
+//   Conservation: 160.00 + 160.00 + 80.00 = 400.00 = amount_myr ✓
+const weightedRow = '.lrow:has-text("E2E Nights Weighted Split")';
+await page.waitForSelector(weightedRow);
+if (!(await page.$(`${weightedRow} .badge.brand:has-text("By rooms")`))) await fail('weighted rooms-split expense row missing "By rooms" badge');
+const afterWeighted = await page.evaluate(() => fetch('/api/trips/1/expenses').then(r => r.json()));
+const weightedExpense = afterWeighted.expenses.find(e => e.description === 'E2E Nights Weighted Split');
+if (!weightedExpense) await fail('weighted rooms-split expense not found via GET /trips/1/expenses');
+const weightedShares = afterWeighted.shares.filter(s => s.expense_id === weightedExpense.id);
+if (shareFor(weightedShares, nightsPeople[0].id) !== 160) await fail(`weighted split: ${nightsPeople[0].name} (4 nights) share should be exactly 160.00, got ${shareFor(weightedShares, nightsPeople[0].id)}`);
+if (shareFor(weightedShares, nightsPeople[1].id) !== 160) await fail(`weighted split: ${nightsPeople[1].name} (4 nights) share should be exactly 160.00, got ${shareFor(weightedShares, nightsPeople[1].id)}`);
+if (shareFor(weightedShares, nightsPeople[2].id) !== 80) await fail(`weighted split: ${nightsPeople[2].name} (2 nights) share should be exactly 80.00, got ${shareFor(weightedShares, nightsPeople[2].id)}`);
+const weightedSum = weightedShares.reduce((a, s) => a + s.amount_myr, 0);
+if (weightedSum !== 400) await fail(`weighted rooms-split shares must sum to 400 (conservation), got ${weightedSum}`);
+if (weightedExpense.amount_myr !== 400) await fail(`weighted rooms-split expense amount_myr should be 400, got ${weightedExpense.amount_myr}`);
+console.log('nights-as-weights shares exact via API ok: 160.00 / 160.00 / 80.00, sum 400.00 (conserved) — weights 4:4:2');
+await shot('43-nights-weighted-split');
+
+console.log('v0.26 per-night room splits ok (nights badge/stepper, viewer read-only, drift-on-nights-change, weighted conservation 4:4:2)');
+
+/* ================================================================== */
 /* v0.17 — invites, join & referrals (spec §Registration + Addendum 1) */
 /* ================================================================== */
 
@@ -2283,4 +2522,4 @@ await ctx10.close();
 console.log('pwa: SW unregistered + jl-* caches cleared');
 
 await browser.close();
-console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.25)');
+console.log('E2E PASSED (Phase 1 + 2 + v0.6-v0.26)');

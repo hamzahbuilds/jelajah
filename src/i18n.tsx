@@ -404,6 +404,13 @@ const en = {
   chooseStay: 'Stay',
   staleStayMsg: 'This stay group no longer exists — pick another or switch split mode.',
   roomsSplitRejected: 'Room split rejected — reopen the editor and check the amounts.',
+  // v0.26 — per-night room splits (nights-as-weights)
+  nightsBadgeTitle: 'Nights at this stay',
+  allNights: 'All nights',
+  personNights: (n: number) => `${n} person-nights`,
+  // v0.26 final fix batch (F2) — room date edits rejected server-side
+  nightsConflictMsg: 'Some occupants have more nights than the new dates allow — adjust their nights first.',
+  badDatesMsg: 'Check-out must be after check-in.',
 };
 
 const ms: typeof en = {
@@ -789,6 +796,13 @@ const ms: typeof en = {
   chooseStay: 'Penginapan',
   staleStayMsg: 'Kumpulan penginapan ini tidak wujud lagi — pilih satu lagi atau tukar mod bahagian.',
   roomsSplitRejected: 'Bahagian bilik ditolak — buka semula editor dan semak jumlahnya.',
+  // v0.26 — pembahagian bilik ikut malam (malam sebagai pemberat)
+  nightsBadgeTitle: 'Malam di penginapan ini',
+  allNights: 'Semua malam',
+  personNights: (n: number) => `${n} malam-orang`,
+  // kumpulan pembaikan akhir v0.26 (F2) — penyuntingan tarikh bilik ditolak pelayan
+  nightsConflictMsg: 'Sesetengah penghuni mempunyai lebih malam daripada yang dibenarkan tarikh baharu — laraskan malam mereka dahulu.',
+  badDatesMsg: 'Tarikh daftar keluar mesti selepas tarikh daftar masuk.',
 };
 
 export type Dict = typeof en;

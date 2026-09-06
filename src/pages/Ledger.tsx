@@ -31,7 +31,11 @@ export default function Ledger() {
   const [busy, setBusy] = useState(false);
   // v0.25 — rooms payload for the "By rooms" badge + drift chip. Member-safe
   // GET (same access gate as the expenses list), fetched once alongside it.
-  const [rooms, setRooms] = useState<Array<{ id: number; occupant_ids: number[] }>>([]);
+  const [rooms, setRooms] = useState<Array<{
+    id: number; occupant_ids: number[]; stay_label?: string;
+    check_in?: string | null; check_out?: string | null;
+    occupants?: Array<{ participant_id: number; nights: number | null }>;
+  }>>([]);
 
   const load = async () => setData(await api.get(`/trips/${tripId}/expenses`));
   const loadRooms = async () => {

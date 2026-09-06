@@ -6,19 +6,57 @@
 // patch local state — the server may have silently moved someone out of a
 // sibling room.
 import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, ApiError } from '../api';
 import { useT } from '../i18n';
 import { useToast } from './Toast';
 import { Icon } from './Icon';
 import Modal from './Modal';
 import { occupancyLabel } from '../../shared/rooms';
+import { daysBetween } from '../../shared/days';
 import type { Participant } from '../pages/TripShell';
 
+type RoomOccupant = { participant_id: number; nights: number | null };
 type Room = {
   id: number; stay_label: string; check_in: string | null; check_out: string | null;
   name: string; capacity: number | null; sort: number; occupant_ids: number[];
+  /** v0.26 — per-occupant nights (T2 API); null = whole stay. Falls back to
+   *  [] for pre-T2 responses so this stays additive/backward-safe. */
+  occupants?: RoomOccupant[];
 };
 type SuggestedStay = { label: string; check_in: string | null; check_out: string | null };
+
+/** stayNights for a room's stay group (spec docs/14-spec-v0.26-per-night.md
+ *  §3/§4, F4), mirrored client-side from the server's shared stayGroupNights
+ *  derivation: the room's OWN check_in/check_out when both are set, else the
+ *  first SIBLING room in the same stay group — ordered by ASCENDING ROOM ID,
+ *  matching the server exactly (not the render order) — that has both dates
+ *  set, else null (no badge). daysBetween is the inclusive calendar-day
+ *  list, so nights is one less than its length. */
+function stayNightsForRoom(room: Room, siblings: Room[]): number | null {
+  const fromDates = (ci: string | null, co: string | null): number | null => {
+    if (!ci || !co) return null;
+    const days = daysBetween(ci, co);
+    if (days.length < 2) return null;
+    return days.length - 1;
+  };
+  const own = fromDates(room.check_in, room.check_out);
+  if (own != null) return own;
+  const byIdAsc = [...siblings].sort((a, b) => a.id - b.id);
+  for (const sib of byIdAsc) {
+    if (sib.id === room.id) continue;
+    const n = fromDates(sib.check_in, sib.check_out);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/** Nights map for a room, keyed by participant_id (from the occupants[]
+ *  snapshot the server now returns alongside occupant_ids). */
+function nightsMapFor(room: Room): Record<number, number | null> {
+  const m: Record<number, number | null> = {};
+  for (const o of room.occupants ?? []) m[o.participant_id] = o.nights;
+  return m;
+}
 
 const initials = (name: string) => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -103,10 +141,23 @@ export default function RoomsCard({ tripId, members, canEdit }: {
 
   // ---- per-room inline person picker (editor+) ----
   const [pickerFor, setPickerFor] = useState<number | null>(null);
+  // v0.26 — new occupant's nights key is simply omitted from the map (server
+  // treats a missing key the same as null: defer to the whole-stay default).
   const assign = async (room: Room, participantId: number) => {
     try {
+      // Review ruling (task-3-review.md finding 2, accepted-with-doc):
+      // `assignee` was never previously an occupant of THIS room, so
+      // nightsMapFor(room) has no entry for them — they land on `null`
+      // (whole-stay default) regardless of any nights they had in a
+      // sibling room they just left. This is deliberate, not a bug: nights
+      // is stored per room_occupants row (room-scoped), a room move very
+      // plausibly changes how many nights they're actually in THIS room
+      // for, and the drift chip (roomsDrift.ts) flags any saved split this
+      // affects — silent but safe (null is the pre-v0.26 default), never
+      // silent money corruption.
       await api.put(`/trips/${tripId}/rooms/${room.id}/occupants`, {
         participant_ids: [...room.occupant_ids, participantId],
+        nights: nightsMapFor(room),
       });
       toast(t.tOccupantsSaved);
       setPickerFor(null);
@@ -115,10 +166,29 @@ export default function RoomsCard({ tripId, members, canEdit }: {
   };
   const unassign = async (room: Room, participantId: number) => {
     try {
+      const nights = nightsMapFor(room);
+      delete nights[participantId];
       await api.put(`/trips/${tripId}/rooms/${room.id}/occupants`, {
         participant_ids: room.occupant_ids.filter(id => id !== participantId),
+        nights,
       });
       toast(t.tOccupantsSaved);
+      await load();
+    } catch { toast(t.tSaveFailed, 'error'); }
+  };
+
+  // ---- v0.26 — nights stepper popover (editor+) ----
+  const [nightsPopover, setNightsPopover] = useState<{ roomId: number; participantId: number } | null>(null);
+  const saveNights = async (room: Room, participantId: number, value: number | null) => {
+    try {
+      const nights = nightsMapFor(room);
+      nights[participantId] = value;
+      await api.put(`/trips/${tripId}/rooms/${room.id}/occupants`, {
+        participant_ids: room.occupant_ids,
+        nights,
+      });
+      toast(t.tOccupantsSaved);
+      setNightsPopover(null);
       await load();
     } catch { toast(t.tSaveFailed, 'error'); }
   };
@@ -140,7 +210,14 @@ export default function RoomsCard({ tripId, members, canEdit }: {
       toast(t.tRoomSaved);
       setEditingRoom(null);
       await load();
-    } catch { toast(t.tSaveFailed, 'error'); }
+    } catch (e) {
+      // F2 — dates changing (or clearing) on a PATCH can be rejected by the
+      // server with a specific fail-closed code; surface a readable toast
+      // for those instead of the generic save-failed message.
+      if (e instanceof ApiError && e.code === 'nights_conflict') toast(t.nightsConflictMsg, 'error');
+      else if (e instanceof ApiError && e.code === 'bad_dates') toast(t.badDatesMsg, 'error');
+      else toast(t.tSaveFailed, 'error');
+    }
   };
 
   // ---- delete room (destructive Modal, editor+) ----
@@ -251,6 +328,10 @@ export default function RoomsCard({ tripId, members, canEdit }: {
                 const over = room.capacity != null && count > room.capacity;
                 const label = occupancyLabel(count, infants, room.capacity);
                 const isEditing = editingRoom === room.id;
+                // v0.26 — nights badge only when the stay group has both
+                // dates; otherwise weights default equal and no badge shows.
+                const stayNights = stayNightsForRoom(room, group.rooms);
+                const nightsByPid = nightsMapFor(room);
                 return (
                   <div className="room-card" key={room.id}>
                     {isEditing ? (
@@ -285,17 +366,51 @@ export default function RoomsCard({ tripId, members, canEdit }: {
                     )}
 
                     <div className="chips" style={{ marginTop: 8 }}>
-                      {occMembers.map(m => (
-                        <span key={m.id} className="room-occ">
-                          <span className="avatar" style={{ width: 22, height: 22, fontSize: 10 }}>{initials(m.name)}</span>
-                          {m.name}
-                          {!!m.is_infant && <span className="badge infant">{t.infant}</span>}
-                          {canEdit && (
-                            <button type="button" className="room-occ-x" title={t.removeFromRoom} aria-label={t.removeFromRoom}
-                              onClick={() => unassign(room, m.id)}>×</button>
-                          )}
-                        </span>
-                      ))}
+                      {occMembers.map(m => {
+                        // v0.26 — nights badge: n = this occupant's explicit
+                        // nights, or the stay's full night count when unset.
+                        const n = nightsByPid[m.id] ?? stayNights;
+                        const popoverOpen = nightsPopover?.roomId === room.id && nightsPopover?.participantId === m.id;
+                        return (
+                          <span key={m.id} className="room-occ">
+                            <span className="avatar" style={{ width: 22, height: 22, fontSize: 10 }}>{initials(m.name)}</span>
+                            {m.name}
+                            {!!m.is_infant && <span className="badge infant">{t.infant}</span>}
+                            {/* F6 — infants are excluded from the money weighting
+                               (server filters them out of occupantWeights), so no
+                               nights badge/stepper for them: it would suggest a
+                               control with zero money effect. */}
+                            {!m.is_infant && stayNights != null && (
+                              canEdit ? (
+                                <span className="nights-wrap">
+                                  <button type="button" className="badge nights-badge" title={t.nightsBadgeTitle}
+                                    onClick={() => setNightsPopover(popoverOpen ? null : { roomId: room.id, participantId: m.id })}>
+                                    {n}/{stayNights}
+                                  </button>
+                                  {popoverOpen && (
+                                    <div className="nights-popover">
+                                      <button type="button" className="nights-step" aria-label="-"
+                                        onClick={() => saveNights(room, m.id, Math.max(1, (n ?? stayNights) - 1))}>−</button>
+                                      <span className="nights-popover-value">{n}/{stayNights}</span>
+                                      <button type="button" className="nights-step" aria-label="+"
+                                        onClick={() => saveNights(room, m.id, Math.min(stayNights, (n ?? stayNights) + 1))}>+</button>
+                                      <button type="button" className="nights-all" onClick={() => saveNights(room, m.id, null)}>
+                                        {t.allNights}
+                                      </button>
+                                    </div>
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="badge nights-badge" title={t.nightsBadgeTitle}>{n}/{stayNights}</span>
+                              )
+                            )}
+                            {canEdit && (
+                              <button type="button" className="room-occ-x" title={t.removeFromRoom} aria-label={t.removeFromRoom}
+                                onClick={() => unassign(room, m.id)}>×</button>
+                            )}
+                          </span>
+                        );
+                      })}
                       {occMembers.length === 0 && <span className="tiny">{t.unassigned}</span>}
                     </div>
 

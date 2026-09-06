@@ -1,4 +1,4 @@
--- Jelajah D1 schema — regenerated from server/lib/schema.ts SCHEMA (v0.25).
+-- Jelajah D1 schema — regenerated from server/lib/schema.ts SCHEMA (v0.26).
 -- Runtime UPGRADES in schema.ts self-heal older DBs; this file is the fresh-install CLI path.
 -- Regenerate rather than hand-edit: keep in sync with server/lib/schema.ts.
 PRAGMA foreign_keys = ON;
@@ -270,6 +270,7 @@ CREATE TABLE IF NOT EXISTS rooms (
 CREATE TABLE IF NOT EXISTS room_occupants (
     room_id INTEGER NOT NULL REFERENCES rooms(id),
     participant_id INTEGER NOT NULL REFERENCES participants(id),
+    nights INTEGER,
     PRIMARY KEY (room_id, participant_id)
   );
 
