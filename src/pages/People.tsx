@@ -30,7 +30,8 @@ const initials = (name: string) => {
 };
 
 export default function People() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const bm = lang === 'ms';
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user, refresh } = useSession();
@@ -48,37 +49,52 @@ export default function People() {
     setAll(await api.get('/participants'));
   };
   const loadInvites = async () => setInvites(await api.get(`/trips/${tripId}/invites`));
-  useEffect(() => { if (canLead) { load(); loadInvites(); } }, [canLead]);
+  useEffect(() => { if (canLead) { load(); loadInvites(); } }, [canLead, tripId]);
 
   // v0.13: optimistic membership — the chip flips instantly, the PUT runs in
   // the background, and the context resyncs when the server confirms.
   const [memberIds, setMemberIds] = useState<Set<number>>(new Set(members.map(m => m.id)));
   const inFlight = useRef(0);
+  const [memberBusy, setMemberBusy] = useState(false);
+  const [manageMembers, setManageMembers] = useState(false);
+  const [directorySearch, setDirectorySearch] = useState('');
+  const [directoryPage, setDirectoryPage] = useState(0);
+  const pageSize = 8;
+  const directory = all.filter(p => p.name.toLocaleLowerCase().includes(directorySearch.trim().toLocaleLowerCase()));
+  const directoryPages = Math.max(1, Math.ceil(directory.length / pageSize));
+  const directoryCurrent = Math.min(directoryPage, directoryPages - 1);
   useEffect(() => {
     if (inFlight.current === 0) setMemberIds(new Set(members.map(m => m.id)));
   }, [members]);
 
   const toggleMember = (pid: number) => {
+    if (inFlight.current) return;
+    setMemberBusy(true);
     const removing = memberIds.has(pid);
     const next = new Set(memberIds);
     removing ? next.delete(pid) : next.add(pid);
     setMemberIds(next);
-    toast(removing ? t.tParticipantRemoved : t.tParticipantAdded);
     inFlight.current++;
     api.put(`/trips/${tripId}/members`, { participant_ids: [...next] })
-      .then(() => reload())
+      .then(async () => { await reload(); toast(removing ? t.tParticipantRemoved : t.tParticipantAdded); })
       .catch(() => { setMemberIds(new Set(members.map(m => m.id))); toast(t.tSaveFailed, 'error'); })
-      .finally(() => { inFlight.current--; });
+      .finally(() => { inFlight.current--; setMemberBusy(false); });
   };
 
   const addParticipant = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim()) return;
-    const r = await api.post('/participants', { name: newName, is_infant: newInfant });
-    await api.put(`/trips/${tripId}/members`, { participant_ids: [...members.map(m => m.id), r.id] });
-    setNewName(''); setNewInfant(false);
-    toast(t.tParticipantAdded);
-    await Promise.all([load(), reload()]);
+    if (!newName.trim() || inFlight.current) return;
+    inFlight.current++;
+    setMemberBusy(true);
+    try {
+      const r = await api.post('/participants', { name: newName.trim(), is_infant: newInfant });
+      await api.put(`/trips/${tripId}/members`, { participant_ids: [...memberIds, r.id] });
+      setMemberIds(new Set([...memberIds, r.id]));
+      setNewName(''); setNewInfant(false);
+      toast(t.tParticipantAdded);
+      await Promise.all([load(), reload()]);
+    } catch { toast(t.tSaveFailed, 'error'); }
+    finally { inFlight.current--; setMemberBusy(false); }
   };
 
   const roleChip = (p: Participant) => {
@@ -86,7 +102,7 @@ export default function People() {
     if (!role) return null;
     if (p.has_account) {
       return (
-        <select value={role} onChange={e => changeRole(p.id, e.target.value as 'leader' | 'editor' | 'viewer')}>
+        <select aria-label={`${bm ? 'Peranan' : 'Role'}: ${p.name}`} value={role} onChange={e => changeRole(p.id, e.target.value as 'leader' | 'editor' | 'viewer')}>
           <option value="leader">{t.roleLeader}</option>
           <option value="editor">{t.roleEditor}</option>
           <option value="viewer">{t.roleViewer}</option>
@@ -339,128 +355,27 @@ export default function People() {
   return (
     <div>
       <PageHead crumb={trip.name} title={t.people} />
-      <div className="grid grid-2" style={{ alignItems: 'start' }}>
+      <div className="grid grid-2 trip-settings" style={{ alignItems: 'start' }}>
       {canLead && (
-        <div className="card">
-          <div className="cardhead"><h3><Icon name="eye" /> {t.visibility}</h3></div>
-          <p className="hint">{t.visibilityHint}</p>
-          {(['plan', 'documents', 'ledger', 'payments', 'assistant'] as const).map(f => (
-            <label key={f} className="row" style={{ gap: 8, padding: '4px 0' }}>
-              <input type="checkbox" checked={!hidden.includes(f)} onChange={() => toggleFeature(f)}
-                style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
-              <span>{f === 'assistant' ? <><Icon name="chat" size={16} /> {t.assistantFeature}</> : (t as any)[f === 'ledger' ? 'ledger' : f]}</span>
-            </label>
-          ))}
-          <label className="row" style={{ gap: 8, padding: '10px 0 4px', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-            <input type="checkbox" checked={canEditPlan} onChange={toggleEditPlan}
-              style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
-            <span><Icon name="edit" size={16} /> {t.memberCanEditPlan}</span>
-          </label>
-        </div>
-      )}
-      <div className="card">
-        <div className="cardhead"><h3>{t.tripMembers}</h3><span className="badge gray">{members.length}</span></div>
-        {canLead && (
-          <>
-            <p className="hint">{t.memberHint}</p>
-            <div className="chips" style={{ marginBottom: 12 }}>
-              {all.map(p => (
-                <span key={p.id} className={`chip ${memberIds.has(p.id) ? 'on' : ''}`} onClick={() => toggleMember(p.id)}>
-                  {p.name}{p.is_infant ? ` (${t.infant})` : ''}
-                </span>
-              ))}
-            </div>
-          </>
-        )}
-        {members.length > 0 && (
-          <div style={{ marginBottom: 12 }}>
-            {members.map(m => (
-              <div className="lrow" key={m.id}>
-                <span className="avatar">{initials(m.name)}</span>
-                <div className="l-main">
-                  <b>{m.name}</b>
-                  <small>
-                    {m.is_infant ? t.infant
-                      : m.id === user.participant_id ? t.youLbl
-                        : m.has_account ? t.hasAccountLbl : t.noAccountLbl}
-                  </small>
-                </div>
-                {canLead && (
-                  <div className="l-end">
-                    {roleChip(m)}
-                    {!!m.has_account && m.id !== user.participant_id && (
-                      <button type="button" className="btn ghost sm" title={t.transferLead} aria-label={t.transferLead} onClick={() => transferLead(m.id, m.name)}>
-                        <Icon name="flag" size={16} />
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-        {canLead && (
-          <form className="row" onSubmit={addParticipant}>
-            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder={t.addParticipant} style={{ flex: 1 }} />
-            <label className="row tiny" style={{ gap: 4 }}>
-              <input type="checkbox" checked={newInfant} onChange={e => setNewInfant(e.target.checked)} />{t.infant}
-            </label>
-            <button className="btn sm" type="submit">{t.add}</button>
-          </form>
-        )}
-      </div>
-
-      <RoomsCard tripId={tripId} members={members} canEdit={canEdit} />
-
-      {canLead && (
-        <div className="card">
-          <div className="cardhead">
-            <h3><Icon name="link" /> {t.inviteTitle}</h3>
-            <form className="row" style={{ gap: 8 }} onSubmit={createInvite}>
-              <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'viewer' | 'editor')} aria-label={t.inviteRoleLabel}>
-                <option value="viewer">{t.roleViewer}</option>
-                <option value="editor">{t.roleEditor}</option>
-              </select>
-              <button type="submit" className="btn sm"><Icon name="plus" size={16} /> {t.inviteCreate}</button>
-            </form>
-          </div>
-          {invites.filter(i => !i.revoked).map(i => (
-            <div className={`lrow invite-row${i.id === justCreated ? ' invite-row-new' : ''}`} key={i.id}>
-              <span className="tile sm"><Icon name="link" /></span>
-              <div className="l-main">
-                <div className="invlink">{i.url}</div>
-                <small>{i.role === 'editor' ? t.roleEditor : t.roleViewer} · {t.inviteUses(i.used_count, i.max_uses ?? 0)}
-                  {i.expires_at ? ` · ${t.inviteExpires(new Date(i.expires_at).toLocaleDateString())}` : ''}</small>
-              </div>
-              <div className="l-end">
-                <button type="button" className="btn secondary sm" onClick={() => copyInvite(i.code)}><Icon name="copy" size={16} /> {t.copyLbl}</button>
-                <button type="button" className="btn ghost sm" title={t.inviteRevoke} aria-label={t.inviteRevoke} onClick={() => revokeInvite(i.id)}><Icon name="trash" size={16} /></button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {canLead && (
-        <div className="card">
+        <div className="card settings-details">
           <div className="cardhead"><h3><Icon name="edit" /> {t.tripDetails}</h3></div>
           <form onSubmit={saveTripDetails}>
             <div className="fld">
-              <label>{t.tripName}</label>
-              <input value={details.name} onChange={e => setDetails({ ...details, name: e.target.value })} required />
+              <label htmlFor="trip-name">{t.tripName}</label>
+              <input id="trip-name" value={details.name} onChange={e => setDetails({ ...details, name: e.target.value })} required />
             </div>
             <div className="fld" style={{ marginTop: 12 }}>
-              <label>{t.destination}</label>
-              <input value={details.destination} onChange={e => setDetails({ ...details, destination: e.target.value })} />
+              <label htmlFor="trip-destination">{t.destination}</label>
+              <input id="trip-destination" value={details.destination} onChange={e => setDetails({ ...details, destination: e.target.value })} />
             </div>
             <div className="row" style={{ gap: 12, marginTop: 12 }}>
               <div className="fld" style={{ flex: 1 }}>
-                <label>{t.startDate}</label>
-                <input type="date" value={details.start_date} onChange={e => setDetails({ ...details, start_date: e.target.value })} />
+                <label htmlFor="trip-start_date">{t.startDate}</label>
+                <input type="date" id="trip-start_date" value={details.start_date} onChange={e => setDetails({ ...details, start_date: e.target.value })} />
               </div>
               <div className="fld" style={{ flex: 1 }}>
-                <label>{t.endDate}</label>
-                <input type="date" value={details.end_date} onChange={e => setDetails({ ...details, end_date: e.target.value })} />
+                <label htmlFor="trip-end_date">{t.endDate}</label>
+                <input type="date" id="trip-end_date" value={details.end_date} onChange={e => setDetails({ ...details, end_date: e.target.value })} />
               </div>
             </div>
             <p className="hint" style={{ marginTop: 12 }}>{t.tripDatesHint}</p>
@@ -504,6 +419,105 @@ export default function People() {
           </div>
         </div>
       )}
+
+      {canLead && (
+        <div className="card">
+          <div className="cardhead"><h3><Icon name="eye" /> {t.visibility}</h3></div>
+          <p className="hint">{t.visibilityHint}</p>
+          {(['plan', 'documents', 'ledger', 'payments', 'assistant'] as const).map(f => (
+            <label key={f} className="row" style={{ gap: 8, padding: '4px 0' }}>
+              <input type="checkbox" checked={!hidden.includes(f)} onChange={() => toggleFeature(f)}
+                style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
+              <span>{f === 'assistant' ? <><Icon name="chat" size={16} /> {t.assistantFeature}</> : (t as any)[f === 'ledger' ? 'ledger' : f]}</span>
+            </label>
+          ))}
+          <label className="row" style={{ gap: 8, padding: '10px 0 4px', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+            <input type="checkbox" checked={canEditPlan} onChange={toggleEditPlan}
+              style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
+            <span><Icon name="edit" size={16} /> {t.memberCanEditPlan}</span>
+          </label>
+        </div>
+      )}
+      <div className="card">
+        <div className="cardhead"><h3>{t.tripMembers}</h3><span className="badge gray">{members.length}</span></div>
+        <div className="settings-member-avatars" aria-label={t.tripMembers}>
+          {members.map(m => <button type="button" key={m.id} className="settings-member-avatar" aria-label={m.name}
+            onClick={() => { if (canLead) { setDirectorySearch(m.name); setDirectoryPage(0); setManageMembers(true); } }}>
+            <span className="avatar" aria-hidden="true">{initials(m.name)}</span>
+            <span className="settings-member-tooltip" role="tooltip">{m.name}{m.is_infant ? ` (${t.infant})` : ''}</span>
+          </button>)}
+        </div>
+        {!members.length && <p className="hint">{bm ? 'Belum ada ahli.' : 'No members yet.'}</p>}
+        {canLead && <button className="btn secondary sm" onClick={() => { setDirectorySearch(''); setDirectoryPage(0); setManageMembers(true); }}><Icon name="edit" size={16} />{bm ? 'Urus ahli' : 'Manage members'}</button>}
+
+      </div>
+
+      <RoomsCard tripId={tripId} members={members} canEdit={canEdit} />
+
+      {canLead && (
+        <div className="card">
+          <div className="cardhead">
+            <h3><Icon name="link" /> {t.inviteTitle}</h3>
+            <form className="row" style={{ gap: 8 }} onSubmit={createInvite}>
+              <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'viewer' | 'editor')} aria-label={t.inviteRoleLabel}>
+                <option value="viewer">{t.roleViewer}</option>
+                <option value="editor">{t.roleEditor}</option>
+              </select>
+              <button type="submit" className="btn sm"><Icon name="plus" size={16} /> {t.inviteCreate}</button>
+            </form>
+          </div>
+          {invites.filter(i => !i.revoked).map(i => (
+            <div className={`lrow invite-row${i.id === justCreated ? ' invite-row-new' : ''}`} key={i.id}>
+              <span className="tile sm"><Icon name="link" /></span>
+              <div className="l-main">
+                <div className="invlink">{i.url}</div>
+                <small>{i.role === 'editor' ? t.roleEditor : t.roleViewer} · {t.inviteUses(i.used_count, i.max_uses ?? 0)}
+                  {i.expires_at ? ` · ${t.inviteExpires(new Date(i.expires_at).toLocaleDateString())}` : ''}</small>
+              </div>
+              <div className="l-end">
+                <button type="button" className="btn secondary sm" onClick={() => copyInvite(i.code)}><Icon name="copy" size={16} /> {t.copyLbl}</button>
+                <button type="button" className="btn ghost sm" title={t.inviteRevoke} aria-label={t.inviteRevoke} onClick={() => revokeInvite(i.id)}><Icon name="trash" size={16} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal open={manageMembers && canLead} onClose={() => setManageMembers(false)} icon="edit" title={bm ? 'Urus ahli perjalanan' : 'Manage trip members'} closeLabel={t.close}>
+        <p className="hint">{t.memberHint}</p>
+        <input type="search" aria-label={bm ? 'Cari pengembara' : 'Search travellers'} placeholder={bm ? 'Cari pengembara…' : 'Search travellers…'} value={directorySearch} onChange={e => { setDirectorySearch(e.target.value); setDirectoryPage(0); }} />
+        <div className="settings-directory">
+          {directory.slice(directoryCurrent * pageSize, (directoryCurrent + 1) * pageSize).map(p => {
+            const member = members.find(m => m.id === p.id);
+            return <div className="lrow settings-directory-row" key={p.id}>
+              <label className="settings-directory-person">
+                <input type="checkbox" checked={memberIds.has(p.id)} disabled={memberBusy} onChange={() => toggleMember(p.id)} />
+                <span>{p.name}{p.is_infant ? ` (${t.infant})` : ''}</span>
+              </label>
+              {member && <div className="settings-directory-actions">
+                {roleChip(member)}
+                {!!member.has_account && member.id !== user.participant_id && <button type="button" className="btn ghost sm" title={t.transferLead} aria-label={`${t.transferLead}: ${member.name}`} onClick={() => transferLead(member.id, member.name)}><Icon name="flag" size={16} /></button>}
+              </div>}
+            </div>;
+          })}
+          {!directory.length && <p className="hint">{bm ? 'Tiada pengembara ditemui.' : 'No travellers found.'}</p>}
+        </div>
+        <div className="settings-pagination">
+          <span className="hint" aria-live="polite">{directoryCurrent + 1} / {directoryPages}</span>
+          <div className="row">
+            <button className="btn secondary sm" disabled={directoryCurrent === 0} onClick={() => setDirectoryPage(directoryCurrent - 1)}>{bm ? 'Sebelum' : 'Previous'}</button>
+            <button className="btn secondary sm" disabled={directoryCurrent + 1 >= directoryPages} onClick={() => setDirectoryPage(directoryCurrent + 1)}>{bm ? 'Seterusnya' : 'Next'}</button>
+          </div>
+        </div>
+        <form className="settings-add-member" onSubmit={addParticipant}>
+          <label htmlFor="new-traveller">{t.addParticipant}</label>
+          <input id="new-traveller" value={newName} onChange={e => setNewName(e.target.value)} required disabled={memberBusy} />
+          <div className="row">
+            <label className="row tiny"><input type="checkbox" checked={newInfant} onChange={e => setNewInfant(e.target.checked)} disabled={memberBusy} />{t.infant}</label>
+            <button className="btn sm" disabled={memberBusy || !newName.trim()} type="submit">{memberBusy ? t.loading : t.add}</button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal open={unsplashModal} onClose={() => setUnsplashModal(false)}
         icon="search" title={t.chooseFromUnsplash} closeLabel={t.close}>

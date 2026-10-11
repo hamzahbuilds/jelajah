@@ -12,12 +12,13 @@ export default function TravelNotes({
   canEdit: boolean;
   day?: string;
 }) {
-  const { t } = useT(),
+  const { t, lang } = useT(),
     j = t.j,
     { toast } = useToast();
   const [notes, setNotes] = useState<any[]>([]),
     [content, setContent] = useState(""),
-    [scope, setScope] = useState("*"),
+    [scope, setScope] = useState(day || "*"),
+    [checkItem, setCheckItem] = useState(false),
     [visibility, setVisibility] = useState("private"),
     [busy, setBusy] = useState(false),
     [edit, setEdit] = useState<any>(null);
@@ -26,6 +27,7 @@ export default function TravelNotes({
   useEffect(() => {
     load().catch(() => toast(j.failed, "error"));
   }, [tripId]);
+  useEffect(() => { setScope(day || "*"); setEdit(null); }, [day]);
   const run = async (fn: () => Promise<any>) => {
     setBusy(true);
     try {
@@ -49,6 +51,7 @@ export default function TravelNotes({
               day: scope,
               visibility,
               content,
+              is_check: visibility === "group" && checkItem,
             });
             setContent("");
           });
@@ -88,14 +91,8 @@ export default function TravelNotes({
             <input
               type="date"
               required
-              value={scope === "*" ? "*" : "day"}
-              onChange={(e) =>
-                setScope(
-                  e.target.value === "*"
-                    ? "*"
-                    : day || new Date().toLocaleDateString("en-CA"),
-                )
-              }
+              value={scope}
+              onChange={(e) => setScope(e.target.value)}
             />
           </label>
         )}
@@ -110,6 +107,7 @@ export default function TravelNotes({
           maxLength={2000}
           rows={3}
         />
+        {visibility === 'group' && <label className="row"><input type="checkbox" checked={checkItem} onChange={e => setCheckItem(e.target.checked)} />{lang === 'ms' ? 'Item senarai semak' : 'Checklist item'}</label>}
         <button className="btn sm" disabled={busy}>
           {t.add}
         </button>
@@ -125,6 +123,7 @@ export default function TravelNotes({
                 {n.visibility === "private" ? j.private : j.groupNote}
               </span>{" "}
               <small>{n.day === "*" ? j.tripNote : n.day}</small>
+              {!!n.is_check && <label className="row"><input type="checkbox" aria-label={n.content} checked={!!n.done} disabled={!canEdit || busy} onChange={e => run(() => api.patch(`/journey/trips/${tripId}/notes/group/${n.id}`, {...n,done:e.target.checked}))} />{t.doneLabel}</label>}
               {edit?.id === n.id && edit?.visibility === n.visibility ? (
                 <form
                   onSubmit={(e) => {

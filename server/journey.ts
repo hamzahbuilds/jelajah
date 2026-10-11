@@ -1,4 +1,5 @@
 import { tokyoRailRoute } from "./lib/tokyo-rail";
+import { geoapifyTransit, googleTransitEmbed } from './lib/geoapify-transit';
 import { normalizeTransitOptions } from './lib/transit-provider';
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -627,7 +628,7 @@ journey.get("/trips/:id/notes", async (c) => {
     return error(c, "forbidden", 403);
   const [group, own] = await Promise.all([
     c.env.DB.prepare(
-      "SELECT id,day,content,done,'group' AS visibility FROM day_notes WHERE trip_id=? ORDER BY day,sort,id",
+      "SELECT id,day,content,done,is_check,'group' AS visibility FROM day_notes WHERE trip_id=? ORDER BY day,sort,id",
     )
       .bind(id)
       .all(),
@@ -660,9 +661,9 @@ journey.post("/trips/:id/notes", async (c) => {
           .bind(id, c.get("user").id, b.day, textValue(b.content, 2000))
           .run()
       : await c.env.DB.prepare(
-          "INSERT INTO day_notes(trip_id,day,content) VALUES (?,?,?)",
+          "INSERT INTO day_notes(trip_id,day,content,is_check) VALUES (?,?,?,?)",
         )
-          .bind(id, b.day, textValue(b.content, 2000))
+          .bind(id, b.day, textValue(b.content, 2000), b.is_check === true ? 1 : 0)
           .run();
   return c.json({ id: r.meta.last_row_id });
 });
@@ -709,6 +710,31 @@ journey.delete("/trips/:id/notes/:visibility/:noteId", async (c) => {
         .bind(id, trip)
         .run();
   return r.meta.changes ? c.json({ ok: true }) : error(c, "not_found", 404);
+});
+
+journey.post('/trips/:id/transit-preview', async c => {
+  if (!(await journeyRole(c.env, c.get('user'), Number(c.req.param('id'))))) return error(c, 'forbidden', 403);
+  const b = await c.req.json<any>();
+  if (!Array.isArray(b.points) || b.points.length !== 2 || b.points.some((p: any) => !Array.isArray(p) || p.length !== 2 || coordinate(p[0], 90) === null || coordinate(p[1], 180) === null)) return error(c, 'invalid_coordinates');
+  c.header('Cache-Control', 'no-store');
+  if (b.provider === 'google') return c.json({ embedUrl: c.env.GOOGLE_MAPS_EMBED_KEY ? googleTransitEmbed(c.env.GOOGLE_MAPS_EMBED_KEY, b.points) : null });
+  if (b.provider !== 'geoapify') return error(c, 'invalid_provider');
+  if (!c.env.GEOAPIFY_API_KEY) return c.json({ available: false, reason: 'setup' });
+  if (!(await consumeLimit(c.env, `geo-user:${c.get('user').id}`, 6, 60))) return c.json({ available: false, reason: 'quota' });
+  const key = await hashToken(JSON.stringify(['geo-approx-v1', b.points]));
+  const cached = await c.env.DB.prepare('SELECT content FROM route_cache WHERE key=? AND expires_at>?').bind(key, Date.now()).first<any>();
+  if (cached) return c.json(JSON.parse(cached.content));
+  // Conservative request cap, not a credit guarantee: long routes cost more credits.
+  if (!(await consumeLimit(c.env, 'geo-minute', 10, 60)) || !(await consumeLimit(c.env, `geo-day:${new Date().toISOString().slice(0,10)}`, cap(c.env.GEOAPIFY_DAILY_LIMIT, 100), 86400))) return c.json({ available: false, reason: 'quota' });
+  try {
+    const url = new URL('https://api.geoapify.com/v1/routing');
+    url.search = new URLSearchParams({ waypoints: b.points.map((p: number[]) => p.join(',')).join('|'), mode: 'approximated_transit', format: 'geojson', units: 'metric', lang: 'en', apiKey: c.env.GEOAPIFY_API_KEY }).toString();
+    const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) return c.json({ available: false, reason: response.status === 429 ? 'quota' : 'provider' });
+    const result = { available: true, ...geoapifyTransit(await response.json()) };
+    await c.env.DB.prepare('INSERT OR REPLACE INTO route_cache(key,content,expires_at) VALUES (?,?,?)').bind(key, JSON.stringify(result), Date.now() + 3600000).run();
+    return c.json(result);
+  } catch { return c.json({ available: false, reason: 'provider' }); }
 });
 
 journey.post('/trips/:id/transit-options', async c => {

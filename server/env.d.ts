@@ -18,6 +18,10 @@ export interface Env {
   ORS_DAILY_LIMIT?: string;
   RESEND_DAILY_LIMIT?: string;
   GEOCODER_URL?: string;
+  GEOAPIFY_API_KEY?: string;
+  GEOAPIFY_DAILY_LIMIT?: string;
+  /** Browser-visible key: restrict to Maps Embed API and approved HTTP referrers. */
+  GOOGLE_MAPS_EMBED_KEY?: string;
   /** Full MOTIS v6 plan URL. Enable only after arranging provider access. */
   TRANSIT_PLAN_URL?: string;
   TRANSIT_CONTACT?: string;

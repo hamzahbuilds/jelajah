@@ -140,6 +140,62 @@ beforeAll(async () => {
 afterEach(() => vi.unstubAllGlobals());
 afterAll(() => sqlite.close());
 
+describe('Geoapify transit previews', () => {
+  const body = {provider:'geoapify', points:[[51.5,-0.1],[51.51,-0.12]]};
+  it('requires membership, validates coordinates and handles missing keys', async () => {
+    expect((await req('/trips/1/transit-preview',5,'POST',body)).status).toBe(403);
+    expect((await req('/trips/1/transit-preview',1,'POST',{...body,points:[[100,0],[0,0]]})).status).toBe(400);
+    expect(await json(req('/trips/1/transit-preview',1,'POST',body))).toEqual({available:false,reason:'setup'});
+    expect(await json(req('/trips/1/transit-preview',1,'POST',{...body,provider:'google'}))).toEqual({embedUrl:null});
+  });
+  it('normalizes geometry, caches results, and never returns the provider key', async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({features:[{geometry:{type:'MultiLineString',coordinates:[[[-0.1,51.5],[-0.11,51.505],[-0.12,51.51]]]},properties:{time:600,distance:1500}}]}));
+    vi.stubGlobal('fetch',fetcher);
+    const extra={GEOAPIFY_API_KEY:'secret-test-key'};
+    const r=await json(req('/trips/1/transit-preview',1,'POST',body,extra));
+    expect(r.segments[0].points[1]).toEqual([51.505,-0.11]);
+    expect(r.approximate).toBe(true);
+    expect(JSON.stringify(r)).not.toContain('secret-test-key');
+    expect(new URL(String(fetcher.mock.calls[0][0])).searchParams.get('mode')).toBe('approximated_transit');
+    await json(req('/trips/1/transit-preview',1,'POST',body,extra));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('returns safe failures and stops requests at the configured cap', async () => {
+    sqlite.exec("DELETE FROM journey_limits WHERE key LIKE 'geo-%'");
+    const fetcher=vi.fn().mockResolvedValue(new Response('',{status:429}));
+    vi.stubGlobal('fetch',fetcher);
+    const extra={GEOAPIFY_API_KEY:'test',GEOAPIFY_DAILY_LIMIT:'1'};
+    const fresh={...body,points:[[48.85,2.3],[48.9,2.4]]};
+    expect((await json(req('/trips/1/transit-preview',1,'POST',fresh,extra))).reason).toBe('quota');
+    await json(req('/trips/1/transit-preview',1,'POST',fresh,extra));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('builds a separate Google embed with correct endpoints and no server fetch', async () => {
+    const fetcher=vi.fn(); vi.stubGlobal('fetch',fetcher);
+    const response=await req('/trips/1/transit-preview',1,'POST',{...body,provider:'google'},{GOOGLE_MAPS_EMBED_KEY:'restricted-browser-key'});
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    const url=new URL((await response.json() as any).embedUrl);
+    expect(url.origin).toBe('https://www.google.com');
+    expect(url.searchParams.get('origin')).toBe('51.5,-0.1');
+    expect(url.searchParams.get('mode')).toBe('transit');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+});
+
+describe('unified planner checklists', () => {
+  it('preserves group checklist items and completion while denying viewer writes', async () => {
+    const note=await json(req('/trips/1/notes',1,'POST',{day:'2026-11-30',visibility:'group',content:'Pack water for Day 2',is_check:true}));
+    const items=(await json(req('/trips/1/notes',1))).items;
+    expect(items.find((n:any)=>n.id===note.id && n.visibility==='group').is_check).toBe(1);
+    expect((await req(`/trips/1/notes/group/${note.id}`,3,'PATCH',{content:'Pack water for Day 2',done:true})).status).toBe(403);
+    await json(req(`/trips/1/notes/group/${note.id}`,1,'PATCH',{content:'Pack water for Day 2',done:true}));
+    const saved=(await json(req('/trips/1/notes',1))).items.find((n:any)=>n.id===note.id && n.visibility==='group');
+    expect(saved.done).toBe(1);
+    expect(saved.is_check).toBe(1);
+    await json(req(`/trips/1/notes/group/${note.id}`,1,'DELETE'));
+  });
+});
+
 describe("additive migrations", () => {
   it("is repeatable and associates existing group records without rewriting them", async () => {
     await ensureJourneySchema(env);

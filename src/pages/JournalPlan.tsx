@@ -1,7 +1,9 @@
+import PlanDaySummary from '../components/PlanDaySummary';
+import TransportLeg from '../components/TransportLeg';
 import Modal from "../components/Modal";
 import { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { api } from "../api";
+import { api, fmtDate } from "../api";
 import { useT } from "../i18n";
 import { useSession } from "../App";
 import type { TripCtx } from "./TripShell";
@@ -22,7 +24,7 @@ import {
 import { geocode, type GeoResult } from "../geo";
 
 export default function JournalPlan() {
-  const { t } = useT(),
+  const { t, lang } = useT(),
     j = t.j,
     { tripId, trip, canLead, canEdit } = useOutletContext<TripCtx>(),
     { user } = useSession(),
@@ -60,7 +62,7 @@ export default function JournalPlan() {
   return (
     <div className="journal-workspace">
       <div className="journal-intro">
-        <div><span className="journal-eyebrow">{trip.destination || trip.name}</span><h1>{t.plan}</h1><p>{j.journeyIntro}</p></div>
+        <div><span className="journal-eyebrow">{trip.destination || trip.name}</span><h1>{lang === "ms" ? "Rancang pengembaraan anda" : "Your next adventure"}</h1><p>{j.journeyIntro}</p></div>
         <Link to="/discover">{j.discover} ↗</Link>
       </div>
       <nav className="journal-tabs" aria-label={t.plan}>
@@ -68,7 +70,7 @@ export default function JournalPlan() {
           ["group", j.group],
           ["mine", j.mine],
           ["shared", j.shared],
-          ...(canLead ? [["publish", j.publish]] : []),
+          ...(canLead ? [["publish", lang === "ms" ? "Kongsi & eksport" : "Share & export"]] : []),
         ].map(([key, label]) => (
           <button
             key={key}
@@ -124,19 +126,13 @@ export default function JournalPlan() {
           )}
         </>
       )}
-      {tab !== "publish" && (
-        <TravelNotes
-          tripId={tripId}
-          canEdit={canEdit}
-          day={trip.start_date ?? undefined}
-        />
-      )}
+
     </div>
   );
 }
 
 function PersonalPlan({ id }: { id: number }) {
-  const { t } = useT(),
+  const { t, lang } = useT(),
     j = t.j,
     { user } = useSession(),
     { tripId, trip } = useOutletContext<TripCtx>(),
@@ -237,8 +233,9 @@ function PersonalPlan({ id }: { id: number }) {
       ? [
           {
             key: `${from.id}-${to.id}`,
-            from: { lat: from.lat, lng: from.lng },
-            to: { lat: to.lat, lng: to.lng },
+            from: { lat: from.lat, lng: from.lng, name: from.title },
+            originId: from.id,
+            to: { lat: to.lat, lng: to.lng, name: to.title },
             chosen: from.mode,
             label: `${from.title} → ${to.title}`,
           },
@@ -273,6 +270,31 @@ function PersonalPlan({ id }: { id: number }) {
     if (remember) setUndo(content);
     setRecord({ ...record, version: r.version, content: next });
   };
+  const renderTransport = (l: (typeof legs)[number]) => <TransportLeg key={l.key} title={l.label} mode={l.chosen} summary={routeResults[l.key]?.available ? `${Math.round(routeResults[l.key].duration! / 60)} ${j.minutes} · ${(routeResults[l.key].distance! / 1000).toFixed(1)} km · ${j.estimate}` : routeResults[l.key] ? routeFailureMessage(routeResults[l.key], j) : j.loadingRoute}>
+              {['train','metro','transit','intercity'].includes(l.chosen) && <TransitOptions tripId={tripId} from={l.from} to={l.to} />}
+
+              {routeResults[l.key]?.source === 'tokyo-gtfs' && <p className="tiny">
+                <strong>{j.railSuggestion}</strong><br />
+                {routeResults[l.key].lines?.join(' → ')}<br />
+                {routeResults[l.key].stations?.join(' → ')}<br />
+                {routeResults[l.key].walkingUnavailable && <span>{j.walkMissing}<br /></span>}
+                <a href="https://github.com/MKuranowski/TokyoGTFS" target="_blank" rel="noreferrer">TokyoGTFS / Mini Tokyo 3D</a>
+              </p>}
+              <a
+                href={directionsUrl(l.from, l.to, l.chosen)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {l.chosen === "transit" ? j.transitDirections : j.directions} ↗
+              </a>
+
+    {mine && content.stops.some(s => s.id === l.originId) && <div className="row">
+      {(['walk','transit','drive'] as const).map(mode => <button key={mode} className={`chip ${l.chosen === mode ? 'on' : ''}`} aria-pressed={l.chosen === mode} disabled={busy}
+        onClick={() => run(() => save({...content,stops:content.stops.map(s => s.id === l.originId ? {...s,mode} : s)}))}>
+        {mode === 'walk' ? j.walk : mode === 'transit' ? j.transit : j.drive}
+      </button>)}
+    </div>}
+  </TransportLeg>;
   if (failed) return <p role="alert">{j.failed}</p>;
   if (!record) return <p role="status">{t.loading}</p>;
   return (
@@ -415,13 +437,14 @@ function PersonalPlan({ id }: { id: number }) {
           </button>
         </section>
       )}
+      <PlanDaySummary partial={legs.some(l => !routeResults[l.key]?.available)} title={dayInfo?.title || fmtDate(current,lang)} count={stops.length} completed={stops.filter(s => s.done).length} next={stops.find(s => !s.done)?.title} minutes={Math.round(total / 60)} />
       <div className="journal-daybar">
         <div className="journal-daychips">
           {days.map((d, i) => (
             <button
               className={d === current ? "active" : ""}
               key={d}
-              onClick={() => setDay(d)}
+              onClick={() => { setDay(d); setFocus(null); }}
             >
               <b>
                 {j.day} {i + 1}
@@ -501,10 +524,12 @@ function PersonalPlan({ id }: { id: number }) {
       <div className={`journal-columns ${mapView ? "show-map" : "show-list"}`}>
         <div className="journal-timeline">
           {!stops.length && <p className="card">{j.empty}</p>}
+          {legs.filter(l => l.key.startsWith('start-')).map(renderTransport)}
           {stops.map((a, i) => (
+            <div key={a.id}>
             <article
               key={a.id}
-              className={`journal-stop ${a.done ? "done" : ""}`}
+              className={`journal-stop ${focus === pins.findIndex(p => p.id === a.id) && focus !== -1 ? "map-selected" : ""} ${a.done ? "done" : ""}`}
             >
               <div className="stop-time">
                 {a.start_time || "—"}
@@ -595,39 +620,15 @@ function PersonalPlan({ id }: { id: number }) {
                 )}
               </div>
             </article>
-          ))}
-          {legs.map((l) => (
-            <div className="journal-leg" key={l.key}>
-              <strong>{l.label}</strong>
-              {['train','metro','transit','intercity'].includes(l.chosen) && <TransitOptions tripId={tripId} from={l.from} to={l.to} />}
-              <p>
-                {routeResults[l.key]?.available
-                  ? `${Math.round(routeResults[l.key].duration! / 60)} ${j.minutes} · ${(routeResults[l.key].distance! / 1000).toFixed(1)} km`
-                  : routeResults[l.key]
-                      ? routeFailureMessage(routeResults[l.key], j)
-                      : j.loadingRoute}
-              </p>
-              {routeResults[l.key]?.source === 'tokyo-gtfs' && <p className="tiny">
-                <strong>{j.railSuggestion}</strong><br />
-                {routeResults[l.key].lines?.join(' → ')}<br />
-                {routeResults[l.key].stations?.join(' → ')}<br />
-                {routeResults[l.key].walkingUnavailable && <span>{j.walkMissing}<br /></span>}
-                <a href="https://github.com/MKuranowski/TokyoGTFS" target="_blank" rel="noreferrer">TokyoGTFS / Mini Tokyo 3D</a>
-              </p>}
-              <a
-                href={directionsUrl(l.from, l.to, l.chosen)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {l.chosen === "transit" ? j.transitDirections : j.directions} ↗
-              </a>
+            {legs.filter(l => l.key.startsWith(`${a.id}-`)).map(renderTransport)}
             </div>
           ))}
+
         </div>
         <aside className="journal-map card">
           <div className="cardhead"><h3>{j.map}</h3><ExpandedMap key={current} pins={pins} routes={routes} title={`${j.map} · ${current}`}
             stops={stops.map(a => ({ key: a.id, title: a.title, time: a.start_time, detail: a.location_name, pinIndex: pins.findIndex(p => p.id === a.id) }))} /></div>
-          <LeafletMap pins={pins} routes={routes} focus={focus} height={420} />
+          <LeafletMap pins={pins} routes={routes} focus={focus} height={420} onSelectPin={setFocus} />
           <p>
             {j.travelTotal}: {Math.round(total / 60)} {j.minutes}
             {Object.values(routeResults).filter((r) => r.available).length !==
@@ -637,6 +638,7 @@ function PersonalPlan({ id }: { id: number }) {
           </p>
         </aside>
       </div>
+      <TravelNotes tripId={tripId} canEdit={false} day={current} />
       {editor && (
         <StopEditor
           value={editor}

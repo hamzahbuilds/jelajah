@@ -27,10 +27,11 @@ const ROUTE_STYLE: Record<string, { color: string; dashArray?: string }> = {
 };
 const FALLBACK_ROUTE_STYLE = { color: '#A8A69F' };
 
-export default function LeafletMap({ pins, picked, onPick, height = 260, line = false, arcs = [], routes = [], accent, focus = null }: {
+export default function LeafletMap({ pins, picked, onPick, onSelectPin, height = 260, line = false, arcs = [], routes = [], accent, focus = null }: {
   pins: Pin[];
   picked?: Pin | null;
   onPick?: (lat: number, lng: number) => void;
+  onSelectPin?: (index: number) => void;
   height?: number | string;
   line?: boolean;
   arcs?: Arc[];               // dashed great-line connections (e.g. flights)
@@ -41,15 +42,31 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
 }) {
   const { lang } = useT();
   const [tileFailed, setTileFailed] = useState(false);
+  const [sized, setSized] = useState(false);
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
+  const onSelectPinRef = useRef(onSelectPin);
+  onSelectPinRef.current = onSelectPin;
+
+  // A map hidden by the mobile Timeline switch has no usable dimensions.
+  // Defer the vector renderer until visible; dispose it when hidden again.
+  useEffect(() => {
+    const div = divRef.current;
+    if (!div) return;
+    const measure = () => setSized(div.clientWidth > 0 && div.clientHeight > 0);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(div);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
-    if (!divRef.current || mapRef.current) return;
+    if (!sized || !divRef.current || mapRef.current) return;
+    setTileFailed(false);
     const map = L.map(divRef.current, { attributionControl: true, zoomControl: true, zoomAnimation: false })
       .setView([35.68, 139.76], 10);
     const custom = (window as any).JELAJAH_TILE_URL as string | undefined;
@@ -75,14 +92,14 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
     map.on('click', e => onPickRef.current?.(e.latlng.lat, e.latlng.lng));
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
-    const observer = new ResizeObserver(() => { map.invalidateSize({ animate: false }); });
+    const observer = new ResizeObserver(() => { if (divRef.current?.clientWidth && divRef.current?.clientHeight) map.invalidateSize({ animate: false }); });
     observer.observe(divRef.current);
     return () => { disposed = true; controller.abort(); observer.disconnect(); map.stop(); map.remove(); mapRef.current = null; };
-  }, []);
+  }, [sized]);
 
   useEffect(() => {
     const map = mapRef.current, layer = layerRef.current;
-    if (!map || !layer) return;
+    if (!map || !layer || !divRef.current?.clientWidth || !divRef.current?.clientHeight) return;
     layer.clearLayers();
     markersRef.current = [];
     const color = accent || 'var(--brand-600)';
@@ -101,6 +118,7 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
           iconSize: [26, 32], iconAnchor: [13, 30], popupAnchor: [0, -28],
         }),
       }).addTo(layer).bindPopup(popup);
+      m.on('click', () => onSelectPinRef.current?.(i));
       markersRef.current[i] = m;
     });
     for (const a of arcs) {
@@ -133,17 +151,17 @@ export default function LeafletMap({ pins, picked, onPick, height = 260, line = 
     }
     if (all.length === 1) map.setView([all[0].lat, all[0].lng], 14);
     else if (all.length > 1) map.fitBounds(L.latLngBounds([...all.map(p => [p.lat, p.lng] as [number, number]), ...routes.flatMap(r => r.points)]), { padding: [30, 30] });
-  }, [JSON.stringify(pins), JSON.stringify(picked ?? null), line, JSON.stringify(arcs), JSON.stringify(routes), accent]);
+  }, [sized, JSON.stringify(pins), JSON.stringify(picked ?? null), line, JSON.stringify(arcs), JSON.stringify(routes), accent]);
 
   // Pan to the pin the user tapped in the itinerary list and open its popup.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || focus == null) return;
+    if (!map || focus == null || !divRef.current?.clientWidth || !divRef.current?.clientHeight) return;
     const m = markersRef.current[focus];
     if (!m) return;
     map.setView(m.getLatLng(), Math.max(map.getZoom(), 15), { animate: !window.matchMedia('(prefers-reduced-motion: reduce)').matches });
     m.openPopup();
-  }, [focus, JSON.stringify(pins)]);
+  }, [sized, focus, JSON.stringify(pins)]);
 
   return <div className="map-frame"><div ref={divRef} style={{ height, borderRadius: 16, border: '1px solid var(--border)' }} />
     {tileFailed && <p role="status" className="hint">{lang === 'ms' ? 'Sebahagian peta asas tidak dapat dimuatkan. Cuba muat semula.' : 'Some base-map details could not load. Please refresh to retry.'}</p>}

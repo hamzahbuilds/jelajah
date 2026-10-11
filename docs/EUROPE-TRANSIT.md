@@ -1,3 +1,36 @@
+# Transit previews: Geoapify and Google Maps
+
+The current **Transit options** dialog in group and personal plans offers:
+- **Try Geoapify**: approximate OSM transit geometry and estimated duration/distance on the existing map. This is not a timetable or fare quote. Unsupported routes show an unavailable message, never an invented straight line.
+- **View Google transit map**: a separate Google Maps Embed directions iframe, loaded only when selected. Its route selection cannot be imported into Jelajah. No departure date is passed; check the journey date/time with Google or the operator.
+- **Open Google Maps in a new tab**: works without either API key.
+
+Both previews leave saved plans and financial records unchanged. Existing Tokyo routing and walking/driving routing remain unchanged.
+
+## Setup
+
+Add locally to ignored `.dev.vars`; use `wrangler secret put NAME` for production after deployment approval:
+
+```
+GEOAPIFY_API_KEY=<your key>
+GEOAPIFY_DAILY_LIMIT=100
+GOOGLE_MAPS_EMBED_KEY=<restricted browser key>
+```
+
+Geoapify: create a free project at https://myprojects.geoapify.com/. The key stays in the Worker. Free plan currently includes 3,000 credits/day; route length affects credit cost. The app caps requests at 100/day (configurable downwards), 10/minute globally and 6/minute/user. This is a request budget, not a guarantee of credit usage across other apps sharing the key. Results cache for one hour. Keep the account on its free plan and monitor provider usage.
+
+Google: enable **Maps Embed API** in a billing-enabled Cloud project. Embed usage is no-charge. This key is necessarily visible to browsers: restrict it to Maps Embed API and HTTP referrers for the production domain and local development origin. The iframe uses a referrer policy compatible with Google's key checks. No Google Routes API calls are made. Provider errors inside Google's cross-origin frame cannot be inspected by Jelajah; the external link remains available.
+
+Missing keys, quotas and provider failures are explicit. Live coverage and iframe display still need checking with configured keys in London, Paris, Madrid, Rome and Tokyo. No complete country coverage or fare support is claimed.
+
+Sources: https://apidocs.geoapify.com/docs/routing/ ; https://www.geoapify.com/pricing/ ; https://developers.google.com/maps/documentation/embed/embedding-map ; https://developers.google.com/maps/documentation/embed/usage-and-billing
+
+## Previous MOTIS integration (inactive)
+
+The `/transit-options` endpoint is retained for a future approved MOTIS provider. The current UI uses `/transit-preview`. Do not enable hosted Transitous for this closed-source project: its hosted policy requires open-source licensing. The historical integration notes below describe that unused endpoint.
+
+---
+
 # European public transport: integration preview
 
 ## What is ready

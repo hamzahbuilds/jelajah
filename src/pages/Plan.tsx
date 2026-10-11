@@ -1,3 +1,6 @@
+import PlanDaySummary from '../components/PlanDaySummary';
+import TransportLeg from '../components/TransportLeg';
+import TravelNotes from '../components/TravelNotes';
 import { routeSegments, routeFailureMessage, useJourneyRoutes } from '../hooks/useJourneyRoutes';
 import { directionsUrl } from '../../shared/journey';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -130,9 +133,7 @@ export default function Plan() {
   const [editMode, setEditMode] = useState(false);
   const [rowMenuId, setRowMenuId] = useState<number | null>(null);
   const [rowMenuAnchor, setRowMenuAnchor] = useState<HTMLButtonElement | null>(null);
-  // v0.13: day notes / checklist under each day
-  const [noteText, setNoteText] = useState('');
-  const [noteCheck, setNoteCheck] = useState(false);
+
 
   useEffect(() => {
     api.get(`/fx?date=${todayYmd()}&from=JPY&to=MYR`)
@@ -169,8 +170,6 @@ export default function Plan() {
     const gone = new Set(ids);
     setData((d: any) => d?.activities ? { ...d, activities: d.activities.filter((a: any) => !gone.has(a.id)) } : d);
   };
-  const patchNoteLocal = (id: number, p: any) =>
-    setData((d: any) => d?.dayNotes ? { ...d, dayNotes: d.dayNotes.map((n: any) => (n.id === id ? { ...n, ...p } : n)) } : d);
   const toggleDone = (act: any, v: boolean) => {
     patchActivityLocal(act.id, { done: v ? 1 : 0 });
     api.patch(`/activities/${act.id}`, { done: v })
@@ -448,29 +447,6 @@ export default function Plan() {
     } catch { toast(t.tSaveFailed, 'error'); load(); }
   };
 
-  // v0.13: day notes — plain notes or checklist items, kept out of the timeline
-  const dayNotesList = ((data?.dayNotes ?? []) as any[]).filter(n => n.day === selDay);
-  const addNote = async () => {
-    const content = noteText.trim();
-    if (!content) return;
-    setNoteText('');
-    try {
-      const r = await api.post(`/trips/${tripId}/daynotes`, { day: selDay, content, is_check: noteCheck });
-      setData((d: any) => ({ ...d, dayNotes: [...(d.dayNotes ?? []), { id: r.id, trip_id: tripId, day: selDay, content, is_check: noteCheck ? 1 : 0, done: 0, sort: 9999 }] }));
-      toast(t.tNoteAdded);
-    } catch { setNoteText(content); toast(t.tSaveFailed, 'error'); }
-  };
-  const toggleNote = (n: any, v: boolean) => {
-    patchNoteLocal(n.id, { done: v ? 1 : 0 });
-    api.patch(`/daynotes/${n.id}`, { done: v })
-      .catch(() => { patchNoteLocal(n.id, { done: v ? 0 : 1 }); toast(t.tSaveFailed, 'error'); });
-  };
-  const deleteNote = (n: any) => {
-    setData((d: any) => ({ ...d, dayNotes: (d.dayNotes ?? []).filter((x: any) => x.id !== n.id) }));
-    toast(t.tNoteDeleted);
-    api.del(`/daynotes/${n.id}`).catch(() => { toast(t.tSaveFailed, 'error'); load(); });
-  };
-
   const budget = (data.dayBudgets ?? []).find((b: any) => b.day === selDay);
 
   const applyImport = async () => {
@@ -486,12 +462,67 @@ export default function Plan() {
   };
 
   const participantsLabel = (ids: number[]) =>
-    ids.length === members.length ? t.everyone
+    ids.length > 3 ? `${ids.length} ${lang === 'ms' ? 'pengembara' : 'travellers'}` : ids.length === members.length ? t.everyone
       : ids.map(id => members.find(m => m.id === id)?.name.split(' ')[0]).filter(Boolean).join(', ');
 
+  const renderTransport = (leg: Leg) => <TransportLeg key={leg.key} title={`${leg.from.name} → ${leg.to.name}`} mode={leg.chosen}
+    summary={routeResults[leg.key]?.available ? `${Math.round(routeResults[leg.key].duration! / 60)} ${t.j.minutes} · ${(routeResults[leg.key].distance! / 1000).toFixed(1)} km · ${t.estBadge}` : routeResults[leg.key] ? routeFailureMessage(routeResults[leg.key], t.j) : t.j.loadingRoute}>
+
+                  {routeResults[leg.key]?.source === 'tokyo-gtfs' && <div className="tiny">
+                    <strong>{t.j.railSuggestion}</strong><br />
+                    {routeResults[leg.key].lines?.join(' → ')}<br />
+                    {routeResults[leg.key].stations?.join(' → ')}
+                    {routeResults[leg.key].walkingUnavailable && <p>{t.j.walkMissing}</p>}
+                  </div>}
+                  <div className="leg-head">
+                    <span className="leg-names">{leg.from.name} → {leg.to.name}</span>
+                    <a target="_blank" rel="noreferrer" className="tiny"
+                      href={directionsUrl(leg.from, leg.to, leg.chosen)} aria-label={t.j.directions}>
+                      <Icon name="pin" size={16} /> {['train','intercity'].includes(leg.chosen) ? t.j.transitDirections : t.j.directions}
+                    </a>
+                  </div>
+                  {['train', 'intercity'].includes(leg.chosen) && <TransitOptions tripId={tripId} from={leg.from} to={leg.to} />}
+                  <div className="row" style={{ gap: 6 }}>
+                    <span className="badge brand">{RAIL_MODE_ICON[leg.chosen] ? <Icon name={RAIL_MODE_ICON[leg.chosen]!} size={16} /> : MODE_ICON[leg.chosen]} {routeResults[leg.key]?.available ? t.minsLabel(Math.round(routeResults[leg.key].duration! / 60)) : hasJapaneseFareEstimate(leg.from,leg.to) ? t.minsLabel(leg.minutes) : '—'} · {t.estBadge}</span>
+                    <span className="badge gray">
+                      {leg.chosen === 'walk' ? t.freeLabel : !hasJapaneseFareEstimate(leg.from,leg.to) ? (lang === 'ms' ? 'Tambang tidak tersedia' : 'Fare unavailable') : <>
+                        {leg.overridden ? '' : `${t.estBadge} `}¥{leg.fareJpy.toLocaleString()}
+                        {jpyRate ? ` (~${fmtMYR(leg.fareJpy * jpyRate)})` : ''}
+                        {leg.chosen === 'taxi' ? ` · ${t.perCab}` : ''}
+                      </>}
+                    </span>
+                    <span className="tiny">{((routeResults[leg.key]?.available ? routeResults[leg.key].distance! : leg.distM) / 1000).toFixed(1)} km</span>
+                  </div>
+                  {leg.rail && (
+                    <div className="tiny" style={{ marginTop: 2 }}>
+                      {t.walkTo(leg.rail.walkFrom)} → <Icon name="train" size={16} /> <strong>{leg.rail.fromStation.name}</strong> → <strong>{leg.rail.toStation.name}</strong> ({t.minsLabel(leg.rail.rideMin)}) → {t.walkTo(leg.rail.walkTo)}
+                    </div>
+                  )}
+                  <div className="row" style={{ gap: 4, marginTop: 3 }}>
+                    {canLead && (['walk', 'train', 'taxi'] as Mode[]).map(m => (
+                      <button key={m} className={`chip ${leg.chosen === m ? 'on' : ''}`} style={{ padding: '2px 8px' }}
+                        onClick={() => setLegOverride(leg, m)} aria-pressed={leg.chosen === m}>{RAIL_MODE_ICON[m] ? <Icon name={RAIL_MODE_ICON[m]!} size={16} /> : MODE_ICON[m]} {m === 'walk' ? t.j.walk : m === 'train' ? t.j.transit : t.j.drive}</button>
+                    ))}
+                    {canLead && leg.overridden && (
+                      <button className="icon" title="reset" onClick={() => setLegOverride(leg, null)}>↺</button>
+                    )}
+                    {canLead && (
+                      <button className="btn ghost sm" disabled={!hasJapaneseFareEstimate(leg.from,leg.to)} onClick={() => logFare(leg, 'shared')}><Icon name="coins" size={16} /> {t.toShared}</button>
+                    )}
+                    <button className="btn ghost sm" disabled={!hasJapaneseFareEstimate(leg.from,leg.to)} onClick={() => logFare(leg, 'private')}><Icon name="user" size={16} /> {t.toPrivate}</button>
+                  </div>
+
+  </TransportLeg>;
+  const inlineLegs = new Set(items.flatMap((item, index) => {
+    const ref = refOf(item), nextRef = index + 1 < items.length ? refOf(items[index + 1]) : null;
+    const leg = ref ? legByFromRef.get(ref) : undefined;
+    return leg && nextRef === leg.to.ref ? [leg.key] : [];
+  }));
+
   return (
-    <div>
-      {items.find(i => !i.activity?.done) && <div className="journal-next"><span className="journal-eyebrow">{t.j.upNext}</span><strong>{items.find(i => !i.activity?.done)?.title}</strong></div>}
+    <div className="group-plan-workspace">
+      {view === 'day' && <PlanDaySummary partial={legs.some(l => !routeResults[l.key]?.available)} title={dayTitleOf(selDay) || fmtDate(selDay, lang)} count={items.filter(i => i.activity).length} completed={items.filter(i => i.activity?.done).length} next={items.find(i => i.activity && !i.activity.done)?.title} minutes={Math.round(legs.reduce((n, l) => n + (routeResults[l.key]?.available ? routeResults[l.key].duration! / 60 : 0), 0))} />}
+
       <div className="row-between" style={{ marginBottom: 12 }}>
         <div className="seg">
           {(['day', 'week', 'month'] as const).map(v => (
@@ -568,7 +599,7 @@ export default function Plan() {
         <>
           <div className="daypills">
             {days.map(d => (
-              <button key={d} className={`daypill ${d === selDay ? 'on' : ''}`} onClick={() => setSelDay(d)}
+              <button key={d} className={`daypill ${d === selDay ? 'on' : ''}`} onClick={() => { setSelDay(d); setFocusPin(null); }}
                 title={dayTitleOf(d) ?? undefined}>
                 <span className="dn">D{dayNo(d)}</span>
                 <span className="dd">{new Date(d + 'T00:00:00').toLocaleDateString(lang === 'ms' ? 'ms-MY' : 'en-MY', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
@@ -644,6 +675,7 @@ export default function Plan() {
               )}
               {items.length === 0 && <p className="muted">{t.noEvents}</p>}
               <div className="rail">
+                {legs.filter(leg => !inlineLegs.has(leg.key) && items.length && leg.to.ref === refOf(items[0])).map(renderTransport)}
                 {items.map((i, idx) => {
                   // display-only transit chip between this row and the next, sourced
                   // from the same `legs` the transport card below renders — only shown
@@ -652,7 +684,6 @@ export default function Plan() {
                   const leg = ref ? legByFromRef.get(ref) : undefined;
                   const nextRef = idx + 1 < items.length ? refOf(items[idx + 1]) : null;
                   const chip = leg && nextRef && leg.to.ref === nextRef ? leg : null;
-                  const railIcon = chip ? RAIL_MODE_ICON[chip.chosen] : undefined;
                   // v0.24 (spec §4): row actions moved behind a desktop Edit-mode
                   // toggle + mobile ⋯ menu. Handlers are hoisted here, UNCHANGED
                   // from their pre-v0.24 inline bodies, so both entry points
@@ -668,7 +699,7 @@ export default function Plan() {
                   };
                   return (
                     <div key={i.key}>
-                      <div className={`plan-item stop ${i.activity?.done ? 'done' : ''} ${dragId === i.activity?.id ? 'dragging' : ''} ${i.activity && selIds.has(i.activity.id) ? 'selected' : ''}`}
+                      <div className={`plan-item stop ${i.activity && focusPin === (pinNos.get(actRef(i.activity.id)) ?? 0) - 1 ? "map-selected" : ""} ${i.activity?.done ? 'done' : ''} ${dragId === i.activity?.id ? 'dragging' : ''} ${i.activity && selIds.has(i.activity.id) ? 'selected' : ''}`}
                         draggable={canEdit && editMode && !!i.activity}
                         onDragStart={() => i.activity && setDragId(i.activity.id)}
                         onDragEnd={() => setDragId(null)}
@@ -768,20 +799,11 @@ export default function Plan() {
                             { icon: 'trash', label: t.delete, onPick: doDeleteActivity, danger: true },
                           ]} />
                       )}
-                      {chip && (
-                        <div className="tchip-row"
-                          onDragOver={e => { if (items[idx + 1].activity) e.preventDefault(); }}
-                          onDrop={() => items[idx + 1].activity && dropOn(items[idx + 1].activity.id)}>
-                          <span className="tchip">
-                            {railIcon ? <Icon name={railIcon} size={16} /> : MODE_ICON[chip.chosen]}
-                            {' '}{routeResults[chip.key]?.available ? t.minsLabel(Math.round(routeResults[chip.key].duration! / 60)) : hasJapaneseFareEstimate(chip.from,chip.to) ? t.minsLabel(chip.minutes) : t.j.estimate}
-                            {chip.fareJpy === 0 ? ` · ${t.freeLabel}` : hasJapaneseFareEstimate(chip.from,chip.to) ? ` · ¥${chip.fareJpy.toLocaleString()}` : ''}
-                          </span>
-                        </div>
-                      )}
+                      {chip && renderTransport(chip)}
                     </div>
                   );
                 })}
+                {legs.filter(leg => !inlineLegs.has(leg.key) && (!items.length || leg.to.ref !== refOf(items[0]))).map(renderTransport)}
               </div>
             </div>
             <div className="card">
@@ -799,57 +821,8 @@ export default function Plan() {
                   📌 {t.setStayPin}: {unpinnedStay.description}
                 </p>
               )}
-              {legs.length === 0 && <p className="muted tiny">—</p>}
-              {legs.map(leg => (
-                <div className="leg-row" key={leg.key}>
-                  <p className="tiny">{routeResults[leg.key]?.available
-                    ? `${Math.round(routeResults[leg.key].duration! / 60)} ${t.j.minutes} · ${(routeResults[leg.key].distance! / 1000).toFixed(1)} km`
-                    : routeResults[leg.key] ? routeFailureMessage(routeResults[leg.key], t.j) : t.j.loadingRoute}</p>
-                  {routeResults[leg.key]?.source === 'tokyo-gtfs' && <div className="tiny">
-                    <strong>{t.j.railSuggestion}</strong><br />
-                    {routeResults[leg.key].lines?.join(' → ')}<br />
-                    {routeResults[leg.key].stations?.join(' → ')}
-                    {routeResults[leg.key].walkingUnavailable && <p>{t.j.walkMissing}</p>}
-                  </div>}
-                  <div className="leg-head">
-                    <span className="leg-names">{leg.from.name} → {leg.to.name}</span>
-                    <a target="_blank" rel="noreferrer" className="tiny"
-                      href={directionsUrl(leg.from, leg.to, leg.chosen)} aria-label={t.j.directions}>
-                      <Icon name="pin" size={16} /> {['train','intercity'].includes(leg.chosen) ? t.j.transitDirections : t.j.directions}
-                    </a>
-                  </div>
-                  {['train', 'intercity'].includes(leg.chosen) && <TransitOptions tripId={tripId} from={leg.from} to={leg.to} />}
-                  <div className="row" style={{ gap: 6 }}>
-                    <span className="badge brand">{RAIL_MODE_ICON[leg.chosen] ? <Icon name={RAIL_MODE_ICON[leg.chosen]!} size={16} /> : MODE_ICON[leg.chosen]} {routeResults[leg.key]?.available ? t.minsLabel(Math.round(routeResults[leg.key].duration! / 60)) : hasJapaneseFareEstimate(leg.from,leg.to) ? t.minsLabel(leg.minutes) : '—'} · {t.estBadge}</span>
-                    <span className="badge gray">
-                      {leg.chosen === 'walk' ? t.freeLabel : !hasJapaneseFareEstimate(leg.from,leg.to) ? (lang === 'ms' ? 'Tambang tidak tersedia' : 'Fare unavailable') : <>
-                        {leg.overridden ? '' : `${t.estBadge} `}¥{leg.fareJpy.toLocaleString()}
-                        {jpyRate ? ` (~${fmtMYR(leg.fareJpy * jpyRate)})` : ''}
-                        {leg.chosen === 'taxi' ? ` · ${t.perCab}` : ''}
-                      </>}
-                    </span>
-                    <span className="tiny">{((routeResults[leg.key]?.available ? routeResults[leg.key].distance! : leg.distM) / 1000).toFixed(1)} km</span>
-                  </div>
-                  {leg.rail && (
-                    <div className="tiny" style={{ marginTop: 2 }}>
-                      {t.walkTo(leg.rail.walkFrom)} → <Icon name="train" size={16} /> <strong>{leg.rail.fromStation.name}</strong> → <strong>{leg.rail.toStation.name}</strong> ({t.minsLabel(leg.rail.rideMin)}) → {t.walkTo(leg.rail.walkTo)}
-                    </div>
-                  )}
-                  <div className="row" style={{ gap: 4, marginTop: 3 }}>
-                    {canLead && (['walk', 'train', 'taxi'] as Mode[]).map(m => (
-                      <button key={m} className={`chip ${leg.chosen === m ? 'on' : ''}`} style={{ padding: '2px 8px' }}
-                        onClick={() => setLegOverride(leg, m)} aria-pressed={leg.chosen === m}>{RAIL_MODE_ICON[m] ? <Icon name={RAIL_MODE_ICON[m]!} size={16} /> : MODE_ICON[m]} {m === 'walk' ? t.j.walk : m === 'train' ? t.j.transit : t.j.drive}</button>
-                    ))}
-                    {canLead && leg.overridden && (
-                      <button className="icon" title="reset" onClick={() => setLegOverride(leg, null)}>↺</button>
-                    )}
-                    {canLead && (
-                      <button className="btn ghost sm" disabled={!hasJapaneseFareEstimate(leg.from,leg.to)} onClick={() => logFare(leg, 'shared')}><Icon name="coins" size={16} /> {t.toShared}</button>
-                    )}
-                    <button className="btn ghost sm" disabled={!hasJapaneseFareEstimate(leg.from,leg.to)} onClick={() => logFare(leg, 'private')}><Icon name="user" size={16} /> {t.toPrivate}</button>
-                  </div>
-                </div>
-              ))}
+
+
             </div>
             </div>
             <div className="grid">
@@ -860,7 +833,7 @@ export default function Plan() {
                     stops={items.map(item => ({ key: item.key, title: item.title, time: item.time, detail: item.subtitle,
                       pinIndex: item.activity ? (pinNos.get(actRef(item.activity.id)) ?? 0) - 1 : -1 }))} />
                 </div>
-                <LeafletMap pins={pins} routes={routes} height={440} focus={focusPin} />
+                <LeafletMap pins={pins} routes={routes} height={440} focus={focusPin} onSelectPin={setFocusPin} />
                 {pins.length < 2 && <p className="callout info">{t.j.routePins}</p>}
                 {legs.some(l => ['train', 'intercity'].includes(l.chosen)) && <p className="tiny">{t.j.transitMapHint} <a href="https://github.com/MKuranowski/TokyoGTFS" target="_blank" rel="noreferrer">TokyoGTFS / Mini Tokyo 3D</a></p>}
                 <p className="tiny">{t.j.travelTotal}: {Math.round(legs.reduce((n, leg) => n + (routeResults[leg.key]?.available ? routeResults[leg.key].duration! / 60 : leg.minutes), 0))} {t.j.minutes} · {t.estBadge}</p>
@@ -901,44 +874,13 @@ export default function Plan() {
                   </div>
                 ) : <p className="muted tiny">—</p>}
               </div>
-              <div className="card notes">
-                <div className="cardhead">
-                  <h3><Icon name="check" size={16} /> {t.dayNotes}</h3>
-                </div>
-                {(dayNotesList.length > 0 || canEdit) && (
-                  <div className="daynotes">
-                    {dayNotesList.map((n: any) => (
-                      <div className={`note-row ${n.is_check && n.done ? 'done' : ''}`} key={n.id}>
-                        {n.is_check
-                          ? <input type="checkbox" checked={!!n.done} disabled={!canEdit}
-                              onChange={e => toggleNote(n, e.target.checked)} />
-                          : <span className="note-dot">•</span>}
-                        <span className="note-text">{n.content}</span>
-                        {canEdit && <button className="icon" title={t.delete} onClick={() => deleteNote(n)}>✕</button>}
-                      </div>
-                    ))}
-                    {canEdit && (
-                      <form className="row" style={{ flexWrap: 'nowrap', marginTop: 6 }}
-                        onSubmit={e => { e.preventDefault(); addNote(); }}>
-                        <span className="fld" style={{ flex: 1, minWidth: 0, margin: 0 }}>
-                          <input value={noteText} onChange={e => setNoteText(e.target.value)}
-                            placeholder={t.notePlaceholder} />
-                        </span>
-                        <label className="row tiny" style={{ gap: 4, whiteSpace: 'nowrap' }}>
-                          <input type="checkbox" checked={noteCheck} onChange={e => setNoteCheck(e.target.checked)} />
-                          ☑️ {t.checklistLabel}
-                        </label>
-                        <button className="btn sm" disabled={!noteText.trim()}>{t.add}</button>
-                      </form>
-                    )}
-                  </div>
-                )}
-              </div>
+
             </div>
           </div>
         </>
       )}
 
+      {view === 'day' && <TravelNotes tripId={tripId} canEdit={canEdit} day={selDay} />}
       {view === 'week' && (
         <div className="weekgrid">
           {days.map(d => (
