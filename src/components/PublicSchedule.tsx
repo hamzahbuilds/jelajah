@@ -38,7 +38,6 @@ export default function PublicSchedule({
                   <th>{j.location}</th>
                   <th>{j.transport}</th>
                   <th>{j.durationCol}</th>
-                  <th>{j.publicNote}</th>
                 </tr>
               </thead>
               <tbody>
@@ -59,23 +58,27 @@ export default function PublicSchedule({
                           : j.transit}
                     </td>
                     <td>{s.duration ? `${s.duration} ${j.minutes}` : "—"}</td>
-                    <td style={{ whiteSpace: "pre-wrap" }}>
-                      {k === 0 ? d.notes.join("\n\n") : "—"}
-                    </td>
                   </tr>
                 ))}
-                {!d.stops.length && d.notes.length > 0 && (
+                {!d.stops.length && (
                   <tr>
                     <td>{guide ? i + 1 : d.label}</td>
                     <td colSpan={5}>—</td>
-                    <td style={{ whiteSpace: "pre-wrap" }}>
-                      {d.notes.join("\n\n")}
-                    </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
+          {d.notes.some(note => note.trim()) && (
+            <section className="schedule-notes">
+              <h3>{j.notes}</h3>
+              <ul>
+                {d.notes.filter(note => note.trim()).map((note, k) => (
+                  <li key={k}>{note}</li>
+                ))}
+              </ul>
+            </section>
+          )}
         </section>
       ))}
     </article>

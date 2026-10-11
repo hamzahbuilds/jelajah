@@ -8,6 +8,8 @@ import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import LeafletMap, { Pin } from '../components/LeafletMap';
 import ExpandedMap from '../components/ExpandedMap';
+import TransitOptions from '../components/TransitOptions';
+import { hasJapaneseFareEstimate } from '../../shared/transit-time';
 import { estimates, haversine, metroFareJpy, MODE_ICON, Mode } from '../../shared/fares';
 import { toCsv, parseCsv, PLAN_COLUMNS, PLAN_EXAMPLE_ROW } from '../../shared/csv';
 import { daysBetween, todayYmd } from '../../shared/days';
@@ -772,8 +774,8 @@ export default function Plan() {
                           onDrop={() => items[idx + 1].activity && dropOn(items[idx + 1].activity.id)}>
                           <span className="tchip">
                             {railIcon ? <Icon name={railIcon} size={16} /> : MODE_ICON[chip.chosen]}
-                            {' '}{t.minsLabel(chip.minutes)}
-                            {chip.fareJpy === 0 ? ` · ${t.freeLabel}` : ` · ¥${chip.fareJpy.toLocaleString()}`}
+                            {' '}{routeResults[chip.key]?.available ? t.minsLabel(Math.round(routeResults[chip.key].duration! / 60)) : hasJapaneseFareEstimate(chip.from,chip.to) ? t.minsLabel(chip.minutes) : t.j.estimate}
+                            {chip.fareJpy === 0 ? ` · ${t.freeLabel}` : hasJapaneseFareEstimate(chip.from,chip.to) ? ` · ¥${chip.fareJpy.toLocaleString()}` : ''}
                           </span>
                         </div>
                       )}
@@ -816,10 +818,11 @@ export default function Plan() {
                       <Icon name="pin" size={16} /> {['train','intercity'].includes(leg.chosen) ? t.j.transitDirections : t.j.directions}
                     </a>
                   </div>
+                  {['train', 'intercity'].includes(leg.chosen) && <TransitOptions tripId={tripId} from={leg.from} to={leg.to} />}
                   <div className="row" style={{ gap: 6 }}>
-                    <span className="badge brand">{RAIL_MODE_ICON[leg.chosen] ? <Icon name={RAIL_MODE_ICON[leg.chosen]!} size={16} /> : MODE_ICON[leg.chosen]} {t.minsLabel(routeResults[leg.key]?.available ? Math.round(routeResults[leg.key].duration! / 60) : leg.minutes)} · {t.estBadge}</span>
+                    <span className="badge brand">{RAIL_MODE_ICON[leg.chosen] ? <Icon name={RAIL_MODE_ICON[leg.chosen]!} size={16} /> : MODE_ICON[leg.chosen]} {routeResults[leg.key]?.available ? t.minsLabel(Math.round(routeResults[leg.key].duration! / 60)) : hasJapaneseFareEstimate(leg.from,leg.to) ? t.minsLabel(leg.minutes) : '—'} · {t.estBadge}</span>
                     <span className="badge gray">
-                      {leg.fareJpy === 0 ? t.freeLabel : <>
+                      {leg.chosen === 'walk' ? t.freeLabel : !hasJapaneseFareEstimate(leg.from,leg.to) ? (lang === 'ms' ? 'Tambang tidak tersedia' : 'Fare unavailable') : <>
                         {leg.overridden ? '' : `${t.estBadge} `}¥{leg.fareJpy.toLocaleString()}
                         {jpyRate ? ` (~${fmtMYR(leg.fareJpy * jpyRate)})` : ''}
                         {leg.chosen === 'taxi' ? ` · ${t.perCab}` : ''}
@@ -841,9 +844,9 @@ export default function Plan() {
                       <button className="icon" title="reset" onClick={() => setLegOverride(leg, null)}>↺</button>
                     )}
                     {canLead && (
-                      <button className="btn ghost sm" onClick={() => logFare(leg, 'shared')}><Icon name="coins" size={16} /> {t.toShared}</button>
+                      <button className="btn ghost sm" disabled={!hasJapaneseFareEstimate(leg.from,leg.to)} onClick={() => logFare(leg, 'shared')}><Icon name="coins" size={16} /> {t.toShared}</button>
                     )}
-                    <button className="btn ghost sm" onClick={() => logFare(leg, 'private')}><Icon name="user" size={16} /> {t.toPrivate}</button>
+                    <button className="btn ghost sm" disabled={!hasJapaneseFareEstimate(leg.from,leg.to)} onClick={() => logFare(leg, 'private')}><Icon name="user" size={16} /> {t.toPrivate}</button>
                   </div>
                 </div>
               ))}

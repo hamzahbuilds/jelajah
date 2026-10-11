@@ -1,4 +1,5 @@
 import { tokyoRailRoute } from "./lib/tokyo-rail";
+import { normalizeTransitOptions } from './lib/transit-provider';
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getCookie } from "hono/cookie";
@@ -708,6 +709,30 @@ journey.delete("/trips/:id/notes/:visibility/:noteId", async (c) => {
         .bind(id, trip)
         .run();
   return r.meta.changes ? c.json({ ok: true }) : error(c, "not_found", 404);
+});
+
+journey.post('/trips/:id/transit-options', async c => {
+  if (!(await journeyRole(c.env, c.get('user'), Number(c.req.param('id'))))) return error(c, 'forbidden', 403);
+  const b = await c.req.json<any>();
+  if (!Array.isArray(b.points) || b.points.length !== 2 || b.points.some((p: any) => !Array.isArray(p) || p.length !== 2 || coordinate(p[0], 90) === null || coordinate(p[1], 180) === null) ||
+      typeof b.departure !== 'string' || !/(Z|[+-]\d\d:\d\d)$/.test(b.departure) || !Number.isFinite(Date.parse(b.departure))) return error(c, 'invalid_request');
+  if (!c.env.TRANSIT_PLAN_URL || !c.env.TRANSIT_CONTACT) return c.json({ available: false, reason: 'transit_setup' });
+  if (!(await consumeLimit(c.env, `transit-user:${c.get('user').id}`, 6, 60))) return c.json({ available: false, reason: 'quota' });
+  const key = await hashToken(JSON.stringify(['motis-v6', c.env.TRANSIT_PLAN_URL, b.points, b.departure]));
+  const cached = await c.env.DB.prepare('SELECT content FROM route_cache WHERE key=? AND expires_at>?').bind(key, Date.now()).first<any>();
+  if (cached) return c.json(JSON.parse(cached.content));
+  if (!(await consumeLimit(c.env, 'transit-minute', 10, 60)) || !(await consumeLimit(c.env, `transit-day:${new Date().toISOString().slice(0,10)}`, cap(c.env.TRANSIT_DAILY_LIMIT, 100), 86400))) return c.json({ available: false, reason: 'quota' });
+  try {
+    const url = new URL(c.env.TRANSIT_PLAN_URL);
+    if (url.protocol !== 'https:') return c.json({ available: false, reason: 'transit_setup' });
+    url.search = new URLSearchParams({ fromPlace: b.points[0].join(','), toPlace: b.points[1].join(','), time: b.departure, numItineraries: '3', withFares: 'true', detailedLegs: 'true', detailedTransfers: 'true' }).toString();
+    const response = await fetch(url, { headers: { 'User-Agent': `Jelajah/0.28 (${c.env.TRANSIT_CONTACT})` }, signal: AbortSignal.timeout(15000) });
+    if (!response.ok) return c.json({ available: false, reason: response.status === 429 ? 'quota' : 'provider' });
+    const options = normalizeTransitOptions(await response.json());
+    const result = { available: options.length > 0, reason: options.length ? undefined : 'transit_coverage', options, checkedAt: new Date().toISOString() };
+    await c.env.DB.prepare('INSERT OR REPLACE INTO route_cache(key,content,expires_at) VALUES (?,?,?)').bind(key, JSON.stringify(result), Date.now() + 5 * 60000).run();
+    return c.json(result);
+  } catch { return c.json({ available: false, reason: 'provider' }); }
 });
 
 journey.post("/trips/:id/routes", async (c) => {

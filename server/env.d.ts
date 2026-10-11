@@ -18,6 +18,10 @@ export interface Env {
   ORS_DAILY_LIMIT?: string;
   RESEND_DAILY_LIMIT?: string;
   GEOCODER_URL?: string;
+  /** Full MOTIS v6 plan URL. Enable only after arranging provider access. */
+  TRANSIT_PLAN_URL?: string;
+  TRANSIT_CONTACT?: string;
+  TRANSIT_DAILY_LIMIT?: string;
 }
 
 // No SESSION_SECRET binding: sessions are opaque 256-bit random tokens stored

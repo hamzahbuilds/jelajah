@@ -1357,6 +1357,18 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 .side-user .ic { width: 28px; flex-shrink: 0; }
 .side-user .ic img.avatar { border-radius: 50%; }
 
+/* Published notes belong below their day's table, on screen and in print. */
+.schedule-notes { margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
+.schedule-notes h3 { margin:0 0 10px; }
+.schedule-notes ul { margin:0; padding-left:24px; }
+.schedule-notes li { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; padding-left:4px; margin-bottom:8px; }
+@media print {
+  .schedule-notes { margin-top:4mm; padding-top:3mm; }
+  .schedule-notes h3 { break-after:avoid; }
+  .schedule-notes,.schedule-notes li { break-inside:auto; }
+  .schedule-notes li { orphans:3; widows:3; }
+}
+
 /* Live planning pilot: the approved journal design, using existing controls. */
 .journal-workspace { min-width:0; max-width:100%; --brand-700:#116b58; --brand-800:#0c5243; --brand-50:#eef6f0; --brand-100:#e2f0e7; --ink-3:#52645b; }
 .journal-workspace .daypills { max-width:100%; min-width:0; }

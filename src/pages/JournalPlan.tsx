@@ -10,6 +10,7 @@ import Publishing from "./Publishing";
 import TravelNotes from "../components/TravelNotes";
 import LeafletMap from "../components/LeafletMap";
 import ExpandedMap from '../components/ExpandedMap';
+import TransitOptions from '../components/TransitOptions';
 import { useToast } from "../components/Toast";
 import { routeSegments, routeFailureMessage, useJourneyRoutes } from "../hooks/useJourneyRoutes";
 import {
@@ -598,6 +599,7 @@ function PersonalPlan({ id }: { id: number }) {
           {legs.map((l) => (
             <div className="journal-leg" key={l.key}>
               <strong>{l.label}</strong>
+              {['train','metro','transit','intercity'].includes(l.chosen) && <TransitOptions tripId={tripId} from={l.from} to={l.to} />}
               <p>
                 {routeResults[l.key]?.available
                   ? `${Math.round(routeResults[l.key].duration! / 60)} ${j.minutes} · ${(routeResults[l.key].distance! / 1000).toFixed(1)} km`

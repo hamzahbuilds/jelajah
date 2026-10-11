@@ -8,6 +8,8 @@ dist/
 
 # Test artefacts
 e2e-shots/
+tmp/pdfs/
+tmp/transit/
 
 # graphify knowledge graph (rebuild with /graphify; the cache is machine-local)
 graphify-out/
