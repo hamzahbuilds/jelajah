@@ -32,7 +32,7 @@ const PRECACHE_URLS = ['/', '/icons/icon-192.png', '/icons/icon-512.png', '/icon
 const FILES_CACHE_MAX_ENTRIES = 40;
 const API_CACHE_MAX_ENTRIES = 60;
 
-const API_EXCLUDE_PREFIXES = ['/api/auth', '/api/mcp'];
+const API_EXCLUDE_PREFIXES = ['/api/auth', '/api/mcp', '/api/journey'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

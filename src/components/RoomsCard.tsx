@@ -1,3 +1,4 @@
+import Avatar from './Avatar';
 // v0.21 — Rooms card on the People page, visible to every trip role.
 // Read-only for viewers; editors/leaders can add stays/rooms, assign or
 // remove occupants, rename/resize rooms, and delete rooms. Server enforces
@@ -58,12 +59,7 @@ function nightsMapFor(room: Room): Record<number, number | null> {
   return m;
 }
 
-const initials = (name: string) => {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-};
+
 
 export default function RoomsCard({ tripId, members, canEdit }: {
   tripId: number; members: Participant[]; canEdit: boolean;
@@ -373,7 +369,7 @@ export default function RoomsCard({ tripId, members, canEdit }: {
                         const popoverOpen = nightsPopover?.roomId === room.id && nightsPopover?.participantId === m.id;
                         return (
                           <span key={m.id} className="room-occ">
-                            <span className="avatar" style={{ width: 22, height: 22, fontSize: 10 }}>{initials(m.name)}</span>
+                            <Avatar identity={`participant:${m.id}`} size={28} />
                             {m.name}
                             {!!m.is_infant && <span className="badge infant">{t.infant}</span>}
                             {/* F6 — infants are excluded from the money weighting

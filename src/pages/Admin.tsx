@@ -1,3 +1,4 @@
+import { GuideModeration } from './Publishing';
 // v0.19 admin panel — platform-admin only. Restyled to card/stat/PageHead
 // (P4 Task 4) with hand-written SVG "lieflat-style" charts (style adopted from
 // lieflat-charts, PolyForm Noncommercial — zero code copied, see
@@ -214,6 +215,7 @@ export default function Admin() {
 
   return (
     <div>
+      <GuideModeration />
       <PageHead crumb="Platform" title={t.adminTitle} sub={t.adminSub} />
 
       {stats && (() => {

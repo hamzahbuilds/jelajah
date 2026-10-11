@@ -1,0 +1,4 @@
+/* Proposed tokens. Isolated preview; not yet imported by the application. */
+:root{--bg:#f6f5f1;--surface:#fff;--subtle:#ecefe9;--ink:#182b25;--muted:#52645b;--line:#dce4db;--brand:#116b58;--on:#fff;--selected:#e2f0e7;--peach:#edcbb6}
+body.dark{--bg:#111b19;--surface:#1b2925;--subtle:#23372f;--ink:#f1f5ef;--muted:#b9c7be;--line:#3d5147;--brand:#9fdac0;--on:#13271f;--selected:#294c3e}
+:root { --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-6:24px; --space-8:32px; --space-12:48px; --radius-control:12px; --radius-card:20px; --target-min:44px; --text-body:16px; --text-support:14px; --motion-fast:150ms; }

@@ -3,7 +3,10 @@
 > **Taking over this project? Start with [HANDOVER.md](./HANDOVER.md)** — it
 > links the build history (`docs/build-status.md`), the dev runbook with every
 > operational trap (`docs/DEV-RUNBOOK.md`), and all feature specs (`docs/`).
-> Current version: **v0.12.2** (far beyond the Phase 1 description below).
+> Current version: **v0.28.0**. Personal itineraries, private/group notes,
+> password recovery, routed maps, guest sharing, public guides, and print/PDF
+> views are described in [the journey specification](docs/17-spec-v0.28-journeys.md).
+> Read [provider setup and release notes](docs/JOURNEY-SETUP.md) before deployment.
 
 
 Phase 1 (money engine) of the platform specced in `travel-platform-spec.md`:

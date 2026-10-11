@@ -11,6 +11,13 @@ export interface Env {
    * with {error:'no_unsplash'} (or silently no-ops) when this is unset.
    */
   UNSPLASH_ACCESS_KEY?: string;
+  RESEND_API_KEY?: string;
+  RESET_EMAIL_FROM?: string;
+  APP_ORIGIN?: string;
+  ORS_API_KEY?: string;
+  ORS_DAILY_LIMIT?: string;
+  RESEND_DAILY_LIMIT?: string;
+  GEOCODER_URL?: string;
 }
 
 // No SESSION_SECRET binding: sessions are opaque 256-bit random tokens stored

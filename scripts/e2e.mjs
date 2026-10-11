@@ -1,6 +1,8 @@
 // End-to-end smoke test + screenshots against wrangler pages dev on :8788
 // Covers: login → dashboard → upload+parse Trip.com receipt → review → confirm expense
 // → ledger → record payment → balances.
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 
@@ -402,13 +404,13 @@ console.log('CSV export ok');
 
 csv = csv.replace('15:00', '16:30'); // move Sensoji
 csv += '\r\n,2026-12-01,09:00,,Ueno Park,,,Ueno Park,35.7141,139.7745,,ALL,'; // v0.12: category column after title
-writeFileSync('/tmp/plan-import.csv', csv);
+writeFileSync(join(tmpdir(), 'plan-import.csv'), csv);
 await page.click('button:has-text("Data")');
 await page.waitForSelector('.menu');
 await page.click('.menu .mi:has-text("Import CSV")');
 // v0.19: Import CSV is a plain menu item that opens a hidden file input by id
 // (Menu items are buttons, not label-wrapped inputs like the old .datamenu-row)
-await page.setInputFiles('#plan-import-csv-input', '/tmp/plan-import.csv');
+await page.setInputFiles('#plan-import-csv-input', join(tmpdir(), 'plan-import.csv'));
 await page.waitForSelector('text=Import preview');
 const previewText = await page.textContent('.modal');
 if (!previewText.includes('Ueno Park')) await fail('preview missing new row');
@@ -813,12 +815,12 @@ await rPage.setContent(`
       <div>Paid by Visa</div>
     </div>
   </body>`);
-await rPage.screenshot({ path: '/tmp/ocr-receipt.png' });
+await rPage.screenshot({ path: join(tmpdir(), 'ocr-receipt.png') });
 await rPage.close();
 
 await page.goto(`${BASE}/trips/1/documents`);
 await page.waitForSelector('.drop2');
-await page.setInputFiles('input[type=file]', '/tmp/ocr-receipt.png');
+await page.setInputFiles('input[type=file]', join(tmpdir(), 'ocr-receipt.png'));
 await page.waitForSelector('h2:has-text("Scanned document")');
 await shot('28-ocr-modal');
 // English + Malay are preselected and ship locally — no network needed

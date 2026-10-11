@@ -1,3 +1,5 @@
+import Avatar from './Avatar';
+import BrandMark from './BrandMark';
 // Jelajah UI refresh — fixed collapsible desktop sidebar (T6).
 // Ported from design/ui-refresh/nav.js (structure) + ui.css (`.sidebar` / `html.side-min`).
 import { useEffect, useState } from 'react';
@@ -17,12 +19,7 @@ function roleLabel(t: ReturnType<typeof useT>['t'], role?: TripRole) {
   return t.youChip;
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
+
 
 export default function Sidebar() {
   const { t } = useT();
@@ -59,7 +56,7 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="side-brand">
-        <div className="logo"><Icon name="pin" size={16} /></div>
+        <div className="logo"><BrandMark /></div>
         <strong>{t.appName}</strong>
         <button className="side-collapse" onClick={toggleCollapse} title={t.collapseNav} aria-label={t.collapseNav}>
           <Icon name="chev-r" size={16} />
@@ -101,7 +98,7 @@ export default function Sidebar() {
         ))}
 
         <div className="nav-item side-user" title={user.name}>
-          <span className="ic"><span className="avatar">{initials(user.name)}</span></span>
+          <span className="ic"><Avatar identity={user.participant_id != null ? `participant:${user.participant_id}` : `user:${user.id}`} size={28} /></span>
           <span className="lbl">{user.name}</span>
           <span className="pill badge gray">{roleLabel(t, nav?.trip ? nav.myRole : undefined)}</span>
         </div>

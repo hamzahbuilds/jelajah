@@ -8,25 +8,14 @@ export async function geocode(q: string, bias?: { lat: number; lng: number }): P
   const qs = new URLSearchParams({ q, limit: '5' });
   if (bias) { qs.set('lat', String(bias.lat)); qs.set('lon', String(bias.lng)); }
   try {
-    const res = await fetch(`https://photon.komoot.io/api/?${qs}`);
+    const res = await fetch(`/api/journey/geocode?${qs}`);
     if (res.ok) {
       const data: any = await res.json();
-      const out = (data.features ?? []).map((f: any) => ({
-        name: [f.properties.name, f.properties.city ?? f.properties.county, f.properties.country]
-          .filter(Boolean).join(', '),
-        lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0],
-      }));
+      const out = data.items ?? [];
       if (out.length) return out;
     }
   } catch { /* fall through */ }
-  try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`);
-    const data: any = await res.json();
-    return data.map((r: any) => ({
-      name: r.display_name.split(',').slice(0, 2).join(','),
-      lat: Number(r.lat), lng: Number(r.lon),
-    }));
-  } catch { return []; }
+  return [];
 }
 
 export interface Station { name: string; lat: number; lng: number; distM: number; lines?: string }

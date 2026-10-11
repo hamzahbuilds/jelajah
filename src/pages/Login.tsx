@@ -1,5 +1,6 @@
+import BrandMark from '../components/BrandMark';
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { clearApiCaches } from '../lib/pwa';
 import { useT } from '../i18n';
@@ -51,7 +52,7 @@ export default function Login() {
       <AuthCarousel />
       <div className="pane">
         <form className="authcard login-card" onSubmit={submit}>
-          <div className="logo"><Icon name="pin" size={20} /> {t.appName}</div>
+          <div className="logo"><BrandMark /> {t.appName}</div>
           {mode === 'setup' ? (
             <>
               <h2>{t.setupTitle}</h2>
@@ -81,10 +82,12 @@ export default function Login() {
               <span>{t.seedJapan}</span>
             </label>
           )}
+          {mode === 'login' && <p><Link to="/forgot-password">{t.j.forgot}</Link></p>}
           {err && <p className="callout warn">{mode === 'setup' ? <Icon name="alert" size={16} /> : t.invalidLogin}</p>}
           <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>
             {mode === 'setup' ? t.setupGo : t.signIn}
           </button>
+          <p><Link to="/discover">{t.j.discover} ↗</Link></p>
           <p className="tiny muted" style={{ marginTop: 16, textAlign: 'center' }}>{t.loginInviteHint}</p>
         </form>
       </div>

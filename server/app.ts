@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { journey } from './journey';
 import { getCookie } from 'hono/cookie';
 import type { Env } from './env.d';
 import {
@@ -186,6 +187,8 @@ app.post('/auth/logout', async c => {
 });
 
 /* ------------- auth middleware ------------- */
+
+app.route('/journey', journey);
 
 app.use('*', async (c, next) => {
   if (c.req.path === '/api/auth/login' || c.req.path === '/api/health'
@@ -3371,9 +3374,9 @@ const MCP_TOOLS = [
 ];
 
 /** Server-side geocode (Photon → Nominatim) for MCP add_activity. */
-async function geocodeServer(q: string): Promise<{ name: string; lat: number; lng: number } | null> {
+async function geocodeServer(q: string, env: Env): Promise<{ name: string; lat: number; lng: number } | null> {
   try {
-    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=1`);
+    const res = await fetch(`${env.GEOCODER_URL || 'https://photon.komoot.io/api/'}?q=${encodeURIComponent(q)}&limit=1`, { signal: AbortSignal.timeout(8000) });
     if (res.ok) {
       const data: any = await res.json();
       const f = data.features?.[0];
@@ -3385,12 +3388,6 @@ async function geocodeServer(q: string): Promise<{ name: string; lat: number; ln
       }
     }
   } catch { /* fall through */ }
-  try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
-      { headers: { 'User-Agent': 'jelajah-app' } });
-    const data: any = await res.json();
-    if (data?.[0]) return { name: String(data[0].display_name).split(',').slice(0, 2).join(','), lat: Number(data[0].lat), lng: Number(data[0].lon) };
-  } catch { /* no coords */ }
   return null;
 }
 
@@ -3484,7 +3481,7 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       const title = String(args.title ?? '').trim();
       if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(String(args.day ?? ''))) throw new McpError(-32602, 'title and day (YYYY-MM-DD) required');
       let geo: { name: string; lat: number; lng: number } | null = null;
-      if (typeof args.place === 'string' && args.place.trim()) geo = await geocodeServer(args.place.trim());
+      if (typeof args.place === 'string' && args.place.trim()) geo = await geocodeServer(args.place.trim(), env);
       let end: string | null = null;
       if (typeof args.start_time === 'string' && /^\d{2}:\d{2}$/.test(args.start_time) && Number(args.duration_min) > 0) {
         const m = Number(args.start_time.slice(0, 2)) * 60 + Number(args.start_time.slice(3, 5)) + Math.min(Number(args.duration_min), 720);

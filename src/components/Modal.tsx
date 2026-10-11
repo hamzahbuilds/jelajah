@@ -2,12 +2,14 @@
 // Scrim + Escape close, focus trapped inside while open, focus restored to the
 // invoking element on close, body scroll locked while open.
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon, type IconName } from './Icon';
 import { nextFocusIndex, lockScroll, unlockScroll } from './uiHelpers';
 
 const FOCUSABLE = 'button,[href],input,select,textarea';
 
 export interface ModalProps {
+  className?: string;
   open: boolean;
   onClose: () => void;
   icon?: IconName;
@@ -19,7 +21,7 @@ export interface ModalProps {
   closeLabel?: string;
 }
 
-export default function Modal({ open, onClose, icon, title, sub, children, footer, closeLabel = 'Close' }: ModalProps) {
+export default function Modal({ open, onClose, icon, title, sub, children, footer, closeLabel = 'Close', className = '' }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const prevFocus = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -40,7 +42,7 @@ export default function Modal({ open, onClose, icon, title, sub, children, foote
         return;
       }
       if (e.key !== 'Tab' || !dialog) return;
-      const items = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const items = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE + ',[tabindex="0"]')).filter(el => !el.matches(':disabled') && el.getClientRects().length > 0);
       if (items.length === 0) return;
       const current = items.indexOf(document.activeElement as HTMLElement);
       e.preventDefault();
@@ -58,10 +60,10 @@ export default function Modal({ open, onClose, icon, title, sub, children, foote
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="modalwrap open">
       <div className="scrim" onClick={onClose} />
-      <div className="modal" ref={dialogRef} role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`modal ${className}`} ref={dialogRef} role="dialog" aria-modal="true" aria-label={title}>
         <div className="mhead">
           {icon && <span className="tile sm"><Icon name={icon} /></span>}
           <div><h3>{title}</h3>{sub && <p>{sub}</p>}</div>
@@ -72,6 +74,6 @@ export default function Modal({ open, onClose, icon, title, sub, children, foote
         {children}
         {footer && <div className="mfoot">{footer}</div>}
       </div>
-    </div>
+    </div>, document.body
   );
 }

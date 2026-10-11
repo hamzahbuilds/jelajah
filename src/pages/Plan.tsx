@@ -1,3 +1,5 @@
+import { routeSegments, routeFailureMessage, useJourneyRoutes } from '../hooks/useJourneyRoutes';
+import { directionsUrl } from '../../shared/journey';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, fmtMYR, fmtDate } from '../api';
@@ -5,6 +7,7 @@ import { useT } from '../i18n';
 import { useSession } from '../App';
 import { TripCtx } from './TripShell';
 import LeafletMap, { Pin } from '../components/LeafletMap';
+import ExpandedMap from '../components/ExpandedMap';
 import { estimates, haversine, metroFareJpy, MODE_ICON, Mode } from '../../shared/fares';
 import { toCsv, parseCsv, PLAN_COLUMNS, PLAN_EXAMPLE_ROW } from '../../shared/csv';
 import { daysBetween, todayYmd } from '../../shared/days';
@@ -98,6 +101,7 @@ export default function Plan() {
   const { toast } = useToast();
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [data, setData] = useState<any>(null);
+  const [mobileMap, setMobileMap] = useState(false);
   const [view, setView] = useState<'day' | 'week' | 'month'>('day');
   const [modal, setModal] = useState<any | null>(null);
   const [seModal, setSeModal] = useState<'start' | 'end' | null>(null);
@@ -210,15 +214,13 @@ export default function Plan() {
     return map;
   }, [data]);
 
-  if (!data) return <p className="muted" style={{ padding: 30 }}>{t.loading}</p>;
-  if (data.hidden) return <div className="card muted">—</div>;
 
   const dayNo = (d: string) => days.indexOf(d) + 1;
   const items = itemsByDay.get(selDay) ?? [];
 
   // ---- day chain: start → located activities → end ----
-  const stays: any[] = data.stays ?? [];
-  const dsList: any[] = data.daySettings ?? [];
+  const stays: any[] = data?.stays ?? [];
+  const dsList: any[] = data?.daySettings ?? [];
   const ds = dsList.find((x: any) => x.day === selDay) ?? dsList.find((x: any) => x.day === '*');
   // a day's title is per-day only — the '*' row is a start/end default, not a name
   const dayTitleOf = (d: string): string | null => dsList.find((x: any) => x.day === d)?.title || null;
@@ -250,7 +252,7 @@ export default function Plan() {
     ...locatedActs,
     ...(endPt && !(locatedActs.length === 0 && startPt && endPt.lat === startPt.lat && endPt.lng === startPt.lng) ? [endPt] : []),
   ];
-  const legs = buildLegs(chain, data.legOverrides ?? [], selDay);
+  const legs = buildLegs(chain, data?.legOverrides ?? [], selDay);
   const unpinnedStay = canLead ? stays.find(s => s.lat == null) : null;
 
   const setLegOverride = async (leg: Leg, mode: Mode | null, fareJpy?: number) => {
@@ -294,11 +296,12 @@ export default function Plan() {
   // v0.19 day-map route lines — each leg already knows its endpoints + chosen mode
   // (buildLegs above); a route is just that straight segment, styled by mode in
   // LeafletMap (train/intercity teal, walk dotted gray, taxi dashed amber).
-  const routes = legs.map(leg => ({
-    points: [[leg.from.lat, leg.from.lng], [leg.to.lat, leg.to.lng]] as [number, number][],
-    mode: leg.chosen,
-  }));
-  // v0.19 rail: a transit chip between two consecutive rendered rows, display-only —
+  const routeResults = useJourneyRoutes(tripId, legs);
+  if (!data) return <p className="muted" style={{ padding: 30 }}>{t.loading}</p>;
+  if (data.hidden) return <div className="card muted">—</div>;
+
+  const routes = legs.flatMap(leg => routeSegments(routeResults[leg.key], leg.chosen));
+  // Transit chips connect consecutive located activities.
   // keyed by the FROM ref so a row can look up "is there a leg leaving me, and does
   // it land on the very next row?" (chain is start → located activities → end, so a
   // leg only has a home in the list when both its ends are rendered rows in a row —
@@ -486,6 +489,7 @@ export default function Plan() {
 
   return (
     <div>
+      {items.find(i => !i.activity?.done) && <div className="journal-next"><span className="journal-eyebrow">{t.j.upNext}</span><strong>{items.find(i => !i.activity?.done)?.title}</strong></div>}
       <div className="row-between" style={{ marginBottom: 12 }}>
         <div className="seg">
           {(['day', 'week', 'month'] as const).map(v => (
@@ -570,7 +574,8 @@ export default function Plan() {
               </button>
             ))}
           </div>
-          <div className="plan-cols">
+          <div className="journal-mobile-toggle"><button className={`btn ${mobileMap ? 'ghost' : ''}`} onClick={() => setMobileMap(false)}>{t.j.list}</button><button className={`btn ${mobileMap ? '' : 'ghost'}`} onClick={() => setMobileMap(true)}>{t.j.map}</button></div>
+          <div className={`plan-cols journal-group-columns ${mobileMap ? 'show-map' : 'show-list'}`}>
             {/* v0.27: column stacks get .grid — .card has no own margin,
                 so bare column divs left consecutive cards touching */}
             <div className="grid">
@@ -677,7 +682,7 @@ export default function Plan() {
                             const no = i.activity ? pinNos.get(actRef(i.activity.id)) : undefined;
                             if (no) return (
                               <button className="pinno" title={t.showOnMap(no)}
-                                onClick={() => setFocusPin(no - 1)}>{no}</button>
+                                onClick={() => { setFocusPin(no - 1); setMobileMap(true); }}>{no}</button>
                             );
                             // no coordinates → no pin on the map; say so instead of faking one
                             if (i.activity) return <span className="pinno none" title={t.noPinYet}>—</span>;
@@ -795,15 +800,24 @@ export default function Plan() {
               {legs.length === 0 && <p className="muted tiny">—</p>}
               {legs.map(leg => (
                 <div className="leg-row" key={leg.key}>
+                  <p className="tiny">{routeResults[leg.key]?.available
+                    ? `${Math.round(routeResults[leg.key].duration! / 60)} ${t.j.minutes} · ${(routeResults[leg.key].distance! / 1000).toFixed(1)} km`
+                    : routeResults[leg.key] ? routeFailureMessage(routeResults[leg.key], t.j) : t.j.loadingRoute}</p>
+                  {routeResults[leg.key]?.source === 'tokyo-gtfs' && <div className="tiny">
+                    <strong>{t.j.railSuggestion}</strong><br />
+                    {routeResults[leg.key].lines?.join(' → ')}<br />
+                    {routeResults[leg.key].stations?.join(' → ')}
+                    {routeResults[leg.key].walkingUnavailable && <p>{t.j.walkMissing}</p>}
+                  </div>}
                   <div className="leg-head">
                     <span className="leg-names">{leg.from.name} → {leg.to.name}</span>
                     <a target="_blank" rel="noreferrer" className="tiny"
-                      href={`https://www.google.com/maps/dir/?api=1&origin=${leg.from.lat},${leg.from.lng}&destination=${leg.to.lat},${leg.to.lng}&travelmode=transit`}>
-                      <Icon name="pin" size={16} />
+                      href={directionsUrl(leg.from, leg.to, leg.chosen)} aria-label={t.j.directions}>
+                      <Icon name="pin" size={16} /> {['train','intercity'].includes(leg.chosen) ? t.j.transitDirections : t.j.directions}
                     </a>
                   </div>
                   <div className="row" style={{ gap: 6 }}>
-                    <span className="badge brand">{RAIL_MODE_ICON[leg.chosen] ? <Icon name={RAIL_MODE_ICON[leg.chosen]!} size={16} /> : MODE_ICON[leg.chosen]} {t.minsLabel(leg.minutes)}</span>
+                    <span className="badge brand">{RAIL_MODE_ICON[leg.chosen] ? <Icon name={RAIL_MODE_ICON[leg.chosen]!} size={16} /> : MODE_ICON[leg.chosen]} {t.minsLabel(routeResults[leg.key]?.available ? Math.round(routeResults[leg.key].duration! / 60) : leg.minutes)} · {t.estBadge}</span>
                     <span className="badge gray">
                       {leg.fareJpy === 0 ? t.freeLabel : <>
                         {leg.overridden ? '' : `${t.estBadge} `}¥{leg.fareJpy.toLocaleString()}
@@ -811,7 +825,7 @@ export default function Plan() {
                         {leg.chosen === 'taxi' ? ` · ${t.perCab}` : ''}
                       </>}
                     </span>
-                    <span className="tiny">{(leg.distM / 1000).toFixed(1)} km</span>
+                    <span className="tiny">{((routeResults[leg.key]?.available ? routeResults[leg.key].distance! : leg.distM) / 1000).toFixed(1)} km</span>
                   </div>
                   {leg.rail && (
                     <div className="tiny" style={{ marginTop: 2 }}>
@@ -821,7 +835,7 @@ export default function Plan() {
                   <div className="row" style={{ gap: 4, marginTop: 3 }}>
                     {canLead && (['walk', 'train', 'taxi'] as Mode[]).map(m => (
                       <button key={m} className={`chip ${leg.chosen === m ? 'on' : ''}`} style={{ padding: '2px 8px' }}
-                        onClick={() => setLegOverride(leg, m)}>{RAIL_MODE_ICON[m] ? <Icon name={RAIL_MODE_ICON[m]!} size={16} /> : MODE_ICON[m]}</button>
+                        onClick={() => setLegOverride(leg, m)} aria-pressed={leg.chosen === m}>{RAIL_MODE_ICON[m] ? <Icon name={RAIL_MODE_ICON[m]!} size={16} /> : MODE_ICON[m]} {m === 'walk' ? t.j.walk : m === 'train' ? t.j.transit : t.j.drive}</button>
                     ))}
                     {canLead && leg.overridden && (
                       <button className="icon" title="reset" onClick={() => setLegOverride(leg, null)}>↺</button>
@@ -839,9 +853,14 @@ export default function Plan() {
               <div className="card">
                 <div className="cardhead">
                   <h3><Icon name="pin" size={16} /> {t.dayMap}</h3>
-                  <span className="badge gray">{t.pinsCount(pins.length)}</span>
+                  <ExpandedMap key={selDay} pins={pins} routes={routes} title={`${t.dayMap} · ${fmtDate(selDay, lang)}`}
+                    stops={items.map(item => ({ key: item.key, title: item.title, time: item.time, detail: item.subtitle,
+                      pinIndex: item.activity ? (pinNos.get(actRef(item.activity.id)) ?? 0) - 1 : -1 }))} />
                 </div>
-                <LeafletMap pins={pins} routes={routes} height={340} focus={focusPin} />
+                <LeafletMap pins={pins} routes={routes} height={440} focus={focusPin} />
+                {pins.length < 2 && <p className="callout info">{t.j.routePins}</p>}
+                {legs.some(l => ['train', 'intercity'].includes(l.chosen)) && <p className="tiny">{t.j.transitMapHint} <a href="https://github.com/MKuranowski/TokyoGTFS" target="_blank" rel="noreferrer">TokyoGTFS / Mini Tokyo 3D</a></p>}
+                <p className="tiny">{t.j.travelTotal}: {Math.round(legs.reduce((n, leg) => n + (routeResults[leg.key]?.available ? routeResults[leg.key].duration! / 60 : leg.minutes), 0))} {t.j.minutes} · {t.estBadge}</p>
                 <div className="maplegend">
                   <span className="k"><span className="sw2 train" />{t.legTrain}</span>
                   <span className="k"><span className="sw2 walk" />{t.legWalk}</span>

@@ -1,3 +1,4 @@
+import BrandMark from './components/BrandMark';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { api, setOfflineListener } from './api';
@@ -9,7 +10,9 @@ import Join from './pages/Join';
 import Trips from './pages/Trips';
 import TripShell from './pages/TripShell';
 import Dashboard from './pages/Dashboard';
-import Plan from './pages/Plan';
+import Plan from './pages/JournalPlan';
+import Recovery from './pages/Recovery';
+import PublicJourneys from './pages/PublicJourneys';
 import MySpend from './pages/MySpend';
 import Documents from './pages/Documents';
 import Review from './pages/Review';
@@ -162,7 +165,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
       {/* mobile-only chrome (<1024px) — replaced by a bottom tab bar in T7 */}
       <div className="topbar mobile-topbar">
         <div className="topbar-inner">
-          <a className="logo" href="/"><Icon name="pin" size={16} /> {t.appName}</a>
+          <a className="logo" href="/"><BrandMark size={28} /> {t.appName}</a>
           <div className="spacer" />
           <a href="/settings" style={{ color: '#fff', textDecoration: 'none', fontSize: '.85rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}><Icon name="settings" size={16} /> {t.settings}</a>
           {user.role === 'admin' && (
@@ -208,6 +211,11 @@ function PasswordNudge() {
 export default function App() {
   return (
     <Routes>
+      <Route path="/forgot-password" element={<I18nProvider><Recovery /></I18nProvider>} />
+      <Route path="/reset-password" element={<I18nProvider><Recovery reset /></I18nProvider>} />
+      <Route path="/discover" element={<I18nProvider><PublicJourneys /></I18nProvider>} />
+      <Route path="/guides/:id" element={<I18nProvider><PublicJourneys detail /></I18nProvider>} />
+      <Route path="/share/:token" element={<I18nProvider><PublicJourneys guest /></I18nProvider>} />
       <Route path="/login" element={<I18nProvider><Login /></I18nProvider>} />
       <Route path="/join/:code" element={<I18nProvider><Join /></I18nProvider>} />
       <Route path="*" element={<Shell />} />

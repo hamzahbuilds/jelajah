@@ -1,3 +1,4 @@
+import BrandMark from './BrandMark';
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { Icon, IconDefs } from './Icon';
@@ -152,7 +153,7 @@ export default function AuthCarousel() {
       })}
       <div className="veil" />
       <div className="brand">
-        <span className="logo"><Icon name="pin" size={20} /></span>
+        <span className="logo"><BrandMark size={36} /></span>
         <strong>{t.appName}</strong>
       </div>
       <div className="cap">

@@ -1,6 +1,56 @@
 # Jelajah — Build Status
 
-Updated: 7 Sep 2026 (v0.27 COMPLETE — spacing audit + activity pagination + Trip Settings rename, e2e green)
+Updated: 11 Oct 2026 (v0.28 implemented and locally verified; not deployed)
+
+## v0.28.0 — personal journeys and organiser publishing (11 Oct 2026)
+
+Spec: `docs/17-spec-v0.28-journeys.md`. Provider and release setup:
+`docs/JOURNEY-SETUP.md`. The approved plan allows free API-key services, replacing
+the older keyless-only restriction for these features.
+
+- Added email recovery through Resend, hashed single-use reset tokens, atomic
+  password/session/token invalidation, expiry and rate limits. Unconfigured
+  recovery is explicit; real email delivery needs sender-domain setup.
+- Added independent personal schedules, optimistic conflict checks, explicit
+  copying of later group activities, selected-member read-only sharing, and
+  author-only private notes. Existing group records, money and personal-spend
+  models remain authoritative and separate.
+- Added ORS walking/driving geometry through a quota-limited cached Worker
+  adapter. Transit uses the approved external maps handoff. Removed automatic
+  public Nominatim fallback from client and MCP geocoding.
+- Added restricted live guest links, expiry/revocation, reviewed editable guide
+  snapshots, search/duration discovery, and administrator takedown/restore.
+  Public DTOs omit account, expense, document and booking reference fields.
+- Added a travel-journal planning UI, mobile map/timeline switching, accessible
+  existing modal reuse, EN/BM copy, dark mode and reduced-motion support.
+  Leaflet handles resizing/unmounts and uses text DOM nodes for popup labels.
+- Added print/PDF tables using the same public DTO, with seven columns and
+  repeating headers. Reviewed all four pages of a long-table PDF test render.
+- Journey migrations are additive/retryable and mark completion after success.
+  New personal/shared/guest API responses are excluded from offline caching.
+  Existing group offline mode passes its original regression checks.
+- Corrected the legacy browser test's `/tmp` assumption to use OS temp paths.
+  No live config changes, no remote database commands, no push or deployment.
+
+Verification on the locked application dependency tree:
+
+- `npm run build`: PASS.
+- `npm test`: PASS, 245 tests in 26 files (223 existing + 22 new).
+- `node scripts/e2e.mjs`: PASS, complete Phase 1/2 + v0.6–v0.27 suite, including
+  parsers/OCR, money conservation, roles, AI/MCP, mobile, themes, PWA and offline.
+- `node scripts/journey-e2e.mjs`: PASS. Personal edit independence, group-copy
+  preview, guest publication/revocation, public guides/discovery, BM, mobile
+  no-overflow, dark mode, unconfigured recovery and multi-page PDF output.
+- `git diff --check`: PASS. `wrangler.toml` unchanged.
+- Screenshots: `e2e-shots/journey/` (ignored local test artifacts). No browser
+  page errors in the new flow. External tiles are blocked in hermetic tests;
+  screenshots intentionally show map markers on the fallback background.
+
+Release limitations: real Resend/ORS calls require the owner's credentials and
+live verification. Existing locked dependency advisories remain, including the
+PDF.js malicious-document advisory; see setup notes before production release.
+There is no in-app live transit engine, offline personal-plan editing, automatic
+group-to-personal merging, or server-side PDF generation in this approved scope.
 
 ## v0.27.0 — spacing audit, activity pagination, Trip Settings rename (7 Sep 2026) — v0.27 COMPLETE
 
