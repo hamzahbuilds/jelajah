@@ -74,3 +74,12 @@ Validation: production build and 271 tests passed, including real-SQLite documen
 The tessdata_fast CDN supplies uncompressed `.traineddata` files; requesting `.gz` returned 404. Tesseract's createWorker initialization did not reject that language-load failure, leaving the modal locked. OCR now owns its native worker from startup, uses the bundled worker message protocol, loads compressed local English/Malay packs separately from uncompressed CDN Japanese/Chinese packs, and terminates on failure, cancellation, unmount or a 90-second per-stage timeout. Preserve the adapter contract when updating `public/tess/worker.min.js`.
 
 PDF OCR rendering is capped at four megapixels per page, with canvas and PDF resources released. The UI distinguishes preparing pages from preparing language packs and allows cancellation before upload. Failed/cancelled processing restores retry and upload-as-is. Browser verification completed a synthetic image with all four languages enabled and verified startup cancellation. Build and 275 tests passed, including download format, initialization rejection, timeout, retry and worker cleanup. No migration is needed.
+
+
+### Release detection and loading direction
+
+The loading dot now follows the J's curve from its left tip to the top dot, using an SVG motion path rather than interpolating straight segments. Reduced motion retains the complete stationary logo.
+
+Vite stamps the built service worker with the index/asset fingerprint. Application changes now produce a waiting worker and Refresh banner even when the cache schema does not change. Offline API/file cache names stay unchanged. Visible tabs check on return, reconnect and every five minutes; update availability is retained if the banner mounts after detection.
+
+Production trip 5 diagnostics: driving and walking return `unconfigured` because production lacks ORS_API_KEY. Configure it as a runtime Worker secret (a build variable alone is insufficient). Greater Tokyo rail geometry is independent of ORS; outside that dataset the app explicitly reports unavailable rail coverage. Local live API and map checks passed for driving plus Tokyo train lines and station instructions.

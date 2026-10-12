@@ -29,21 +29,30 @@ export function isOfflineResponse(headers: HeaderLike): boolean {
  * silent takeover while someone's mid-flow) holds.
  */
 let activeRegistration: ServiceWorkerRegistration | null = null;
+let updateReady = false;
+export function hasPendingUpdate(): boolean { return updateReady; }
+
 
 export function registerSW(onUpdate: () => void): void {
   if (!(import.meta.env.PROD && 'serviceWorker' in navigator)) return;
+  const notify = () => { updateReady = true; onUpdate(); };
   try {
-    navigator.serviceWorker.register('/sw.js').then((registration) => {
+    navigator.serviceWorker.register('/sw.js', {updateViaCache:'none'}).then((registration) => {
       activeRegistration = registration;
+      const check = () => { if (document.visibilityState === 'visible') void registration.update().catch(() => {}); };
+      window.addEventListener('online', check);
+      document.addEventListener('visibilitychange', check);
+      setInterval(check, 5 * 60 * 1000);
+      check();
       if (registration.waiting && navigator.serviceWorker.controller) {
-        onUpdate();
+        notify();
       }
       registration.addEventListener('updatefound', () => {
         const worker = registration.installing;
         if (!worker) return;
         worker.addEventListener('statechange', () => {
           if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-            onUpdate();
+            notify();
           }
         });
       });

@@ -3,7 +3,7 @@ import BrandMark from './components/BrandMark';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { api, setOfflineListener } from './api';
-import { applyUpdate, clearApiCaches } from './lib/pwa';
+import { applyUpdate, clearApiCaches, hasPendingUpdate } from './lib/pwa';
 import { I18nProvider, useT, Lang } from './i18n';
 import { getThemePref, setThemePref } from './theme';
 import Login from './pages/Login';
@@ -158,6 +158,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const onUpdate = () => setUpdateAvailable(true);
     window.addEventListener('jl-sw-update', onUpdate);
+    if (hasPendingUpdate()) onUpdate();
     return () => window.removeEventListener('jl-sw-update', onUpdate);
   }, []);
 

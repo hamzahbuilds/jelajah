@@ -1593,8 +1593,8 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 .jelajah-loading svg { width:64px; height:64px; overflow:visible; }
 .jelajah-loading.compact { flex-direction:row; min-height:0; padding:12px; gap:12px; }
 .jelajah-loading.compact svg { width:32px; height:32px; }
-.loading-j { stroke-dasharray:100; animation:jelajah-trace 2.6s ease-in-out infinite; }
-.loading-dot { animation:jelajah-travel 2.6s ease-in-out infinite; }
-@keyframes jelajah-trace { 0%,10% { stroke-dashoffset:100; } 65%,100% { stroke-dashoffset:0; } }
-@keyframes jelajah-travel { 0%,10% { transform:translate(0,23px); } 32% { transform:translate(0,45px); } 48% { transform:translate(-22px,67px); } 65% { transform:translate(-44px,46px); } 85%,100% { transform:translate(0,0); } }
+ .loading-j { stroke-dasharray:100; animation:jelajah-trace 2.8s linear infinite; }
+.loading-dot { offset-path:path('M32 80 C32 93 41 101 54 101 S76 93 76 79 V34'); offset-rotate:0deg; offset-distance:100%; animation:jelajah-travel 2.8s linear infinite; }
+@keyframes jelajah-trace { 0%,10% { stroke-dashoffset:100; } 70%,100% { stroke-dashoffset:0; } }
+@keyframes jelajah-travel { 0%,10% { offset-distance:0%; } 85%,100% { offset-distance:100%; } }
 @media (prefers-reduced-motion:reduce) { .loading-j,.loading-dot { animation:none; } }

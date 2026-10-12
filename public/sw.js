@@ -1,8 +1,8 @@
 // Jelajah service worker — read-only offline PWA support (spec v0.22 §2).
 //
 // Versioning: bump V manually whenever the cached shape changes (new
-// precache entries, changed cache-key strategy, etc). The build stamps
-// nothing into this file — this is a hand-maintained constant.
+// precache entries, changed cache-key strategy, etc). The build appends a
+// release fingerprint independently so app updates trigger the Refresh banner.
 //
 // WARNING: bumping V deletes every cache from the previous version on the
 // next activate (activate() only keeps names in CURRENT_CACHES) — that is
