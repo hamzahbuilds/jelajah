@@ -34,6 +34,16 @@ export function tokyoRailRoute(from:Point,to:Point) {
     const path:Edge[]=[];let i=end.i;
     while(previous.has(i)){const e=previous.get(i)!;path.unshift(e);i=e[0];}
     if(!path.some(e=>e[2]>=0))continue;
+    const steps: { line: string; fromStation: string; toStation: string; duration: number }[] = [];
+    let lastLine = -1;
+    for (const edge of path) {
+      if (edge[2] < 0) { lastLine = -1; continue; }
+      if (lastLine === edge[2] && steps.length) {
+        steps[steps.length - 1].toStation = stops[edge[1]][1];
+        steps[steps.length - 1].duration += edge[3];
+      } else steps.push({line: lines[edge[2]][1], fromStation: stops[edge[0]][1], toStation: stops[edge[1]][1], duration: edge[3]});
+      lastLine = edge[2];
+    }
     const segments:RailSegment[]=[];
     const connections:{from:Point;to:Point;label:string}[]=[{from,to:position(i),label:stops[i][1]}];
     for(const e of path){
@@ -47,7 +57,7 @@ export function tokyoRailRoute(from:Point,to:Point) {
     const walkDistance=connections.reduce((n,c)=>n+distance(c.from,c.to),0);
     return {available:true as const,mode:'train',segments,connections,
       duration:railSeconds+walkDistance/1.2,distance:railDistance+walkDistance,
-      railSeconds,railDistance,estimated:true,source:'tokyo-gtfs',dataDate:raw.downloaded,
+      railSeconds,railDistance,estimated:true,steps,source:'tokyo-gtfs',dataDate:raw.downloaded,
       lines:[...new Set(path.filter(e=>e[2]>=0).map(e=>lines[e[2]][1]))],
       stations:[stops[i][1],...path.filter(e=>e[2]<0).map(e=>stops[e[1]][1]),stops[end.i][1]]};
   }

@@ -7,6 +7,10 @@ describe('Tokyo rail network', () => {
     if (!r.available) return;
     expect(r.estimated).toBe(true);
     expect(r.lines.length).toBeGreaterThan(0);
+    expect(r.steps.length).toBeGreaterThan(1);
+    expect(r.steps[0].fromStation).toContain('Shin-toyosu');
+    expect(r.steps.at(-1)?.toStation).toContain('Asakusa');
+    expect(r.steps.every(s => s.line && s.fromStation && s.toStation && s.duration > 0)).toBe(true);
     expect(r.stations[0]).toContain('Shin-toyosu');
     expect(r.stations.at(-1)).toContain('Asakusa');
     expect(r.segments.every(s=>s.mode==='train'&&s.points.length>2)).toBe(true);

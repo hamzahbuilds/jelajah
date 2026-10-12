@@ -222,7 +222,24 @@ describe('document library ownership and cleanup', () => {
   });
 });
 
+describe('transit feature flags', () => {
+  it('defaults off, rejects non-admin writes and blocks preview endpoints', async () => {
+    sqlite.exec("DELETE FROM app_settings WHERE key='feature_flags'");
+    expect(await json(req('/features'))).toEqual({transitGeoapify:false,transitGoogleEmbed:false,transitGoogleLink:false});
+    for (const provider of ['geoapify','google']) expect((await req('/trips/1/transit-preview',1,'POST',{provider,points:[[35,139],[35.1,139.1]]})).status).toBe(403);
+    const flags={transitGeoapify:true,transitGoogleEmbed:false,transitGoogleLink:true};
+    const update=(user:number,body:any)=>legacyApp.request('/api/settings/features',{method:'PUT',headers:{Cookie:`sid=session-${user}`,'Content-Type':'application/json'},body:JSON.stringify(body)},env);
+    expect((await update(2,flags)).status).toBe(403);
+    expect((await update(1,{...flags,transitGoogleEmbed:'true'})).status).toBe(400);
+    expect(await json(update(1,flags))).toEqual(flags);
+    expect(await json(req('/features'))).toEqual(flags);
+    await json(update(1,{transitGeoapify:false,transitGoogleEmbed:false,transitGoogleLink:false}));
+  });
+});
+
 describe('Geoapify transit previews', () => {
+  beforeAll(() => { sqlite.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES('feature_flags',?)").run(JSON.stringify({transitGeoapify:true,transitGoogleEmbed:true,transitGoogleLink:true})); });
+  afterAll(() => { sqlite.exec("DELETE FROM app_settings WHERE key='feature_flags'"); });
   const body = {provider:'geoapify', points:[[51.5,-0.1],[51.51,-0.12]]};
   it('requires membership, validates coordinates and handles missing keys', async () => {
     expect((await req('/trips/1/transit-preview',5,'POST',body)).status).toBe(403);

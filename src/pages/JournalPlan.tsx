@@ -13,6 +13,7 @@ import TravelNotes from "../components/TravelNotes";
 import LeafletMap from "../components/LeafletMap";
 import ExpandedMap from '../components/ExpandedMap';
 import TransitOptions from '../components/TransitOptions';
+import RailDirections from '../components/RailDirections';
 import { useToast } from "../components/Toast";
 import { routeSegments, routeFailureMessage, useJourneyRoutes } from "../hooks/useJourneyRoutes";
 import {
@@ -270,16 +271,10 @@ function PersonalPlan({ id }: { id: number }) {
     if (remember) setUndo(content);
     setRecord({ ...record, version: r.version, content: next });
   };
-  const renderTransport = (l: (typeof legs)[number]) => <TransportLeg key={l.key} title={l.label} mode={l.chosen} summary={routeResults[l.key]?.available ? `${Math.round(routeResults[l.key].duration! / 60)} ${j.minutes} · ${(routeResults[l.key].distance! / 1000).toFixed(1)} km · ${j.estimate}` : routeResults[l.key] ? routeFailureMessage(routeResults[l.key], j) : j.loadingRoute}>
-              {['train','metro','transit','intercity'].includes(l.chosen) && <TransitOptions tripId={tripId} from={l.from} to={l.to} />}
+  const renderTransport = (l: (typeof legs)[number]) => <TransportLeg key={l.key} title={l.label} mode={l.chosen} detail={routeResults[l.key]?.stations?.join(' → ')} summary={routeResults[l.key]?.available ? `${Math.round(routeResults[l.key].duration! / 60)} ${j.minutes} · ${(routeResults[l.key].distance! / 1000).toFixed(1)} km · ${j.estimate}` : routeResults[l.key] ? routeFailureMessage(routeResults[l.key], j) : j.loadingRoute}>
+              {['train','metro','transit','intercity'].includes(l.chosen) && <TransitOptions tripId={tripId} from={l.from} to={l.to} railRoute={routeResults[l.key]} />}
 
-              {routeResults[l.key]?.source === 'tokyo-gtfs' && <p className="tiny">
-                <strong>{j.railSuggestion}</strong><br />
-                {routeResults[l.key].lines?.join(' → ')}<br />
-                {routeResults[l.key].stations?.join(' → ')}<br />
-                {routeResults[l.key].walkingUnavailable && <span>{j.walkMissing}<br /></span>}
-                <a href="https://github.com/MKuranowski/TokyoGTFS" target="_blank" rel="noreferrer">TokyoGTFS / Mini Tokyo 3D</a>
-              </p>}
+<RailDirections route={routeResults[l.key]} />
               <a
                 href={directionsUrl(l.from, l.to, l.chosen)}
                 target="_blank"

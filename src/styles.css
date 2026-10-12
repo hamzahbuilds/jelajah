@@ -1581,3 +1581,9 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 .document-group-people label { display: flex; align-items: center; padding: 9px 0; gap: 10px; }
 .document-group-people input { width: 18px; height: 18px; }
 @media(max-width:700px) { .document-upload-options { grid-template-columns: 1fr; } }
+.rail-directions { border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin: 12px 0; }
+.rail-directions h3 { margin: 0 0 12px; font-size: 15px; }
+.rail-directions ol { padding-left: 24px; }
+.rail-directions li { padding: 5px 0; }
+.rail-directions li span { display: block; margin-top: 4px; }
+.transport-stations { color: var(--brand-700); overflow-wrap: anywhere; }

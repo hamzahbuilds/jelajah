@@ -17,6 +17,7 @@ export interface RouteResult {
   railSeconds?: number;
   railDistance?: number;
   source?: string;
+  steps?: {line: string; fromStation: string; toStation: string; duration: number}[];
   stations?: string[];
   lines?: string[];
   walkingUnavailable?: boolean;
@@ -63,6 +64,11 @@ export function useJourneyRoutes(tripId: number, legs: RouteLeg[]) {
               signal: controller.signal,
             });
             result = r.ok ? await r.json() : { available: false };
+            // Rail instructions and geometry are usable before optional walking calls finish.
+            if (result?.available && !controller.signal.aborted) {
+              results[leg.key] = { ...result, segments: result.segments ? [...result.segments] : undefined };
+              setState({ signature, results: { ...results } });
+            }
             if (result?.available && result.connections) {
               let seconds = result.railSeconds ?? 0, metres = result.railDistance ?? 0;
               for (const c of result.connections) {

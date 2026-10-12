@@ -12,6 +12,7 @@ import { TripCtx } from './TripShell';
 import LeafletMap, { Pin } from '../components/LeafletMap';
 import ExpandedMap from '../components/ExpandedMap';
 import TransitOptions from '../components/TransitOptions';
+import RailDirections from '../components/RailDirections';
 import { hasJapaneseFareEstimate } from '../../shared/transit-time';
 import { estimates, haversine, metroFareJpy, MODE_ICON, Mode } from '../../shared/fares';
 import { toCsv, parseCsv, PLAN_COLUMNS, PLAN_EXAMPLE_ROW } from '../../shared/csv';
@@ -465,15 +466,10 @@ export default function Plan() {
     ids.length > 3 ? `${ids.length} ${lang === 'ms' ? 'pengembara' : 'travellers'}` : ids.length === members.length ? t.everyone
       : ids.map(id => members.find(m => m.id === id)?.name.split(' ')[0]).filter(Boolean).join(', ');
 
-  const renderTransport = (leg: Leg) => <TransportLeg key={leg.key} title={`${leg.from.name} → ${leg.to.name}`} mode={leg.chosen}
+  const renderTransport = (leg: Leg) => <TransportLeg key={leg.key} title={`${leg.from.name} → ${leg.to.name}`} mode={leg.chosen} detail={routeResults[leg.key]?.stations?.join(' → ')}
     summary={routeResults[leg.key]?.available ? `${Math.round(routeResults[leg.key].duration! / 60)} ${t.j.minutes} · ${(routeResults[leg.key].distance! / 1000).toFixed(1)} km · ${t.estBadge}` : routeResults[leg.key] ? routeFailureMessage(routeResults[leg.key], t.j) : t.j.loadingRoute}>
 
-                  {routeResults[leg.key]?.source === 'tokyo-gtfs' && <div className="tiny">
-                    <strong>{t.j.railSuggestion}</strong><br />
-                    {routeResults[leg.key].lines?.join(' → ')}<br />
-                    {routeResults[leg.key].stations?.join(' → ')}
-                    {routeResults[leg.key].walkingUnavailable && <p>{t.j.walkMissing}</p>}
-                  </div>}
+<RailDirections route={routeResults[leg.key]} />
                   <div className="leg-head">
                     <span className="leg-names">{leg.from.name} → {leg.to.name}</span>
                     <a target="_blank" rel="noreferrer" className="tiny"
@@ -481,7 +477,7 @@ export default function Plan() {
                       <Icon name="pin" size={16} /> {['train','intercity'].includes(leg.chosen) ? t.j.transitDirections : t.j.directions}
                     </a>
                   </div>
-                  {['train', 'intercity'].includes(leg.chosen) && <TransitOptions tripId={tripId} from={leg.from} to={leg.to} />}
+                  {['train', 'intercity'].includes(leg.chosen) && <TransitOptions tripId={tripId} from={leg.from} to={leg.to} railRoute={routeResults[leg.key]} />}
                   <div className="row" style={{ gap: 6 }}>
                     <span className="badge brand">{RAIL_MODE_ICON[leg.chosen] ? <Icon name={RAIL_MODE_ICON[leg.chosen]!} size={16} /> : MODE_ICON[leg.chosen]} {routeResults[leg.key]?.available ? t.minsLabel(Math.round(routeResults[leg.key].duration! / 60)) : hasJapaneseFareEstimate(leg.from,leg.to) ? t.minsLabel(leg.minutes) : '—'} · {t.estBadge}</span>
                     <span className="badge gray">

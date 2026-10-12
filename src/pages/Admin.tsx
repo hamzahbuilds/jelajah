@@ -1,3 +1,4 @@
+import AdminFeatureFlags from '../components/AdminFeatureFlags';
 import { GuideModeration } from './Publishing';
 // v0.19 admin panel — platform-admin only. Restyled to card/stat/PageHead
 // (P4 Task 4) with hand-written SVG "lieflat-style" charts (style adopted from
@@ -217,6 +218,7 @@ export default function Admin() {
     <div>
       <GuideModeration />
       <PageHead crumb="Platform" title={t.adminTitle} sub={t.adminSub} />
+      <AdminFeatureFlags />
 
       {stats && (() => {
         const signups30 = stats.signups.reduce((a, d) => a + d.n, 0);

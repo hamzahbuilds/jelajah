@@ -1,3 +1,5 @@
+import { getFeatureFlags } from './lib/feature-flags';
+import { DEFAULT_FEATURE_FLAGS, featureFlags } from '../shared/featureFlags';
 import { Hono } from 'hono';
 import { ensureDocumentSchema } from './lib/document-schema';
 import { journey } from './journey';
@@ -2837,6 +2839,16 @@ app.delete('/invites/:id', async c => {
   await c.env.DB.prepare('UPDATE invites SET revoked = 1 WHERE id = ?').bind(inv.id).run();
   await audit(c.env, user.id, 'invite_revoke', 'invite', inv.id);
   return c.json({ ok: true });
+});
+
+app.get('/settings/features', requireAdmin, async c => { c.header('Cache-Control','no-store'); return c.json(await getFeatureFlags(c.env)); });
+app.put('/settings/features', requireAdmin, async c => {
+  const body = await c.req.json<any>();
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !(k in DEFAULT_FEATURE_FLAGS) || typeof body[k] !== 'boolean') || Object.keys(DEFAULT_FEATURE_FLAGS).some(k => typeof body[k] !== 'boolean')) return bad(c,'invalid_flags');
+  const flags = featureFlags(body);
+  await setSettingJSON(c.env,'feature_flags',flags);
+  await audit(c.env,c.get('user').id,'feature_flags_update');
+  c.header('Cache-Control','no-store'); return c.json(flags);
 });
 
 app.get('/settings/referrals', requireAdmin, async c => c.json({ enabled: await referralsEnabled(c.env) }));

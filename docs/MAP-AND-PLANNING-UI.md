@@ -46,3 +46,15 @@ Schema: server/lib/document-schema.ts applies four repeatable CREATE TABLE state
 Deleting a booking document atomically unlinks expenses and marks their metadata source_document_removed, then removes the file. Group planner, live guest projection and suggested stays exclude those derived bookings. Accounting records, manual activities, independent personal copies and published snapshots remain. External storage deletion cannot share a D1 transaction; a storage failure can leave an inaccessible orphan object and reports an error.
 
 Validation: production build and 269 tests pass, covering owner/admin/other-member/removed-member access, group revocation and leadership management, custom category persistence, rename validation, and deletion preserving money/manual activities. Browser checks cover local group/folder creation, desktop table and mobile horizontal scrolling. Local preview data includes a Travel research group (creator only) and its Research notes folder. Production deployment must be verified separately after merging.
+
+## Tokyo transit directions restoration
+
+The Geoapify/Google preview popup had omitted the existing Tokyo network result and the compact timeline hid station information inside disclosures. Transit options now receives the existing rail result and displays it with its route map. Both group and personal transport rows show boarding/transfer/exit steps, with the station chain visible even when collapsed. Rail API responses carry contiguous line steps with departure/arrival stations and ride durations. The routing hook publishes available rail geometry/instructions before optional walking enrichment finishes.
+
+Verified against local Jelajah Jepun Day 2, teamLab Planets to Sensoji: boarding Shin-toyosu, changing at Toyosu, Tsukishima and Shin-Okachimachi, exiting Asakusa. The popup and day map both render the route. This restores the bundled Tokyo coverage, not all-Japan live routing; durations remain estimates. Production build and all 269 tests pass, including assertions for the transfer steps. Screenshot: output/ui/restored-tokyo-transit.png. Not deployed.
+
+## Experimental transit flags
+
+Admin > Experimental features has three independent, platform-wide switches: Geoapify preview, Google transit embed, and the external Google Maps link inside the transit popup. All default off. Settings are stored in app_settings.feature_flags; admin-only updates require booleans and are audited. The signed-in /journey/features read endpoint returns only these flags with no-store. The popup reloads flags each time it opens and fails closed if settings cannot load. Preview endpoints reject disabled providers before making upstream requests. Tokyo station directions and route geometry remain visible. Existing directions links elsewhere are unchanged.
+
+Build and 270 tests passed, including default-off, admin authorization, validation, persistence, and server-side provider rejection. Local browser confirmed the popup retains boarding/exit guidance without preview controls. No deployment performed.

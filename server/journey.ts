@@ -1,3 +1,4 @@
+import { getFeatureFlags } from './lib/feature-flags';
 import { tokyoRailRoute } from "./lib/tokyo-rail";
 import { geoapifyTransit, googleTransitEmbed } from './lib/geoapify-transit';
 import { normalizeTransitOptions } from './lib/transit-provider';
@@ -712,11 +713,15 @@ journey.delete("/trips/:id/notes/:visibility/:noteId", async (c) => {
   return r.meta.changes ? c.json({ ok: true }) : error(c, "not_found", 404);
 });
 
+journey.get('/features', async c => { c.header('Cache-Control','no-store'); return c.json(await getFeatureFlags(c.env)); });
+
 journey.post('/trips/:id/transit-preview', async c => {
   if (!(await journeyRole(c.env, c.get('user'), Number(c.req.param('id'))))) return error(c, 'forbidden', 403);
   const b = await c.req.json<any>();
   if (!Array.isArray(b.points) || b.points.length !== 2 || b.points.some((p: any) => !Array.isArray(p) || p.length !== 2 || coordinate(p[0], 90) === null || coordinate(p[1], 180) === null)) return error(c, 'invalid_coordinates');
   c.header('Cache-Control', 'no-store');
+  const flags = await getFeatureFlags(c.env);
+  if ((b.provider === 'google' && !flags.transitGoogleEmbed) || (b.provider === 'geoapify' && !flags.transitGeoapify)) return error(c,'feature_disabled',403);
   if (b.provider === 'google') return c.json({ embedUrl: c.env.GOOGLE_MAPS_EMBED_KEY ? googleTransitEmbed(c.env.GOOGLE_MAPS_EMBED_KEY, b.points) : null });
   if (b.provider !== 'geoapify') return error(c, 'invalid_provider');
   if (!c.env.GEOAPIFY_API_KEY) return c.json({ available: false, reason: 'setup' });
