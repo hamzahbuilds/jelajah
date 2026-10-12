@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { ensureDocumentSchema } from './lib/document-schema';
 import { journey } from './journey';
 import { getCookie } from 'hono/cookie';
 import type { Env } from './env.d';
@@ -646,6 +647,93 @@ app.delete('/trips/:id', requireLeader, async c => {
   return c.json({ ok: true });
 });
 
+/* ---------------- document folders and groups ---------------- */
+app.use('/trips/:id/document-library/*', async (c, next) => {
+  const id=Number(c.req.param('id'));
+  if (!(await assertTripAccess(c,id)) || (await hiddenFor(c,id)).has('documents')) return bad(c,'forbidden',403);
+  await ensureDocumentSchema(c.env); return next();
+});
+app.use('/trips/:id/documents', async (c, next) => { await ensureDocumentSchema(c.env); return next(); });
+app.use('/documents/*', async (c, next) => { await ensureDocumentSchema(c.env); return next(); });
+const documentMeta = (doc: any) => { try { return JSON.parse(doc.parsed_json || '{}'); } catch { return {}; } };
+async function inDocumentGroup(c: any, groupId: number) {
+  const g = await c.env.DB.prepare('SELECT * FROM document_groups WHERE id=?').bind(groupId).first();
+  if (!g) return false;
+  return g.owner_id === c.get('user').id || !!await c.env.DB.prepare('SELECT 1 FROM document_group_members WHERE group_id=? AND participant_id=?').bind(groupId, c.get('user').participant_id).first();
+}
+async function readFolder(c: any, folder: any) {
+  if (!folder || !(await assertTripAccess(c, folder.trip_id))) return false;
+  if (folder.visibility === 'private') return folder.owner_id === c.get('user').id;
+  if (folder.visibility === 'trip') return true;
+  return await inDocumentGroup(c, folder.group_id);
+}
+async function readDocument(c: any, doc: any) {
+  if (!(await assertTripAccess(c, doc.trip_id))) return false;
+  const fid = documentMeta(doc).libraryFolderId;
+  if (fid) {
+    const folder = await c.env.DB.prepare('SELECT * FROM document_folders WHERE id=? AND trip_id=?').bind(fid, doc.trip_id).first();
+    return await readFolder(c, folder);
+  }
+  return doc.doc_type !== 'personal' || doc.uploaded_by === c.get('user').id;
+}
+async function editDocument(c: any, doc: any) {
+  if (!(await readDocument(c, doc))) return false;
+  return doc.uploaded_by === c.get('user').id || (doc.doc_type !== 'personal' && await needRole(c, doc.trip_id, 'leader'));
+}
+app.get('/trips/:id/document-library/settings', async c => {
+  const id = Number(c.req.param('id'));
+  if (!(await assertTripAccess(c,id))) return bad(c,'forbidden',403);
+  const groups = (await c.env.DB.prepare('SELECT * FROM document_groups WHERE trip_id=?').bind(id).all<any>()).results;
+  const folders = (await c.env.DB.prepare('SELECT * FROM document_folders WHERE trip_id=?').bind(id).all<any>()).results;
+  const leader = await needRole(c,id,'leader');
+  const visibleGroups = [];
+  for (const g of groups) if (leader || await inDocumentGroup(c,g.id)) {
+    const participants = (await c.env.DB.prepare('SELECT participant_id FROM document_group_members WHERE group_id=?').bind(g.id).all<any>()).results;
+    visibleGroups.push({...g, participant_ids: participants.map(p => p.participant_id), can_access: await inDocumentGroup(c,g.id), can_manage: leader || g.owner_id === c.get('user').id});
+  }
+  const visibleFolders = [];
+  for (const f of folders) if (await readFolder(c,f)) visibleFolders.push(f);
+  c.header('Cache-Control','no-store');
+  const categories = (await c.env.DB.prepare('SELECT name FROM document_categories WHERE trip_id=? AND user_id=? ORDER BY name').bind(id,c.get('user').id).all<any>()).results.map(r=>r.name);
+  return c.json({groups:visibleGroups,folders:visibleFolders,categories});
+});
+app.post('/trips/:id/document-library/groups', async c => {
+  const id = Number(c.req.param('id'));
+  if (!(await assertTripAccess(c,id))) return bad(c,'forbidden',403);
+  const {name, participant_ids=[]} = await c.req.json<any>();
+  if (typeof name !== 'string' || !name.trim() || name.length > 80 || !Array.isArray(participant_ids) || !(await participantsBelongToTrip(c.env,id,participant_ids))) return bad(c,'invalid_group');
+  const r = await c.env.DB.prepare('INSERT INTO document_groups(trip_id,name,owner_id) VALUES(?,?,?)').bind(id,name.trim(),c.get('user').id).run();
+  const gid = Number(r.meta.last_row_id);
+  if (participant_ids.length) await c.env.DB.batch([...new Set<number>(participant_ids)].map(pid => c.env.DB.prepare('INSERT INTO document_group_members(group_id,participant_id) VALUES(?,?)').bind(gid,pid)));
+  return c.json({id:gid});
+});
+app.put('/trips/:id/document-library/groups/:groupId', async c => {
+  const id = Number(c.req.param('id')), gid = Number(c.req.param('groupId'));
+  if (!(await assertTripAccess(c,id))) return bad(c,'forbidden',403);
+  const group = await c.env.DB.prepare('SELECT * FROM document_groups WHERE id=? AND trip_id=?').bind(gid,id).first<any>();
+  if (!group || (group.owner_id !== c.get('user').id && !(await needRole(c,id,'leader')))) return bad(c,'forbidden',403);
+  const {name, participant_ids=[]} = await c.req.json<any>();
+  if (typeof name !== 'string' || !name.trim() || name.length > 80 || !Array.isArray(participant_ids) || !(await participantsBelongToTrip(c.env,id,participant_ids))) return bad(c,'invalid_group');
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE document_groups SET name=? WHERE id=?').bind(name.trim(),gid),
+    c.env.DB.prepare('DELETE FROM document_group_members WHERE group_id=?').bind(gid),
+    ...[...new Set<number>(participant_ids)].map(pid => c.env.DB.prepare('INSERT INTO document_group_members(group_id,participant_id) VALUES(?,?)').bind(gid,pid)),
+  ]);
+  return c.json({ok:true});
+});
+app.post('/trips/:id/document-library/folders', async c => {
+  const id = Number(c.req.param('id'));
+  if (!(await assertTripAccess(c,id))) return bad(c,'forbidden',403);
+  const {name,visibility,group_id} = await c.req.json<any>();
+  if (typeof name !== 'string' || !name.trim() || name.length>80 || !['private','group','trip'].includes(visibility)) return bad(c,'invalid_folder');
+  if (visibility === 'group') {
+    const g = await c.env.DB.prepare('SELECT id FROM document_groups WHERE id=? AND trip_id=?').bind(group_id || 0,id).first();
+    if (!g || !(await inDocumentGroup(c,group_id))) return bad(c,'forbidden',403);
+  }
+  const r = await c.env.DB.prepare('INSERT INTO document_folders(trip_id,name,owner_id,visibility,group_id) VALUES(?,?,?,?,?)').bind(id,name.trim(),c.get('user').id,visibility,visibility==='group'?group_id:null).run();
+  return c.json({id:r.meta.last_row_id});
+});
+
 /* ---------------- documents ---------------- */
 
 app.get('/trips/:id/documents', async c => {
@@ -656,18 +744,39 @@ app.get('/trips/:id/documents', async c => {
     `SELECT d.*, e.id AS expense_id FROM documents d
      LEFT JOIN expenses e ON e.document_id = d.id
      WHERE d.trip_id = ? ORDER BY d.created_at DESC`,
-  ).bind(id).all();
-  return c.json(rows.results);
+  ).bind(id).all<any>();
+  const visible = [];
+  for (const doc of rows.results) if (await readDocument(c,doc)) visible.push({...doc, can_manage: await editDocument(c,doc)});
+  c.header('Cache-Control', 'no-store');
+  return c.json(visible);
 });
 
-app.post('/trips/:id/documents', requireLeader, async c => {
+app.post('/trips/:id/documents', async c => {
   const tripId = Number(c.req.param('id'));
+  if (!(await assertTripAccess(c, tripId))) return bad(c, 'forbidden', 403);
+  if ((await hiddenFor(c, tripId)).has('documents')) return bad(c, 'feature_hidden', 403);
   const form = await c.req.formData();
+  const category = String(form.get('category') || 'logistics');
+  if (!category.trim() || category.length > 80) return bad(c,'invalid_category');
+  const folderId = Number(form.get('folder_id') || 0);
+  const folder = folderId ? await c.env.DB.prepare('SELECT * FROM document_folders WHERE id=? AND trip_id=?').bind(folderId,tripId).first<any>() : null;
+  if (folderId && !(await readFolder(c,folder))) return bad(c,'forbidden',403);
+  if (!folderId && form.has('visibility') && !['trip','private'].includes(String(form.get('visibility')))) return bad(c,'invalid_visibility');
+  const scope = folder ? folder.visibility : category === 'personal' || form.get('visibility') === 'private' ? 'private' : 'trip';
+  // Legacy clients still require organiser permission for shared OCR uploads.
+  if (!form.has('visibility') && !folderId && category !== 'personal' && !(await needRole(c,tripId,'leader'))) return bad(c,'forbidden',403);
   const file = form.get('file') as unknown as File | null;
   const metaRaw = form.get('meta');
-  if (!file) return bad(c, 'file_required');
+  if (!file || typeof file === 'string' || typeof file.arrayBuffer !== 'function') return bad(c, 'file_required');
   if (file.size > 10 * 1024 * 1024) return bad(c, 'file_too_large');
-  const meta = metaRaw ? JSON.parse(String(metaRaw)) : {};
+  let meta: any;
+  try { meta = metaRaw ? JSON.parse(String(metaRaw)) : {}; } catch { return bad(c, 'invalid_metadata'); }
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return bad(c, 'invalid_metadata');
+  if (scope !== 'trip') meta = { docType: 'personal' };
+  else if (meta.docType === 'personal') return bad(c, 'invalid_metadata');
+  meta.libraryCategory = category === 'personal' ? 'other' : category.trim();
+  if (folderId) meta.libraryFolderId = folderId;
+  else delete meta.libraryFolderId;
   const key = `trips/${tripId}/${randomToken().slice(0, 16)}-${file.name.replace(/[^\w.\-]+/g, '_')}`;
   await filesPut(c.env, key, await file.arrayBuffer(), file.type || 'application/octet-stream');
   let duplicate = false;
@@ -681,10 +790,11 @@ app.post('/trips/:id/documents', requireLeader, async c => {
     `INSERT INTO documents (trip_id, filename, r2_key, mime, size, vendor, doc_type, booking_no, parsed_json, uploaded_by)
      VALUES (?,?,?,?,?,?,?,?,?,?)`,
   ).bind(
-    tripId, file.name, key, file.type || 'application/pdf', file.size,
+    tripId, file.name, key, file.type || 'application/octet-stream', file.size,
     meta.vendor ?? null, meta.docType ?? null, meta.bookingNo ?? null,
     JSON.stringify(meta), c.get('user').id,
   ).run();
+  await c.env.DB.prepare('INSERT OR IGNORE INTO document_categories(trip_id,user_id,name) VALUES(?,?,?)').bind(tripId,c.get('user').id,meta.libraryCategory).run();
   await audit(c.env, c.get('user').id, 'document_upload', 'document', Number(r.meta.last_row_id));
   await trackUsage(c.env, c.get('user').id, 'doc_upload');
   return c.json({ id: r.meta.last_row_id, duplicate });
@@ -694,6 +804,7 @@ app.get('/documents/:id/file', async c => {
   const id = Number(c.req.param('id'));
   const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first<any>();
   if (!doc) return bad(c, 'not_found', 404);
+  if (!(await readDocument(c,doc))) return bad(c, 'not_found', 404);
   if (!(await assertTripAccess(c, doc.trip_id))) return bad(c, 'forbidden', 403);
   if ((await hiddenFor(c, doc.trip_id)).has('documents')) return bad(c, 'feature_hidden', 403);
   const body = await filesGet(c.env, doc.r2_key);
@@ -702,7 +813,9 @@ app.get('/documents/:id/file', async c => {
     headers: {
       'Content-Type': doc.mime,
       'Content-Disposition': `inline; filename="${encodeURIComponent(doc.filename)}"`,
-      'Cache-Control': 'private, max-age=3600',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "sandbox; default-src 'none'",
     },
   });
 });
@@ -711,24 +824,44 @@ app.get('/documents/:id', async c => {
   const id = Number(c.req.param('id'));
   const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first<any>();
   if (!doc) return bad(c, 'not_found', 404);
+  if (!(await readDocument(c,doc))) return bad(c, 'not_found', 404);
   if (!(await assertTripAccess(c, doc.trip_id))) return bad(c, 'forbidden', 403);
+  c.header('Cache-Control', 'no-store');
+  if ((await hiddenFor(c, doc.trip_id)).has('documents')) return bad(c, 'feature_hidden', 403);
   return c.json(doc);
+});
+
+app.patch('/documents/:id', async c => {
+  const id = Number(c.req.param('id'));
+  const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first<any>();
+  if (!doc) return bad(c, 'not_found', 404);
+  if (!(await readDocument(c,doc))) return bad(c, 'not_found', 404);
+  if (!(await assertTripAccess(c, doc.trip_id))) return bad(c, 'forbidden', 403);
+  if (!(await editDocument(c,doc))) return bad(c,'forbidden',403);
+  const { filename } = await c.req.json<any>();
+  if (typeof filename !== 'string' || !filename.trim() || filename.trim().length > 180 || /[\x00-\x1f/\\]/.test(filename)) return bad(c, 'invalid_filename');
+  await c.env.DB.prepare('UPDATE documents SET filename = ? WHERE id = ?').bind(filename.trim(), id).run();
+  await audit(c.env, c.get('user').id, 'document_rename', 'document', id);
+  return c.json({ ok: true });
 });
 
 app.delete('/documents/:id', async c => {
   const id = Number(c.req.param('id'));
   const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first<any>();
   if (!doc) return bad(c, 'not_found', 404);
-  if (!(await needRole(c, doc.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
-  // A linked expense survives — it is just unlinked from the deleted file.
-  const linked = await c.env.DB.prepare('SELECT id FROM expenses WHERE document_id = ?').bind(id).first<any>();
-  if (linked) {
-    await c.env.DB.prepare('UPDATE expenses SET document_id = NULL WHERE document_id = ?').bind(id).run();
-  }
+  if (!(await readDocument(c,doc))) return bad(c, 'not_found', 404);
+  if (!(await assertTripAccess(c, doc.trip_id))) return bad(c, 'forbidden', 403);
+  if (!(await editDocument(c,doc))) return bad(c,'forbidden',403);
+  // Preserve accounting, but suppress its derived itinerary/stay after source deletion.
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE expenses SET document_id = NULL,
+      meta_json = json_set(CASE WHEN json_valid(meta_json) THEN meta_json ELSE '{}' END, '$.source_document_removed', 1)
+      WHERE document_id = ?`).bind(id),
+    c.env.DB.prepare('DELETE FROM documents WHERE id = ?').bind(id),
+  ]);
   await filesDelete(c.env, doc.r2_key);
-  await c.env.DB.prepare('DELETE FROM documents WHERE id = ?').bind(id).run();
   await audit(c.env, c.get('user').id, 'document_delete', 'document', id);
-  return c.json({ ok: true, unlinked_expense_id: linked?.id ?? null });
+  return c.json({ ok: true });
 });
 
 /* ---------------- trip cover ---------------- */
@@ -1330,7 +1463,9 @@ app.post('/documents/:id/confirm', async c => {
   const id = Number(c.req.param('id'));
   const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first<any>();
   if (!doc) return bad(c, 'not_found', 404);
+  if (!(await readDocument(c,doc))) return bad(c, 'not_found', 404);
   if (!(await needRole(c, doc.trip_id, 'leader'))) return bad(c, 'forbidden', 403);
+  if (doc.doc_type === 'personal') return bad(c, 'personal_not_importable', 400);
   const body = await c.req.json<{ expense?: ExpensePayload; vendor?: string; docType?: string; bookingNo?: string }>();
   let expenseId: number | null = null;
   if (body.expense) {
@@ -1589,7 +1724,7 @@ interface AutoEvent {
  *  `stays` field and as GET /trips/:id/rooms's `suggested_stays` (v0.21). */
 function deriveStays(exps: any[]) {
   return exps
-    .filter(e => e.category === 'accommodation')
+    .filter(e => { try { return e.category === 'accommodation' && !JSON.parse(e.meta_json || '{}').source_document_removed; } catch { return e.category === 'accommodation'; } })
     .map(e => ({ expense_id: e.id, description: e.description, location: e.location, lat: e.lat, lng: e.lng, checkin: e.expense_date, checkout: e.end_date }));
 }
 
@@ -1603,12 +1738,12 @@ app.get('/trips/:id/plan', async c => {
   // that shares the same booking number.
   const exps = await c.env.DB.prepare(
     `SELECT e.*, d.parsed_json, d.booking_no FROM expenses e LEFT JOIN documents d ON d.id = e.document_id
-     WHERE e.trip_id = ? AND e.category IN ('flight','accommodation')`,
+     WHERE e.trip_id = ? AND e.category IN ('flight','accommodation') AND COALESCE(json_extract(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{}' END, '$.source_document_removed'),0) = 0`,
   ).bind(id).all();
   // who is on each booking — so multi-flight days show who flies on what
   const evShares = await c.env.DB.prepare(
     `SELECT s.expense_id, s.participant_id FROM expense_shares s JOIN expenses e ON e.id = s.expense_id
-     WHERE e.trip_id = ? AND e.category IN ('flight','accommodation')`,
+     WHERE e.trip_id = ? AND e.category IN ('flight','accommodation') AND COALESCE(json_extract(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{}' END, '$.source_document_removed'),0) = 0`,
   ).bind(id).all();
   const sharesByExp = new Map<number, number[]>();
   for (const s of evShares.results as any[]) {

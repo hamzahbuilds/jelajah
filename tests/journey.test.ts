@@ -136,9 +136,91 @@ beforeAll(async () => {
     "INSERT INTO trip_members VALUES (2,5,'leader'); INSERT INTO activities(id,trip_id,title,day,start_time,end_time,notes,lat,lng) VALUES (1,1,'Garden','2026-11-29','10:00','11:00','DO NOT PUBLISH',35.1,139.1),(2,1,'Cafe','2026-11-29','12:00','13:00','',35.2,139.2); INSERT INTO day_settings(trip_id,day,title,start_name,start_lat,start_lng) VALUES (1,'2026-11-29','Gardens and cafes','Hotel',35,139); INSERT INTO day_notes(id,trip_id,day,content) VALUES (1,1,'2026-11-29','Bring water'),(2,1,'2026-11-29','GROUP SECRET');",
   );
   await ensureJourneySchema(env);
+  // Fixtures already specify migrated roles; do not run the legacy role backfill.
+  sqlite.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES (?,?)").run("data_migrations", JSON.stringify(["m001-trip-roles"]));
 });
 afterEach(() => vi.unstubAllGlobals());
 afterAll(() => sqlite.close());
+
+describe('document library ownership and cleanup', () => {
+  const storage = { put: vi.fn(async () => {}), delete: vi.fn(async () => {}), get: vi.fn(async () => ({ body: new ReadableStream({start(c) { c.enqueue(new TextEncoder().encode('private')); c.close(); }}) })) };
+  const rest = (path: string, user = 2, method = 'GET', body?: any) => legacyApp.request(`/api${path}`, {
+    method, headers: { Cookie: `sid=session-${user}`, ...(body && !(body instanceof FormData) ? {'Content-Type':'application/json'} : {}) },
+    body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
+  }, {...env, FILES: storage as any});
+  it('keeps personal files owner-only including against admins and bypasses OCR', async () => {
+    const form = new FormData(); form.append('file', new File(['private'], 'notes.txt', {type:'text/plain'}));
+    form.append('category','personal'); form.append('meta',JSON.stringify({docType:'itinerary',bookingNo:'SECRET',legs:[{date:'2026-11-29'}]}));
+    const {id} = await json(rest('/trips/1/documents',2,'POST',form));
+    const own = await json(rest(`/documents/${id}`));
+    expect(own.doc_type).toBe('personal'); expect(own.booking_no).toBeNull(); expect(own.parsed_json).not.toContain('SECRET');
+    expect((await rest(`/documents/${id}/file`)).headers.get('Cache-Control')).toBe('no-store');
+    for (const other of [1,3,5]) {
+      expect((await rest(`/documents/${id}`,other)).status).toBe(404);
+      expect((await rest(`/documents/${id}/file`,other)).status).toBe(404);
+      expect((await rest(`/documents/${id}`,other,'PATCH',{filename:'stolen'})).status).toBe(404);
+      expect((await rest(`/documents/${id}`,other,'DELETE')).status).toBe(404);
+    }
+    expect(JSON.stringify(await json(rest('/trips/1/documents',1)))).not.toContain('notes.txt');
+    await json(rest(`/documents/${id}`,2,'PATCH',{filename:'My packing list.txt'}));
+    expect((await json(rest(`/documents/${id}`))).filename).toBe('My packing list.txt');
+    expect((await rest(`/documents/${id}`,2,'PATCH',{filename:'../bad'})).status).toBe(400);
+    expect((await rest(`/documents/${id}/confirm`,2,'POST',{})).status).not.toBe(200);
+    sqlite.exec('DELETE FROM trip_members WHERE trip_id=1 AND participant_id=2');
+    expect((await rest(`/documents/${id}/file`)).status).toBe(404);
+    sqlite.exec("INSERT INTO trip_members VALUES(1,2,'viewer')");
+    await json(rest(`/documents/${id}`,2,'DELETE'));
+  });
+  it('removes source-derived events but preserves accounting and manual activities', async () => {
+    sqlite.exec(`INSERT INTO documents(id,trip_id,filename,r2_key,mime,size,doc_type,uploaded_by,status) VALUES(900,1,'hotel.pdf','hotel','application/pdf',1,'confirmation',1,'confirmed');
+      INSERT INTO expenses(id,trip_id,document_id,category,description,expense_date,end_date,amount_original,currency,fx_rate,amount_myr) VALUES(900,1,900,'accommodation','Source hotel','2026-11-29','2026-11-30',100,'MYR',1,100)`);
+    expect(JSON.stringify(await json(rest('/trips/1/plan',1)))).toContain('Source hotel');
+    expect((await rest('/documents/900',2,'DELETE')).status).toBe(403);
+    await json(rest('/documents/900',1,'DELETE'));
+    expect(JSON.stringify(await json(rest('/trips/1/plan',1)))).not.toContain('Source hotel');
+    expect(JSON.stringify(await json(req('/trips/1/group',1)))).not.toContain('Source hotel');
+    const expense: any = sqlite.prepare('SELECT * FROM expenses WHERE id=900').get();
+    expect(expense.amount_myr).toBe(100); expect(expense.document_id).toBeNull();
+    expect(sqlite.prepare('SELECT id FROM activities WHERE id=1').get()).toBeTruthy();
+    sqlite.exec('DELETE FROM expenses WHERE id=900');
+  });
+  it('enforces group folder access and immediate membership revocation', async () => {
+    const group = await json(rest('/trips/1/document-library/groups',2,'POST',{name:'Rail friends',participant_ids:[3]}));
+    const folder = await json(rest('/trips/1/document-library/folders',2,'POST',{name:'Tickets',visibility:'group',group_id:group.id}));
+    const form = new FormData(); form.append('file',new File(['ticket'],'rail.txt')); form.append('category','Rail reservations'); form.append('visibility','group'); form.append('folder_id',String(folder.id));
+    const {id} = await json(rest('/trips/1/documents',2,'POST',form));
+    expect((await rest(`/documents/${id}`,3)).status).toBe(200);
+    expect((await rest(`/documents/${id}/file`,3)).status).toBe(200);
+    expect((await rest(`/documents/${id}`,1)).status).toBe(404);
+    expect((await rest(`/documents/${id}`,4)).status).toBe(404);
+    expect((await rest(`/documents/${id}`,3,'DELETE')).status).toBe(403);
+    expect((await rest(`/trips/1/document-library/groups/${group.id}`,3,'PUT',{name:'Hijacked',participant_ids:[4]})).status).toBe(403);
+    await json(rest(`/trips/1/document-library/groups/${group.id}`,1,'PUT',{name:'Rail friends',participant_ids:[4]}));
+    expect((await rest(`/documents/${id}/file`,3)).status).toBe(404);
+    expect((await rest(`/documents/${id}`,4)).status).toBe(200);
+    expect(JSON.stringify(await json(rest('/trips/1/documents',3)))).not.toContain('rail.txt');
+    expect((await rest(`/documents/${id}/confirm`,1,'POST',{})).status).not.toBe(200);
+    const settings = await json(rest('/trips/1/document-library/settings',2));
+    expect(settings.folders.find((f:any)=>f.id===folder.id)).toBeTruthy();
+    expect((await rest('/trips/1/document-library/folders',5,'POST',{name:'Wrong trip',visibility:'group',group_id:group.id})).status).toBe(403);
+    await json(rest(`/documents/${id}`,2,'DELETE'));
+  });
+  it('allows individual private folders and whole-trip files with custom categories', async () => {
+    const f = await json(rest('/trips/1/document-library/folders',2,'POST',{name:'My research',visibility:'private'}));
+    expect((await json(rest('/trips/1/document-library/settings',1))).folders.some((x:any)=>x.id===f.id)).toBe(false);
+    const form = new FormData(); form.append('file',new File(['guide'],'food.txt')); form.append('category','Food guides'); form.append('visibility','trip');
+    const {id} = await json(rest('/trips/1/documents',2,'POST',form));
+    expect(JSON.parse((await json(rest(`/documents/${id}`,3))).parsed_json).libraryCategory).toBe('Food guides');
+    expect((await rest(`/documents/${id}`,5)).status).toBe(404);
+    await json(rest(`/documents/${id}`,2,'PATCH',{filename:'Food favourites.txt'}));
+    await json(rest(`/documents/${id}`,2,'DELETE'));
+    expect((await json(rest('/trips/1/document-library/settings',2))).categories).toContain('Food guides');
+  });
+  it('rejects shared uploads by viewers', async () => {
+    const form = new FormData(); form.append('file',new File(['x'],'hotel.pdf')); form.append('category','accommodation');
+    expect((await rest('/trips/1/documents',2,'POST',form)).status).toBe(403);
+  });
+});
 
 describe('Geoapify transit previews', () => {
   const body = {provider:'geoapify', points:[[51.5,-0.1],[51.51,-0.12]]};

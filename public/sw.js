@@ -216,6 +216,9 @@ self.addEventListener('fetch', (event) => {
   // Cross-origin requests pass through untouched.
   if (url.origin !== self.location.origin) return;
 
+  // Document ownership and deletion must always be checked online.
+  if (/^\/api\/(documents(?:\/|$)|trips\/[^/]+\/(?:documents|document-library)(?:\/|$))/.test(url.pathname)) return;
+
   // Navigation requests: network-first (3s timeout) -> '/' shell fallback.
   if (request.mode === 'navigate') {
     event.respondWith(networkFirstNavigation(request, event));

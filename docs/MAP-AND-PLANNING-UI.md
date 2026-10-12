@@ -32,3 +32,17 @@ Validation: 264 tests across 30 files pass; production build succeeds with the e
 Trip details appear first. The member card uses compact initials avatars with name tooltips on hover and keyboard focus. Organisers can select an avatar to find that traveller, or open Manage members for the searchable, paginated directory, membership checkboxes, role controls, leadership transfer, and add-traveller form. Membership writes are serialized to avoid overlapping whole-list updates.
 
 Validated the production build, all 264 tests, keyboard tooltip, member popup, and search/pagination against the local 18-member trip. Screenshots remain local under output/ui.
+
+## Document library
+
+Categories and visibility are independent. Uploads use Accommodation, Transport & logistics, or Other with a reusable custom category. Categories are saved per user and trip and survive file deletion. Folder mode shows default Private/Whole trip locations and named folders; list mode is a table with file name, category, folder/visibility, date and actions, with horizontal scrolling on mobile.
+
+Every trip member can create groups and named private, group or whole-trip folders. A group creator and trip leaders may edit its name and participant list. The creator is always part of the group; other access follows its current membership. Leaders can manage group membership but are not silently granted access to group documents. Private folders remain owner-only, including against application administrators. Removed trip members lose document access. File uploaders can rename/delete their accessible files; leaders also manage whole-trip documents.
+
+Only organiser uploads to Whole trip using a booking category run OCR/review and can feed the shared plan. Restricted files are stored without parsed booking metadata and cannot be confirmed into expenses; the upload form explains this. Existing personal documents retain private ownership, and existing shared files remain Whole trip. The internal legacy personal doc_type is retained as a restricted-storage marker; it is no longer a user-facing category.
+
+Schema: server/lib/document-schema.ts applies four repeatable CREATE TABLE statements before library operations: document_groups, document_group_members, document_folders, and document_categories. The same DDL is in migrations/0002_document_library.sql for CLI use. No existing rows are rewritten and failed schema work is retried on the next request. Folder assignment/category are server-controlled parsed_json metadata. Document and library routes bypass offline caches and return no-store.
+
+Deleting a booking document atomically unlinks expenses and marks their metadata source_document_removed, then removes the file. Group planner, live guest projection and suggested stays exclude those derived bookings. Accounting records, manual activities, independent personal copies and published snapshots remain. External storage deletion cannot share a D1 transaction; a storage failure can leave an inaccessible orphan object and reports an error.
+
+Validation: production build and 269 tests pass, covering owner/admin/other-member/removed-member access, group revocation and leadership management, custom category persistence, rename validation, and deletion preserving money/manual activities. Browser checks cover local group/folder creation, desktop table and mobile horizontal scrolling. Local preview data includes a Travel research group (creator only) and its Research notes folder. Production deployment must be verified separately after merging.

@@ -9,42 +9,70 @@ import { OCR_LANGS, savedLangs, saveLangs, looksScanned, ocrImages, OcrProgress 
 import { useToast } from '../components/Toast';
 import PageHead from '../components/PageHead';
 import Empty from '../components/Empty';
+import Modal from '../components/Modal';
 import { Icon, type IconName } from '../components/Icon';
 
-const DOC_ICON: Record<string, IconName> = {
-  receipt: 'receipt', itinerary: 'plane', confirmation: 'hotel', other: 'file',
-};
 
 export default function Documents() {
   const { t, lang } = useT();
-  const { trip, tripId, canLead } = useOutletContext<TripCtx>();
+  const { trip, tripId, canLead, members } = useOutletContext<TripCtx>();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [docs, setDocs] = useState<any[]>([]);
+  const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const bm = lang === 'ms';
+  const [category, setCategory] = useState('accommodation');
+  const [library, setLibrary] = useState<{folders:any[];groups:any[];categories:string[]}>({folders:[],groups:[],categories:[]});
+  const [destination, setDestination] = useState('private');
+  const [customCategory, setCustomCategory] = useState('');
+  const [folderModal, setFolderModal] = useState(false);
+  const [folderName, setFolderName] = useState('');
+  const [folderScope, setFolderScope] = useState('private');
+  const [groupId, setGroupId] = useState('');
+  const [groupModal, setGroupModal] = useState(false);
+  const [editGroup, setEditGroup] = useState<any>(null);
+  const [groupName, setGroupName] = useState('');
+  const [groupPeople, setGroupPeople] = useState<number[]>([]);
+  const scopeLabel = (v: string) => v === 'trip' ? (bm ? 'Seluruh perjalanan' : 'Whole trip') : v === 'group' ? (bm ? 'Kumpulan' : 'Group') : (bm ? 'Peribadi' : 'Private');
+  const uploadFolder = library.folders.find(f => String(f.id) === destination);
+  const uploadScope = uploadFolder?.visibility || destination;
+  const useOcr = canLead && uploadScope === 'trip' && category !== 'other';
+  const [view, setView] = useState<'folders' | 'list'>('folders');
+  const [folder, setFolder] = useState('all');
+  const [search, setSearch] = useState('');
+  const [editing, setEditing] = useState<any>(null);
+  const [filename, setFilename] = useState('');
+  const [deleting, setDeleting] = useState<any>(null);
+  const categories = [
+    { id: 'accommodation', name: bm ? 'Penginapan' : 'Accommodation', icon: 'hotel' as IconName, hint: bm ? 'Tempahan hotel dan penginapan · OCR' : 'Hotels and stays · OCR import' },
+    { id: 'logistics', name: bm ? 'Pengangkutan & logistik' : 'Transport & logistics', icon: 'plane' as IconName, hint: bm ? 'Penerbangan, kereta api dan tiket · OCR' : 'Flights, trains and tickets · OCR import' },
+    { id: 'other', name: bm ? 'Lain-lain' : 'Other', icon: 'file' as IconName, hint: bm ? 'Kategori sendiri atau pilih yang sedia ada' : 'Choose or create your own category' },
+  ];
+  const docMeta = (d: any) => { try { return JSON.parse(d.parsed_json || '{}'); } catch { return {}; } };
+  const docCategory = (d: any) => { const c = docMeta(d).libraryCategory; return c === 'personal' ? 'other' : c || (d.doc_type === 'personal' ? 'other' : d.doc_type === 'confirmation' ? 'accommodation' : 'logistics'); };
+  const categoryName = (d: any) => categories.find(c => c.id === docCategory(d))?.name || docCategory(d);
+  const docFolder = (d: any) => String(docMeta(d).libraryFolderId || (d.doc_type === 'personal' ? 'private' : 'trip'));
+  const folderLabel = (d: any) => library.folders.find(f => String(f.id) === docFolder(d))?.name || scopeLabel(docFolder(d));
+  const accessLabel = (d: any) => scopeLabel(library.folders.find(f => String(f.id) === docFolder(d))?.visibility || docFolder(d));
+  const folderChoices = [{id:'private',name:scopeLabel('private'),visibility:'private'}, {id:'trip',name:scopeLabel('trip'),visibility:'trip'}, ...library.folders];
+  const priorCategories = [...new Set<string>([...library.categories,...docs.map(docCategory)])].filter(c => !['accommodation','logistics','other'].includes(c));
+  const visible = docs.filter(d => (folder === 'all' || docFolder(d) === folder) && `${d.filename} ${categoryName(d)}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const openGroup = (g?: any) => { setEditGroup(g || null); setGroupName(g?.name || ''); setGroupPeople(g?.participant_ids || []); setGroupModal(true); };
+  const modify = async (action: () => Promise<unknown>) => {
+    setBusy(true);
+    try { await action(); await load(); setEditing(null); setDeleting(null); setFolderModal(false); setGroupModal(false); toast(t.tSaved); }
+    catch { toast(t.tSaveFailed, 'error'); }
+    finally { setBusy(false); }
+  };
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const toggleSel = (id: number) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  const load = async () => {
+    try { const [files, settings] = await Promise.all([api.get(`/trips/${tripId}/documents`),api.get(`/trips/${tripId}/document-library/settings`)]); setDocs(files); setLibrary(settings); setLoadError(false); }
+    catch { setDocs([]); setLibrary({folders:[],groups:[],categories:[]}); setLoadError(true); }
   };
-  const bulkDelete = async () => {
-    if (!selected.size || !window.confirm(t.bulkDeleteConfirm(selected.size))) return;
-    setBusy(true);
-    try {
-      for (const id of selected) await api.del(`/documents/${id}`);
-      setSelected(new Set());
-      await load();
-    } finally { setBusy(false); }
-  };
-
-  const load = async () => setDocs(await api.get(`/trips/${tripId}/documents`));
-  useEffect(() => { load(); }, [tripId]);
+  useEffect(() => { setDocs([]); setDestination('private'); setLibrary({folders:[],groups:[],categories:[]}); setFolder('all'); setSearch(''); void load(); }, [tripId]);
 
   const [ocrQueue, setOcrQueue] = useState<{ files: File[]; single: boolean } | null>(null);
   // v0.12: visible import pipeline — ✈️ progress, counts, per-file errors
@@ -58,6 +86,9 @@ export default function Documents() {
   const uploadOne = async (file: File, parsed: any, goReview: boolean) => {
     const form = new FormData();
     form.append('file', file);
+    form.append('category', category === 'other' ? customCategory.trim() || 'other' : category);
+    form.append('visibility', uploadScope);
+    if (uploadFolder) form.append('folder_id', String(uploadFolder.id));
     form.append('meta', JSON.stringify(parsed));
     const res = await api.upload(`/trips/${tripId}/documents`, form);
     if (goReview) navigate(`/trips/${tripId}/documents/${res.id}/review`, { state: { duplicate: res.duplicate } });
@@ -79,7 +110,9 @@ export default function Documents() {
         const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
         const isImage = /^image\//.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name);
         try {
-          if (isPdf) {
+          if (!useOcr) {
+            await uploadOne(file, {}, false);
+          } else if (isPdf) {
             let text = '';
             try { text = await extractPdfText(file); } catch { /* treat as scan */ }
             if (looksScanned(text)) { needOcr.push(file); continue; } // scanned PDF → OCR prompt
@@ -106,12 +139,33 @@ export default function Documents() {
     }
   };
 
+  const fileActions = (d: any) => <div className="document-file-actions">
+    <a className="btn secondary sm" href={`/api/documents/${d.id}/file`} target="_blank" rel="noreferrer">{t.viewFile}</a>
+    {canLead && d.doc_type !== 'personal' && d.status === 'draft' && ['accommodation','logistics'].includes(docCategory(d)) && <Link className="btn sm" to={`/trips/${tripId}/documents/${d.id}/review`}>{t.reviewNow}</Link>}
+    {d.can_manage && <><button className="btn ghost sm" disabled={busy} aria-label={`${bm ? 'Namakan semula' : 'Rename'} ${d.filename}`} onClick={() => { setEditing(d); setFilename(d.filename); }}><Icon name="edit" size={16} /></button><button className="btn ghost sm" disabled={busy} aria-label={`${t.delete} ${d.filename}`} onClick={() => setDeleting(d)}><Icon name="trash" size={16} /></button></>}
+  </div>;
+
   return (
     <div>
-      <PageHead crumb={trip.name} title={t.documents} sub={t.documentsSub} />
-      {canLead && (
+      <PageHead crumb={trip.name} title={t.documents} sub={bm ? 'Tempahan perjalanan dan fail peribadi, tersusun di satu tempat.' : 'Travel bookings and personal files, organised in one place.'} />
+      { (
         <>
+          <div className="document-upload-categories" role="group" aria-label={bm ? 'Loại tải lên' : 'Upload category'}>
+            {categories.map(c => <button key={c.id} type="button" className={`document-category ${category === c.id ? 'active' : ''}`} aria-pressed={category === c.id} disabled={busy || !!ocrQueue} onClick={() => setCategory(c.id)}>
+              <Icon name={c.icon} /><b>{c.name}</b><small>{c.hint}</small>
+            </button>)}
+          </div>
+          <div className="document-upload-options">
+            <label>{bm ? 'Simpan dalam folder' : 'Save to folder'}
+              <select value={destination} disabled={busy || !!ocrQueue} onChange={e => setDestination(e.target.value)}>{folderChoices.map(f => <option key={f.id} value={String(f.id)}>{f.name}{f.name !== scopeLabel(f.visibility) ? ` · ${scopeLabel(f.visibility)}` : ''}</option>)}</select>
+            </label>
+            {category === 'other' && <label>{bm ? 'Kategori' : 'Category'}<input list="document-categories" value={customCategory} maxLength={80} disabled={busy || !!ocrQueue} placeholder={bm ? 'Contoh: Panduan makanan' : 'e.g. Food guides'} onChange={e => setCustomCategory(e.target.value)} /><datalist id="document-categories">{priorCategories.map(c => <option key={c} value={c} />)}</datalist></label>}
+            <p className="hint">{scopeLabel(uploadScope)} · {useOcr ? (bm ? 'OCR dan semakan sebelum ditambah ke pelan kumpulan.' : 'OCR and review before adding to the group plan.') : (bm ? 'Fail sahaja. Tidak ditambah ke pelan kumpulan.' : 'File storage only. Nothing is added to the group plan.')}</p>
+          </div>
           <div
+            role="button" tabIndex={busy || ocrQueue ? -1 : 0}
+            aria-label={t.uploadDoc}
+            onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && !busy && !ocrQueue) { e.preventDefault(); fileRef.current?.click(); } }}
             className={`drop2 ${drag ? 'drag' : ''} ${busy || ocrQueue ? 'disabled' : ''}`}
             onClick={() => !busy && !ocrQueue && fileRef.current?.click()}
             onDragOver={e => { e.preventDefault(); if (!busy && !ocrQueue) setDrag(true); }}
@@ -120,8 +174,8 @@ export default function Documents() {
           >
             <span className="tile"><Icon name="upload" /></span>
             <b>{busy ? t.parsing : t.uploadDoc}</b>
-            <small>{t.dropHint}</small>
-            <input ref={fileRef} type="file" accept="application/pdf,image/*" multiple hidden
+            <small>{!useOcr ? (bm ? 'Maksimum 10 MB setiap fail' : 'Up to 10 MB per file') : t.dropHint}</small>
+            <input ref={fileRef} type="file" accept={!useOcr ? undefined : 'application/pdf,image/*'} multiple hidden
               onChange={e => { handleFiles(e.target.files); e.target.value = ''; }} />
           </div>
           {prog && (
@@ -146,63 +200,67 @@ export default function Documents() {
         </>
       )}
 
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="cardhead"><h3>{t.documents}</h3>{docs.length > 0 && <span className="badge gray">{docs.length}</span>}</div>
-        {canLead && docs.length > 0 && (
-          <div className="row-between" style={{ paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
-            <label className="row tiny" style={{ gap: 6 }}>
-              <input type="checkbox"
-                checked={selected.size === docs.length && docs.length > 0}
-                onChange={e => setSelected(e.target.checked ? new Set(docs.map(d => d.id)) : new Set())} />
-              {t.selectAll}
-            </label>
-            {selected.size > 0 && (
-              <button type="button" className="btn danger sm" disabled={busy} onClick={bulkDelete}>
-                <Icon name="trash" size={16} /> {t.deleteSelected} ({selected.size})
-              </button>
-            )}
+      {loadError && <div className="callout warn" role="alert">{bm ? 'Fail tidak dapat dimuatkan. Sambungan internet diperlukan.' : 'Could not load files. Documents require an internet connection.'} <button className="btn secondary sm" onClick={() => void load()}>{bm ? 'Cuba lagi' : 'Retry'}</button></div>}
+      <section className="card document-library" style={{ marginTop: 16 }}>
+        <div className="cardhead"><h3>{t.documents} <span className="badge gray">{docs.length}</span></h3>
+          <div className="row" role="group" aria-label={bm ? 'Paparan' : 'View mode'}>
+            <button className={`btn sm ${view === 'folders' ? '' : 'secondary'}`} aria-pressed={view === 'folders'} onClick={() => { setView('folders'); setFolder('all'); }}>{bm ? 'Folder & fail' : 'Folders & files'}</button>
+            <button className={`btn sm ${view === 'list' ? '' : 'secondary'}`} aria-pressed={view === 'list'} onClick={() => { setView('list'); setFolder('all'); }}>{bm ? 'Senarai' : 'List'}</button>
           </div>
-        )}
-        {docs.length === 0 && (
-          <Empty icon="upload" title={t.noDocsTitle} sub={t.noDocsSub}
-            action={canLead ? { label: t.uploadDoc, onClick: () => fileRef.current?.click() } : undefined} />
-        )}
-        {docs.map(d => (
-          <div className="lrow" key={d.id}>
-            {canLead && (
-              <input type="checkbox" checked={selected.has(d.id)} onChange={() => toggleSel(d.id)}
-                style={{ width: 17, height: 17, flex: '0 0 auto', accentColor: 'var(--brand-700)' }} />
-            )}
-            <span className="tile sm"><Icon name={DOC_ICON[d.doc_type] ?? 'file'} /></span>
-            <div className="l-main">
-              <b>{d.filename}</b>
-              <small>
-                {d.vendor ?? '—'}{d.booking_no ? ` · ${d.booking_no}` : ''} · {fmtDate(d.created_at?.slice(0, 10), lang)}
-              </small>
-            </div>
-            <div className="l-end">
-              {d.status === 'confirmed'
-                ? <span className="badge success"><span className="d" />{t.confirmedStatus}</span>
-                : <span className="badge warning"><span className="d" />{t.draft}</span>}
-              {d.expense_id && <Link className="badge brand" to={`/trips/${tripId}/ledger`}>{t.linkedExpense}</Link>}
-              <a className="btn ghost sm" href={`/api/documents/${d.id}/file`} target="_blank" rel="noreferrer" aria-label={t.viewFile} title={t.viewFile}>
-                <Icon name="eye" size={16} />
-              </a>
-              {canLead && d.status === 'draft' && (
-                <Link className="btn sm" style={{ textDecoration: 'none' }}
-                  to={`/trips/${tripId}/documents/${d.id}/review`}>{t.reviewNow} <Icon name="arrow-r" size={16} /></Link>
-              )}
-              {canLead && (
-                <button type="button" className="btn ghost sm" aria-label={t.delete} onClick={async () => {
-                  if (!window.confirm(d.expense_id ? t.deleteDocLinked : t.deleteDocConfirm)) return;
-                  await api.del(`/documents/${d.id}`);
-                  await load();
-                }}><Icon name="trash" size={16} /></button>
-              )}
-            </div>
+        </div>
+        <div className="document-library-toolbar">
+          <input type="search" aria-label={bm ? 'Cari fail' : 'Search files'} placeholder={bm ? 'Cari nama fail…' : 'Search filenames…'} value={search} onChange={e => setSearch(e.target.value)} />
+          <select aria-label={bm ? 'Folder' : 'Folder'} value={folder} onChange={e => setFolder(e.target.value)}><option value="all">{bm ? 'Semua fail' : 'All files'}</option>{folderChoices.map(f => <option key={f.id} value={String(f.id)}>{f.name}</option>)}</select>
+        </div>
+        <div className="row" style={{marginBottom:16, flexWrap:'wrap'}}>
+          <button className="btn secondary sm" onClick={() => { setFolderName(''); setFolderModal(true); }}>{bm ? 'Folder baharu' : 'New folder'}</button>
+          <button className="btn secondary sm" onClick={() => openGroup()}>{bm ? 'Kumpulan baharu' : 'New group'}</button>
+          {library.groups.filter(g => g.can_manage).map(g => <button key={g.id} className="btn ghost sm" onClick={() => openGroup(g)}>{bm ? 'Urus' : 'Manage'} {g.name}</button>)}
+        </div>
+        {view === 'folders' && folder === 'all' && !search && <div className="document-folders">
+          {folderChoices.map(f => <button className="document-folder" key={f.id} onClick={() => setFolder(String(f.id))}><Icon name="file" size={24} /><strong>{f.name}</strong><span>{docs.filter(d => docFolder(d) === String(f.id)).length} {bm ? 'fail' : 'files'}</span><small>{scopeLabel(f.visibility)}{f.group_id ? ` · ${library.groups.find(g => g.id === f.group_id)?.name || ''}` : ''}</small></button>)}
+        </div>}
+        {(view === 'list' || folder !== 'all' || !!search) && <>
+          {folder !== 'all' && <button className="btn ghost sm" onClick={() => setFolder('all')}>{bm ? 'Semua folder' : 'All folders'}</button>}
+          {!visible.length && <Empty icon="file" title={bm ? 'Tiada fail ditemui' : 'No files found'} sub={bm ? 'Tukar carian atau muat naik fail di atas.' : 'Try another search or upload a file above.'} />}
+          <div className={view === 'list' ? 'document-table-scroll' : 'document-file-grid'}>
+            {view === 'list' ? <table className="document-table"><thead><tr><th>{bm ? 'Nama fail' : 'File name'}</th><th>{bm ? 'Kategori' : 'Category'}</th><th>Folder / {bm ? 'Akses' : 'Visibility'}</th><th>{bm ? 'Tarikh' : 'Uploaded'}</th><th>{bm ? 'Tindakan' : 'Actions'}</th></tr></thead><tbody>
+              {visible.map(d => <tr key={d.id}><td><b>{d.filename}</b>{d.doc_type !== 'personal' && ['accommodation','logistics'].includes(docCategory(d)) && <small>{d.status === 'confirmed' ? t.confirmedStatus : t.draft}</small>}{d.expense_id && <Link className="badge brand" to={`/trips/${tripId}/ledger`}>{t.linkedExpense}</Link>}</td><td>{categoryName(d)}</td><td>{folderLabel(d)}{folderLabel(d) !== accessLabel(d) && <small>{accessLabel(d)}</small>}</td><td>{fmtDate(d.created_at?.slice(0,10),lang)}</td><td>{fileActions(d)}</td></tr>)}
+            </tbody></table> : visible.map(d => <article className="document-file" key={d.id}><span className="tile sm"><Icon name="file" /></span><div className="document-file-info"><b>{d.filename}</b><small>{categoryName(d)} · {folderLabel(d)}</small><span className="badge brand">{accessLabel(d)}</span></div>{fileActions(d)}</article>)}
           </div>
-        ))}
-      </div>
+        </>}
+      </section>
+      <Modal open={folderModal} onClose={() => !busy && setFolderModal(false)} icon="file" title={bm ? 'Folder baharu' : 'New folder'} closeLabel={t.close}>
+        <form className="document-folder-form" onSubmit={e => { e.preventDefault(); void modify(() => api.post(`/trips/${tripId}/document-library/folders`, {name:folderName,visibility:folderScope,group_id:Number(groupId)})); }}>
+          <label>{bm ? 'Nama folder' : 'Folder name'}<input required maxLength={80} value={folderName} onChange={e => setFolderName(e.target.value)} /></label>
+          <label>{bm ? 'Siapa boleh melihat?' : 'Who can access?'}<select value={folderScope} onChange={e => setFolderScope(e.target.value)}><option value="private">{scopeLabel('private')}</option><option value="group">{scopeLabel('group')}</option><option value="trip">{scopeLabel('trip')}</option></select></label>
+          {folderScope === 'group' && <label>{bm ? 'Kumpulan' : 'Group'}<select required value={groupId} onChange={e => setGroupId(e.target.value)}><option value="">{bm ? 'Pilih kumpulan' : 'Choose a group'}</option>{library.groups.filter(g => g.can_access).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label>}
+          <p className="hint">{bm ? 'Fail baharu mengikut akses folder ini. Akses kumpulan berubah apabila keahlian berubah.' : 'New files inherit this folder’s visibility. Group access changes when membership changes.'}</p>
+          <button className="btn" disabled={busy || !folderName.trim()}>{t.save}</button>
+        </form>
+      </Modal>
+      <Modal open={groupModal} onClose={() => !busy && setGroupModal(false)} icon="edit" title={editGroup ? (bm ? 'Urus kumpulan' : 'Manage group') : (bm ? 'Kumpulan baharu' : 'New group')} closeLabel={t.close}>
+        <form className="document-folder-form" onSubmit={e => { e.preventDefault(); const data={name:groupName,participant_ids:groupPeople}; void modify(() => editGroup ? api.put(`/trips/${tripId}/document-library/groups/${editGroup.id}`,data) : api.post(`/trips/${tripId}/document-library/groups`,data)); }}>
+          <label>{bm ? 'Nama kumpulan' : 'Group name'}<input required maxLength={80} value={groupName} onChange={e => setGroupName(e.target.value)} /></label>
+          <p className="hint">{bm ? 'Pencipta dan ahli terpilih boleh melihat fail kumpulan. Ketua perjalanan boleh mengurus keahlian.' : 'The creator and selected members can access group files. Trip leaders can manage membership.'}</p>
+          <div className="document-group-people">{members.map(m => <label key={m.id}><input type="checkbox" checked={groupPeople.includes(m.id)} onChange={e => setGroupPeople(e.target.checked ? [...groupPeople,m.id] : groupPeople.filter(id => id !== m.id))} />{m.name}</label>)}</div>
+          <button className="btn" disabled={busy || !groupName.trim()}>{t.save}</button>
+        </form>
+      </Modal>
+      <Modal open={!!editing} onClose={() => !busy && setEditing(null)} icon="edit" title={bm ? 'Namakan semula fail' : 'Rename file'} closeLabel={t.close}>
+        <form onSubmit={e => { e.preventDefault(); void modify(() => api.patch(`/documents/${editing.id}`, { filename })); }}>
+          <label htmlFor="document-name">{bm ? 'Nama fail' : 'File name'}</label>
+          <input id="document-name" value={filename} maxLength={180} required onChange={e => setFilename(e.target.value)} disabled={busy} />
+          <p className="hint">{bm ? 'Kandungan fail tidak berubah.' : 'The file contents stay unchanged.'}</p>
+          <button className="btn" disabled={busy || !filename.trim()}>{busy ? t.loading : t.save}</button>
+        </form>
+      </Modal>
+      <Modal open={!!deleting} onClose={() => !busy && setDeleting(null)} icon="trash" title={bm ? 'Padam fail?' : 'Delete file?'} closeLabel={t.close}>
+        <b>{deleting?.filename}</b>
+        <p>{bm ? 'Fail ini akan dipadam secara kekal.' : 'This permanently deletes the file.'}</p>
+        {deleting?.doc_type !== 'personal' && <p className="hint">{bm ? 'Maklumat tempahan berkaitan akan dibuang daripada pelan kumpulan. Rekod perbelanjaan, salinan pelan peribadi dan panduan yang diterbitkan dikekalkan.' : 'Associated booking details will be removed from the group plan. Expense records, personal plan copies and published guides are kept.'}</p>}
+        <button className="btn danger" disabled={busy} onClick={() => void modify(() => api.del(`/documents/${deleting.id}`))}>{busy ? t.loading : t.delete}</button>
+      </Modal>
 
       {ocrQueue && (
         <OcrModal files={ocrQueue.files} single={ocrQueue.single}

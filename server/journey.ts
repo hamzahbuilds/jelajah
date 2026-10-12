@@ -241,7 +241,7 @@ export async function groupJourney(env: Env, tripId: number): Promise<Journey> {
   // this projection. Event IDs are re-keyed when making a personal copy.
   const bookings = await env.DB.prepare(
     `SELECT e.id,e.category,e.expense_date,e.end_date,e.location,e.vendor,e.lat,e.lng,d.parsed_json,d.booking_no
-    FROM expenses e LEFT JOIN documents d ON d.id=e.document_id WHERE e.trip_id=? AND e.category IN ('flight','accommodation')`,
+    FROM expenses e LEFT JOIN documents d ON d.id=e.document_id WHERE e.trip_id=? AND e.category IN ('flight','accommodation') AND COALESCE(json_extract(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{}' END, '$.source_document_removed'),0) = 0`,
   )
     .bind(tripId)
     .all<any>();
