@@ -558,10 +558,10 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
         </div>
         <div className="chips" style={{ marginTop: 6 }}>
           {members.map(m => (
-            <span key={m.id} className={`chip ${d.participant_ids.includes(m.id) ? 'on' : ''}`}
+            <button type="button" aria-pressed={d.participant_ids.includes(m.id)} key={m.id} className={`chip ${d.participant_ids.includes(m.id) ? 'on' : ''}`}
               onClick={() => toggleParticipant(m.id)}>
               {m.name}{m.is_infant ? ' 👶' : ''}
-            </span>
+            </button>
           ))}
         </div>
       </div>

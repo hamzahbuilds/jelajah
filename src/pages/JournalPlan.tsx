@@ -1,3 +1,4 @@
+import Loading from '../components/Loading';
 import PlanDaySummary from '../components/PlanDaySummary';
 import TransportLeg from '../components/TransportLeg';
 import Modal from "../components/Modal";
@@ -291,7 +292,7 @@ function PersonalPlan({ id }: { id: number }) {
     </div>}
   </TransportLeg>;
   if (failed) return <p role="alert">{j.failed}</p>;
-  if (!record) return <p role="status">{t.loading}</p>;
+  if (!record) return <Loading label={t.loading} />;
   return (
     <section className="personal-plan">
       <header className="journal-hero compact">

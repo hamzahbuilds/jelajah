@@ -1,3 +1,4 @@
+import Loading from '../components/Loading';
 import { useEffect, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { api, fmtMYR, fmtDate } from '../api';
@@ -93,7 +94,7 @@ export default function Payments() {
       <div className="grid">
         <div className="card">
           <div className="cardhead"><h3>{t.balances}</h3></div>
-          {!bal && <p className="muted">{t.loading}</p>}
+          {!bal && <Loading label={t.loading} />}
           {bal?.balances?.length === 0 && <Empty icon="check" title={t.allSquare} sub={t.allSquareSub} />}
           <div className={(bal?.balances?.length ?? 0) > 5 ? 'scroll-cap-lg' : ''}>
           {bal?.balances?.map((b: any) => (

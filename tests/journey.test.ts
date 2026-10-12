@@ -148,6 +148,31 @@ describe('document library ownership and cleanup', () => {
     method, headers: { Cookie: `sid=session-${user}`, ...(body && !(body instanceof FormData) ? {'Content-Type':'application/json'} : {}) },
     body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
   }, {...env, FILES: storage as any});
+  it('reopens a reviewed booking and replaces participants without duplicating its expense', async () => {
+    const form = new FormData(); form.append('file', new File(['booking'], 'flight.txt', {type:'text/plain'}));
+    form.append('category','logistics'); form.append('visibility','trip'); form.append('meta',JSON.stringify({docType:'itinerary'}));
+    const {id} = await json(rest('/trips/1/documents',1,'POST',form));
+    const expense = {category:'transport',description:'Flight review',amount_original:100,currency:'MYR',fx_rate:1,amount_myr:100,payer_participant_id:1,shares:[{participant_id:1,amount_myr:100}],due_dates:[{due_date:'2026-11-01',amount_myr:100}]};
+    const first = await json(rest(`/documents/${id}/confirm`,1,'POST',{expense}));
+    const loaded = await json(rest(`/documents/${id}`,1));
+    expect(loaded.expense.id).toBe(first.expense_id); expect(loaded.shares[0].participant_id).toBe(1); expect(loaded.due_dates).toHaveLength(1);
+    sqlite.prepare('UPDATE due_dates SET settled=1 WHERE expense_id=?').run(first.expense_id);
+    await json(rest(`/documents/${id}/confirm`,1,'POST',{expense:{...expense,due_dates:loaded.due_dates}}));
+    expect((await json(rest(`/documents/${id}`,1))).due_dates[0].settled).toBe(1);
+    const changed = {...expense,shares:[{participant_id:2,amount_myr:100}],due_dates:[]};
+    for (let i=0;i<2;i++) expect((await json(rest(`/documents/${id}/confirm`,1,'POST',{expense:changed}))).expense_id).toBe(first.expense_id);
+    const updated = await json(rest(`/documents/${id}`,1));
+    expect(updated.shares).toHaveLength(1); expect(updated.shares[0].participant_id).toBe(2); expect(updated.expense.amount_myr).toBe(100); expect(updated.due_dates).toHaveLength(0);
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM expenses WHERE document_id=?').get(id)?.n).toBe(1);
+    expect((await rest(`/documents/${id}/confirm`,2,'POST',{expense})).status).toBe(403);
+    expect((await rest(`/documents/${id}/confirm`,1,'POST',{expense:{...expense,shares:[{participant_id:9999,amount_myr:100}]}})).status).toBe(400);
+    sqlite.prepare("UPDATE expenses SET split_json='{}' WHERE id=?").run(first.expense_id);
+    expect((await rest(`/documents/${id}/confirm`,1,'POST',{expense})).status).toBe(409);
+    await json(rest(`/documents/${id}`,1,'DELETE'));
+    sqlite.prepare('DELETE FROM due_dates WHERE expense_id=?').run(first.expense_id);
+    sqlite.prepare('DELETE FROM expense_shares WHERE expense_id=?').run(first.expense_id);
+    sqlite.prepare('DELETE FROM expenses WHERE id=?').run(first.expense_id);
+  });
   it('keeps personal files owner-only including against admins and bypasses OCR', async () => {
     const form = new FormData(); form.append('file', new File(['private'], 'notes.txt', {type:'text/plain'}));
     form.append('category','personal'); form.append('meta',JSON.stringify({docType:'itinerary',bookingNo:'SECRET',legs:[{date:'2026-11-29'}]}));

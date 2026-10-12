@@ -1,3 +1,4 @@
+import Loading from './components/Loading';
 import BrandMark from './components/BrandMark';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
@@ -65,6 +66,7 @@ export const useTripNav = () => useContext(TripNavCtx);
 export const useSetTripNav = () => useContext(TripNavSetCtx);
 
 function Shell() {
+  const { t } = useT();
   const [state, setState] = useState<{ user: User; trips: Trip[] } | null | 'loading'>('loading');
   const [tripNav, setTripNav] = useState<TripNavInfo | null>(null);
   const navigate = useNavigate();
@@ -84,7 +86,7 @@ function Shell() {
   };
   useEffect(() => { refresh(); }, []);
 
-  if (state === 'loading') return <div className="container"><p className="muted" style={{ padding: 40 }}>…</p></div>;
+  if (state === 'loading') return <Loading label={t.loading} />;
   if (!state) return <Navigate to="/login" replace />;
 
   const logout = async () => {

@@ -1,3 +1,4 @@
+import Loading from '../components/Loading';
 import PlanDaySummary from '../components/PlanDaySummary';
 import TransportLeg from '../components/TransportLeg';
 import TravelNotes from '../components/TravelNotes';
@@ -299,7 +300,7 @@ export default function Plan() {
   // (buildLegs above); a route is just that straight segment, styled by mode in
   // LeafletMap (train/intercity teal, walk dotted gray, taxi dashed amber).
   const routeResults = useJourneyRoutes(tripId, legs);
-  if (!data) return <p className="muted" style={{ padding: 30 }}>{t.loading}</p>;
+  if (!data) return <Loading label={t.loading} />;
   if (data.hidden) return <div className="card muted">—</div>;
 
   const routes = legs.flatMap(leg => routeSegments(routeResults[leg.key], leg.chosen));

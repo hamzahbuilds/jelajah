@@ -58,3 +58,12 @@ Verified against local Jelajah Jepun Day 2, teamLab Planets to Sensoji: boarding
 Admin > Experimental features has three independent, platform-wide switches: Geoapify preview, Google transit embed, and the external Google Maps link inside the transit popup. All default off. Settings are stored in app_settings.feature_flags; admin-only updates require booleans and are audited. The signed-in /journey/features read endpoint returns only these flags with no-store. The popup reloads flags each time it opens and fails closed if settings cannot load. Preview endpoints reject disabled providers before making upstream requests. Tokyo station directions and route geometry remain visible. Existing directions links elsewhere are unchanged.
 
 Build and 270 tests passed, including default-off, admin authorization, validation, persistence, and server-side provider rejection. Local browser confirmed the popup retains boarding/exit guidance without preview controls. No deployment performed.
+
+
+### Document review and feedback (October 2026)
+
+Confirming a document stays on the review page and shows a saved confirmation. Leaders can use **Review again** on confirmed accommodation and logistics files; the form loads the linked expense, participants, custom shares and due dates. Saving replaces the existing shares and due dates in a D1 transaction, reusing the expense ID. Equal splits stay automatic when participants change; unequal splits remain custom. Room-based splits must still be edited in the ledger. Legacy documents with multiple linked expenses are blocked from review updates to avoid silently modifying the wrong record.
+
+The shared Loading component animates the Jelajah J and travelling dot, with a static mark for reduced-motion preferences. It is used in app/trip boot, joining, plan loading, payment loading, document fetching and review saves. Document loading, request errors, empty folders and searches with no results have distinct feedback; failed requests never appear as an empty library. English and Bahasa Malaysia labels follow the current language.
+
+Validation: production build and 271 tests passed, including real-SQLite document re-review, participant replacement, repeated saves, member authorization and protected room splits. No schema migration or provider setup is required.

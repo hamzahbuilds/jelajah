@@ -830,6 +830,14 @@ app.get('/documents/:id', async c => {
   if (!(await assertTripAccess(c, doc.trip_id))) return bad(c, 'forbidden', 403);
   c.header('Cache-Control', 'no-store');
   if ((await hiddenFor(c, doc.trip_id)).has('documents')) return bad(c, 'feature_hidden', 403);
+  if (await needRole(c,doc.trip_id,'leader')) {
+    const expenses = (await c.env.DB.prepare('SELECT * FROM expenses WHERE document_id=? ORDER BY id').bind(id).all<any>()).results;
+    if (expenses.length > 1) return bad(c,'multiple_linked_expenses',409);
+    const expense = expenses[0] || null;
+    const shares = expense ? (await c.env.DB.prepare('SELECT * FROM expense_shares WHERE expense_id=?').bind(expense.id).all()).results : [];
+    const due_dates = expense ? (await c.env.DB.prepare('SELECT * FROM due_dates WHERE expense_id=?').bind(expense.id).all()).results : [];
+    return c.json({...doc, expense, shares, due_dates});
+  }
   return c.json(doc);
 });
 
@@ -1473,7 +1481,26 @@ app.post('/documents/:id/confirm', async c => {
   if (body.expense) {
     const err = validExpense(body.expense);
     if (err) return bad(c, err);
-    expenseId = await insertExpense(c.env, doc.trip_id, id, body.expense);
+    const p = body.expense;
+    if (!(await participantsBelongToTrip(c.env,doc.trip_id,[p.payer_participant_id,...p.shares.map(s=>s.participant_id),...(p.due_dates??[]).flatMap(d=>d.participant_id ? [d.participant_id] : [])]))) return bad(c,'invalid_participants');
+    const linked = (await c.env.DB.prepare('SELECT id,split_json FROM expenses WHERE document_id=? ORDER BY id').bind(id).all<any>()).results;
+    if (linked.length > 1) return bad(c,'multiple_linked_expenses',409);
+    if (linked[0]?.split_json) return bad(c,'rooms_split_edit_in_ledger',409);
+    // Keep creation and replacement in one D1 transaction. Repeated confirmation
+    // (including concurrent requests) must reuse the document's single expense.
+    const expenseRef = '(SELECT id FROM expenses WHERE document_id=?)';
+    const existingDues = (await c.env.DB.prepare(`SELECT d.* FROM due_dates d JOIN expenses e ON e.id=d.expense_id WHERE e.document_id=?`).bind(id).all<any>()).results;
+    const settled = (d: NonNullable<ExpensePayload['due_dates']>[number]) => existingDues.find(old => old.due_date === d.due_date && old.amount_myr === (d.amount_myr ?? null) && old.participant_id === (d.participant_id ?? null))?.settled ?? 0;
+    await c.env.DB.batch([
+      c.env.DB.prepare(`INSERT INTO expenses(trip_id,document_id,category,description,amount_original,currency,fx_rate,amount_myr,payer_participant_id,meta_json)
+        SELECT ?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM expenses WHERE document_id=?)`).bind(doc.trip_id,id,p.category,p.description.trim(),p.amount_original,p.currency,p.fx_rate,p.amount_myr,p.payer_participant_id,p.meta ? JSON.stringify(p.meta) : null,id),
+      c.env.DB.prepare(`UPDATE expenses SET category=?,description=?,vendor=?,location=?,expense_date=?,end_date=?,payment_date=?,amount_original=?,currency=?,fx_rate=?,amount_myr=?,payer_participant_id=?,payment_status=COALESCE(?,payment_status) WHERE document_id=?`).bind(p.category,p.description.trim(),p.vendor??null,p.location??null,p.expense_date??null,p.end_date??null,p.payment_date??null,p.amount_original,p.currency,p.fx_rate,p.amount_myr,p.payer_participant_id,p.payment_status??null,id),
+      c.env.DB.prepare(`DELETE FROM expense_shares WHERE expense_id=${expenseRef}`).bind(id),
+      c.env.DB.prepare(`DELETE FROM due_dates WHERE expense_id=${expenseRef}`).bind(id),
+      ...p.shares.map(s=>c.env.DB.prepare(`INSERT INTO expense_shares(expense_id,participant_id,amount_myr) VALUES(${expenseRef},?,?)`).bind(id,s.participant_id,s.amount_myr)),
+      ...(p.due_dates??[]).map(d=>c.env.DB.prepare(`INSERT INTO due_dates(expense_id,due_date,amount_myr,note,participant_id,settled) VALUES(${expenseRef},?,?,?,?,?)`).bind(id,d.due_date,d.amount_myr??null,d.note??null,d.participant_id??null,settled(d))),
+    ]);
+    expenseId = (await c.env.DB.prepare('SELECT id FROM expenses WHERE document_id=?').bind(id).first<any>()).id;
   }
   await c.env.DB.prepare(
     `UPDATE documents SET status = 'confirmed', vendor = COALESCE(?, vendor),

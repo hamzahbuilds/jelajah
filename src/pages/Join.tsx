@@ -1,3 +1,4 @@
+import Loading from '../components/Loading';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useT } from '../i18n';
@@ -93,7 +94,7 @@ export default function Join() {
   };
 
   if (info === null) {
-    return <div className="login-wrap"><div className="login-card muted">{t.loading}</div></div>;
+    return <div className="login-wrap"><div className="login-card"><Loading label={t.loading} /></div></div>;
   }
 
   if (!info.valid) {
@@ -123,7 +124,7 @@ export default function Join() {
     : null;
 
   if (loggedIn === null) {
-    return <div className="login-wrap"><div className="login-card muted">{t.loading}</div></div>;
+    return <div className="login-wrap"><div className="login-card"><Loading label={t.loading} /></div></div>;
   }
 
   return (

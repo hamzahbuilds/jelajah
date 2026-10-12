@@ -1,3 +1,4 @@
+import Loading from '../components/Loading';
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams } from 'react-router-dom';
 import { api } from '../api';
@@ -73,7 +74,7 @@ export default function TripShell() {
       </div>
     );
   }
-  if (!data) return <p className="muted" style={{ padding: 30 }}>{t.loading}</p>;
+  if (!data) return <Loading label={t.loading} />;
 
   const ctx: TripCtx = { ...data, tripId, reload, myRole, canLead, canEdit };
 

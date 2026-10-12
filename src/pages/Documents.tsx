@@ -1,3 +1,4 @@
+import Loading from '../components/Loading';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useOutletContext, Link } from 'react-router-dom';
 import { api, fmtDate } from '../api';
@@ -19,6 +20,7 @@ export default function Documents() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [docs, setDocs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
@@ -69,8 +71,10 @@ export default function Documents() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
+    setLoading(true);
     try { const [files, settings] = await Promise.all([api.get(`/trips/${tripId}/documents`),api.get(`/trips/${tripId}/document-library/settings`)]); setDocs(files); setLibrary(settings); setLoadError(false); }
     catch { setDocs([]); setLibrary({folders:[],groups:[],categories:[]}); setLoadError(true); }
+    finally { setLoading(false); }
   };
   useEffect(() => { setDocs([]); setDestination('private'); setLibrary({folders:[],groups:[],categories:[]}); setFolder('all'); setSearch(''); void load(); }, [tripId]);
 
@@ -141,7 +145,7 @@ export default function Documents() {
 
   const fileActions = (d: any) => <div className="document-file-actions">
     <a className="btn secondary sm" href={`/api/documents/${d.id}/file`} target="_blank" rel="noreferrer">{t.viewFile}</a>
-    {canLead && d.doc_type !== 'personal' && d.status === 'draft' && ['accommodation','logistics'].includes(docCategory(d)) && <Link className="btn sm" to={`/trips/${tripId}/documents/${d.id}/review`}>{t.reviewNow}</Link>}
+    {canLead && d.doc_type !== 'personal' && ['accommodation','logistics'].includes(docCategory(d)) && <Link className="btn sm" to={`/trips/${tripId}/documents/${d.id}/review`}>{d.status === 'confirmed' ? (bm ? 'Semak semula' : 'Review again') : t.reviewNow}</Link>}
     {d.can_manage && <><button className="btn ghost sm" disabled={busy} aria-label={`${bm ? 'Namakan semula' : 'Rename'} ${d.filename}`} onClick={() => { setEditing(d); setFilename(d.filename); }}><Icon name="edit" size={16} /></button><button className="btn ghost sm" disabled={busy} aria-label={`${t.delete} ${d.filename}`} onClick={() => setDeleting(d)}><Icon name="trash" size={16} /></button></>}
   </div>;
 
@@ -217,14 +221,16 @@ export default function Documents() {
           <button className="btn secondary sm" onClick={() => openGroup()}>{bm ? 'Kumpulan baharu' : 'New group'}</button>
           {library.groups.filter(g => g.can_manage).map(g => <button key={g.id} className="btn ghost sm" onClick={() => openGroup(g)}>{bm ? 'Urus' : 'Manage'} {g.name}</button>)}
         </div>
-        {view === 'folders' && folder === 'all' && !search && <div className="document-folders">
+        {loading && <Loading label={t.loading} />}
+        {!loading && !loadError && !docs.length && <Empty icon="file" title={bm ? 'Dokumen perjalanan anda di sini' : 'Your travel documents, together'} sub={bm ? 'Simpan tempahan atau fail lain. Pilih siapa boleh melihat sebelum memuat naik.' : 'Keep bookings and useful files close at hand. Choose who can see each upload above.'} />}
+        {!loading && !loadError && view === 'folders' && folder === 'all' && !search && <div className="document-folders">
           {folderChoices.map(f => <button className="document-folder" key={f.id} onClick={() => setFolder(String(f.id))}><Icon name="file" size={24} /><strong>{f.name}</strong><span>{docs.filter(d => docFolder(d) === String(f.id)).length} {bm ? 'fail' : 'files'}</span><small>{scopeLabel(f.visibility)}{f.group_id ? ` · ${library.groups.find(g => g.id === f.group_id)?.name || ''}` : ''}</small></button>)}
         </div>}
-        {(view === 'list' || folder !== 'all' || !!search) && <>
+        {!loading && !loadError && (view === 'list' || folder !== 'all' || !!search) && <>
           {folder !== 'all' && <button className="btn ghost sm" onClick={() => setFolder('all')}>{bm ? 'Semua folder' : 'All folders'}</button>}
-          {!visible.length && <Empty icon="file" title={bm ? 'Tiada fail ditemui' : 'No files found'} sub={bm ? 'Tukar carian atau muat naik fail di atas.' : 'Try another search or upload a file above.'} />}
+          {!!docs.length && !visible.length && <Empty icon="file" title={search ? (bm ? 'Tiada padanan' : 'No matching files') : (bm ? 'Folder ini kosong' : 'This folder is empty')} sub={search ? (bm ? 'Cuba nama fail atau kategori lain.' : 'Try a different filename or category.') : (bm ? 'Pilih folder ini semasa memuat naik fail.' : 'Choose this folder when uploading your next file.')} action={search ? {label:bm?'Kosongkan carian':'Clear search',onClick:()=>setSearch('')} : undefined} />}
           <div className={view === 'list' ? 'document-table-scroll' : 'document-file-grid'}>
-            {view === 'list' ? <table className="document-table"><thead><tr><th>{bm ? 'Nama fail' : 'File name'}</th><th>{bm ? 'Kategori' : 'Category'}</th><th>Folder / {bm ? 'Akses' : 'Visibility'}</th><th>{bm ? 'Tarikh' : 'Uploaded'}</th><th>{bm ? 'Tindakan' : 'Actions'}</th></tr></thead><tbody>
+            {view === 'list' && visible.length > 0 ? <table className="document-table"><thead><tr><th>{bm ? 'Nama fail' : 'File name'}</th><th>{bm ? 'Kategori' : 'Category'}</th><th>Folder / {bm ? 'Akses' : 'Visibility'}</th><th>{bm ? 'Tarikh' : 'Uploaded'}</th><th>{bm ? 'Tindakan' : 'Actions'}</th></tr></thead><tbody>
               {visible.map(d => <tr key={d.id}><td><b>{d.filename}</b>{d.doc_type !== 'personal' && ['accommodation','logistics'].includes(docCategory(d)) && <small>{d.status === 'confirmed' ? t.confirmedStatus : t.draft}</small>}{d.expense_id && <Link className="badge brand" to={`/trips/${tripId}/ledger`}>{t.linkedExpense}</Link>}</td><td>{categoryName(d)}</td><td>{folderLabel(d)}{folderLabel(d) !== accessLabel(d) && <small>{accessLabel(d)}</small>}</td><td>{fmtDate(d.created_at?.slice(0,10),lang)}</td><td>{fileActions(d)}</td></tr>)}
             </tbody></table> : visible.map(d => <article className="document-file" key={d.id}><span className="tile sm"><Icon name="file" /></span><div className="document-file-info"><b>{d.filename}</b><small>{categoryName(d)} · {folderLabel(d)}</small><span className="badge brand">{accessLabel(d)}</span></div>{fileActions(d)}</article>)}
           </div>
