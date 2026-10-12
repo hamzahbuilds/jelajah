@@ -67,3 +67,10 @@ Confirming a document stays on the review page and shows a saved confirmation. L
 The shared Loading component animates the Jelajah J and travelling dot, with a static mark for reduced-motion preferences. It is used in app/trip boot, joining, plan loading, payment loading, document fetching and review saves. Document loading, request errors, empty folders and searches with no results have distinct feedback; failed requests never appear as an empty library. English and Bahasa Malaysia labels follow the current language.
 
 Validation: production build and 271 tests passed, including real-SQLite document re-review, participant replacement, repeated saves, member authorization and protected room splits. No schema migration or provider setup is required.
+
+
+### OCR initialization recovery
+
+The tessdata_fast CDN supplies uncompressed `.traineddata` files; requesting `.gz` returned 404. Tesseract's createWorker initialization did not reject that language-load failure, leaving the modal locked. OCR now owns its native worker from startup, uses the bundled worker message protocol, loads compressed local English/Malay packs separately from uncompressed CDN Japanese/Chinese packs, and terminates on failure, cancellation, unmount or a 90-second per-stage timeout. Preserve the adapter contract when updating `public/tess/worker.min.js`.
+
+PDF OCR rendering is capped at four megapixels per page, with canvas and PDF resources released. The UI distinguishes preparing pages from preparing language packs and allows cancellation before upload. Failed/cancelled processing restores retry and upload-as-is. Browser verification completed a synthetic image with all four languages enabled and verified startup cancellation. Build and 275 tests passed, including download format, initialization rejection, timeout, retry and worker cleanup. No migration is needed.

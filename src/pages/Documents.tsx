@@ -284,7 +284,10 @@ function OcrModal({ files, single, upload, onClose }: {
   upload: (file: File, parsed: any, goReview: boolean) => Promise<any>;
   onClose: () => void;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const controller = useRef<AbortController | null>(null);
+  const [uploading, setUploading] = useState(false);
+  useEffect(() => () => controller.current?.abort(), []);
   const [idx, setIdx] = useState(0);
   const [langs, setLangs] = useState<string[]>(savedLangs());
   const [prog, setProg] = useState<OcrProgress | null>(null);
@@ -305,31 +308,39 @@ function OcrModal({ files, single, upload, onClose }: {
   };
 
   const run = async () => {
+    if (controller.current) return;
+    const current = new AbortController();
+    controller.current = current;
     setErr('');
-    setProg({ page: 0, pages: 1, pct: 0, status: 'lang' });
+    setProg({ page: 0, pages: 1, pct: 0, status: 'render' });
     try {
       const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-      const images: Blob[] = isPdf ? await renderPdfPages(file) : [file];
-      const text = await ocrImages(images, langs, setProg);
+      const images: Blob[] = isPdf ? await renderPdfPages(file, 8, 2.2, current.signal) : [file];
+      const text = await ocrImages(images, langs, setProg, current.signal);
+      current.signal.throwIfAborted();
       const parsed = parseDocument(text);
       parsed.fields['OCR'] = langs.join('+');
+      setUploading(true);
       await upload(file, parsed, single && isLast);
       if (!(single && isLast)) await advance();
     } catch (e: any) {
-      setErr(t.ocrFailed);
+      if (!current.signal.aborted) setErr(t.ocrFailed);
       setProg(null);
-    }
+    } finally { controller.current = null; setUploading(false); }
   };
 
   const skip = async () => {
-    await upload(file, {
+    if (uploading || controller.current) return;
+    setUploading(true); setErr('');
+    try { await upload(file, {
       parser: 'none', docType: 'other', people: [], legs: [], fields: {},
       warnings: [t.ocrSkippedWarn], confidence: 0, suggestExpense: true,
     }, single && isLast);
     if (!(single && isLast)) await advance();
+    } catch { setErr(t.ocrFailed); } finally { setUploading(false); }
   };
 
-  const running = prog !== null;
+  const running = prog !== null || uploading;
   return (
     <div className="overlay" onClick={() => !running && onClose()}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
@@ -341,20 +352,20 @@ function OcrModal({ files, single, upload, onClose }: {
         <p className="tiny">{t.ocrHint}</p>
         <div className="chips" style={{ margin: '8px 0' }}>
           {OCR_LANGS.map(l => (
-            <span key={l.code}
+            <button type="button" disabled={running || l.code === 'eng'} aria-pressed={langs.includes(l.code)} key={l.code}
               className={`chip ${langs.includes(l.code) ? 'on' : ''}`}
               onClick={() => !running && toggleLang(l.code)}>
               {l.label}{!l.local && !langs.includes(l.code) ? <> <Icon name="download" size={16} /></> : ''}
-            </span>
+            </button>
           ))}
         </div>
         {langs.some(l => !OCR_LANGS.find(o => o.code === l)?.local) && (
           <p className="tiny">{t.ocrDownloadNote}</p>
         )}
-        {running && (
+        {prog && (
           <div style={{ margin: '10px 0' }}>
             <div className="tiny">
-              {prog.status === 'lang' ? t.ocrLoadingLang : t.ocrPage(prog.page, prog.pages, Math.round(prog.pct * 100))}
+              {uploading ? t.uploadingDocs : prog.status === 'render' ? (lang === 'ms' ? 'Menyediakan halaman…' : 'Preparing document pages…') : prog.status === 'lang' ? t.ocrLoadingLang : t.ocrPage(prog.page, prog.pages, Math.round(prog.pct * 100))}
             </div>
             <div className="track" style={{ height: 8, marginTop: 4 }}>
               <div className="fill" style={{ width: `${Math.round(prog.pct * 100)}%` }} />
@@ -363,6 +374,7 @@ function OcrModal({ files, single, upload, onClose }: {
         )}
         {err && <p className="callout warn">{err}</p>}
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+          {prog && !uploading && <button className="btn secondary" onClick={() => controller.current?.abort()}>{lang === 'ms' ? 'Batalkan OCR' : 'Cancel OCR'}</button>}
           <button className="btn ghost" disabled={running} onClick={skip}>{t.ocrSkip}</button>
           <button className="btn" disabled={running} onClick={run}><Icon name="chev-r" size={16} /> {t.ocrStart}</button>
         </div>

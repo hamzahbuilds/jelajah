@@ -33,20 +33,34 @@ export async function extractPdfText(file: File): Promise<string> {
 }
 
 /** Render PDF pages to PNG blobs for OCR of scanned documents. */
-export async function renderPdfPages(file: File, maxPages = 8, scale = 2.2): Promise<Blob[]> {
+export async function renderPdfPages(file: File, maxPages = 8, scale = 2.2, signal?: AbortSignal): Promise<Blob[]> {
+  signal?.throwIfAborted();
   const data = new Uint8Array(await file.arrayBuffer());
-  const doc = await pdfjs.getDocument({ data }).promise;
-  const out: Blob[] = [];
-  for (let p = 1; p <= Math.min(doc.numPages, maxPages); p++) {
-    const page = await doc.getPage(p);
-    const vp = page.getViewport({ scale });
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.ceil(vp.width);
-    canvas.height = Math.ceil(vp.height);
-    const ctx = canvas.getContext('2d')!;
-    await page.render({ canvasContext: ctx, viewport: vp } as any).promise;
-    const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
-    if (blob) out.push(blob);
-  }
-  return out;
+  const task = pdfjs.getDocument({ data });
+  const abort = () => { void task.destroy(); };
+  signal?.addEventListener('abort', abort, {once:true});
+  try {
+    const doc = await task.promise;
+    const out: Blob[] = [];
+    for (let p = 1; p <= Math.min(doc.numPages, maxPages); p++) {
+      signal?.throwIfAborted();
+      const page = await doc.getPage(p);
+      const base = page.getViewport({scale:1});
+      // Bound each canvas to four megapixels, including unusually large scans.
+      const vp = page.getViewport({scale:Math.min(scale,Math.sqrt(4_000_000/(base.width*base.height)))});
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+      const render = page.render({canvasContext:canvas.getContext('2d')!,viewport:vp} as any);
+      const cancel = () => render.cancel();
+      signal?.addEventListener('abort',cancel,{once:true});
+      try {
+        await render.promise;
+        signal?.throwIfAborted();
+        const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve,'image/png'));
+        if (!blob) throw new Error('ocr_render_failed');
+        out.push(blob);
+      } finally { signal?.removeEventListener('abort',cancel); canvas.width=0; canvas.height=0; page.cleanup(); }
+    }
+    return out;
+  } finally { signal?.removeEventListener('abort',abort); await task.destroy(); }
 }
