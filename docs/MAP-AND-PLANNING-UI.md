@@ -83,3 +83,21 @@ The loading dot now follows the J's curve from its left tip to the top dot, usin
 Vite stamps the built service worker with the index/asset fingerprint. Application changes now produce a waiting worker and Refresh banner even when the cache schema does not change. Offline API/file cache names stay unchanged. Visible tabs check on return, reconnect and every five minutes; update availability is retained if the banner mounts after detection.
 
 Production trip 5 diagnostics: driving and walking return `unconfigured` because production lacks ORS_API_KEY. Configure it as a runtime Worker secret (a build variable alone is insufficient). Greater Tokyo rail geometry is independent of ORS; outside that dataset the app explicitly reports unavailable rail coverage. Local live API and map checks passed for driving plus Tokyo train lines and station instructions.
+
+
+## Activity cleanup (2026-10-18)
+
+In Group plan → Day, editors and organisers can use **Select activities**,
+select individual rows or **Select all**, then **Delete selected**. Selection
+clears when changing days or trips. Failed deletions retain the selection.
+
+**Reset day** clears all manually added/imported group activities and custom
+transport choices for the selected date, after confirmation. Booking-derived
+flight/stay events, documents, expenses, personal plans, travel notes, day
+settings (including title/start/end) and budgets remain. Both actions are
+permanent and show a warning. Reset uses one database transaction, supports
+repeat requests, and needs no schema migration. Hidden-plan restrictions apply.
+
+Validation: `npm test` (279 tests) and `npm run build`; API tests cover role and
+trip boundaries, invalid dates, preservation of notes/settings, repeated reset,
+and bulk selections exceeding D1's per-query parameter limit.

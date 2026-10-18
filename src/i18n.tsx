@@ -302,6 +302,10 @@ const en = {
   tBudgetSaved: 'Day budget saved',
   // v0.13 — bulk delete, day notes, save-failure
   selectBtn: 'Select',
+  selectActivities: 'Select activities',
+  resetDay: 'Reset day',
+  resetDayCount: (n: number) => `${n} activities will be removed.`,
+  resetDayDescription: 'Remove all activities and custom transport choices for this day. Bookings, documents, travel notes, day settings and budgets are kept.',
   deleteSelectedN: (n: number) => `Delete selected (${n})`,
   tBulkDeleted: (n: number) => `${n} activities deleted`,
   tSaveFailed: 'Could not save — check your connection and try again',
@@ -818,6 +822,10 @@ const ms: typeof en = {
   tBudgetSaved: 'Bajet hari disimpan',
   // v0.13 — padam pukal, nota hari, gagal simpan
   selectBtn: 'Pilih',
+  selectActivities: 'Pilih aktiviti',
+  resetDay: 'Kosongkan hari',
+  resetDayCount: (n: number) => `${n} aktiviti akan dipadam.`,
+  resetDayDescription: 'Padam semua aktiviti dan pilihan pengangkutan tersuai untuk hari ini. Tempahan, dokumen, nota perjalanan, tetapan hari dan bajet dikekalkan.',
   deleteSelectedN: (n: number) => `Padam pilihan (${n})`,
   tBulkDeleted: (n: number) => `${n} aktiviti dipadam`,
   tSaveFailed: 'Tidak dapat menyimpan — semak sambungan dan cuba lagi',

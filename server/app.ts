@@ -2382,16 +2382,37 @@ app.delete('/activities/:id', async c => {
   return c.json({ ok: true });
 });
 
+/** Reset only the editable group schedule; booking-derived events and finances stay intact. */
+app.post('/trips/:id/activities/reset-day', async c => {
+  const id = Number(c.req.param('id'));
+  if (!(await canEditPlan(c, id))) return bad(c, 'forbidden', 403);
+  const { day } = await c.req.json<{ day: string }>();
+  if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)
+    || !Number.isFinite(Date.parse(day)) || new Date(day).toISOString().slice(0, 10) !== day) return bad(c, 'invalid_day');
+  const results = await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM activity_participants WHERE activity_id IN (SELECT id FROM activities WHERE trip_id=? AND day=?)').bind(id, day),
+    c.env.DB.prepare('DELETE FROM activities WHERE trip_id=? AND day=?').bind(id, day),
+    c.env.DB.prepare('DELETE FROM leg_overrides WHERE trip_id=? AND day=?').bind(id, day),
+  ]);
+  await audit(c.env, c.get('user').id, `activities_reset_day: ${day}`, 'trip', id);
+  return c.json({ deleted: results[1].meta.changes });
+});
+
 /** v0.13 bulk delete — one permission check, one batch, only this trip's rows. */
 app.post('/trips/:id/activities/delete', async c => {
   const id = Number(c.req.param('id'));
   if (!(await canEditPlan(c, id))) return bad(c, 'forbidden', 403);
   const { ids } = await c.req.json<{ ids: number[] }>();
   if (!Array.isArray(ids) || !ids.length || ids.length > 300) return bad(c, 'ids_required');
-  const marks = ids.map(() => '?').join(',');
-  const rows = await c.env.DB.prepare(`SELECT id FROM activities WHERE trip_id = ? AND id IN (${marks})`)
-    .bind(id, ...ids.map(Number)).all();
-  const own = (rows.results as any[]).map(r => r.id);
+  if (ids.some(aid => !Number.isSafeInteger(aid) || aid <= 0)) return bad(c, 'invalid_ids');
+  const own: number[] = [];
+  const unique = [...new Set(ids)];
+  for (let offset = 0; offset < unique.length; offset += 90) {
+    const chunk = unique.slice(offset, offset + 90);
+    const rows = await c.env.DB.prepare(`SELECT id FROM activities WHERE trip_id = ? AND id IN (${chunk.map(() => '?').join(',')})`)
+      .bind(id, ...chunk).all();
+    own.push(...(rows.results as any[]).map(r => r.id));
+  }
   if (own.length) {
     const stmts: any[] = [];
     for (const aid of own) {

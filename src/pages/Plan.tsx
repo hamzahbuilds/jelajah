@@ -119,6 +119,8 @@ export default function Plan() {
   const [dataMenuAnchor, setDataMenuAnchor] = useState<HTMLButtonElement | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [resetDay, setResetDay] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [focusPin, setFocusPin] = useState<number | null>(null);
   const [titleEdit, setTitleEdit] = useState<string | null>(null);
   const [undoSnap, setUndoSnap] = useState<Array<{ id: number; start_time: string | null; end_time: string | null; sort: number }> | null>(null);
@@ -155,6 +157,14 @@ export default function Plan() {
 
   const today = todayYmd();
   const [selDay, setSelDay] = useState('');
+  useEffect(() => {
+    setSelIds(new Set());
+    setSelMode(false);
+    setConfirmBulkDelete(false);
+    setResetDay(null);
+    setUndoSnap(null);
+  }, [tripId, selDay]);
+
   useEffect(() => {
     if (!selDay && days.length) setSelDay(days.includes(today) ? today : days[0]);
   }, [days]);
@@ -432,21 +442,38 @@ export default function Plan() {
   const allDaySelected = dayActIds.length > 0 && dayActIds.every(id2 => selIds.has(id2));
   const selectAllDay = () =>
     setSelIds(prev => { const n = new Set(prev); allDaySelected ? dayActIds.forEach(id2 => n.delete(id2)) : dayActIds.forEach(id2 => n.add(id2)); return n; });
-  // v0.19: bulk delete now confirms via the shared destructive Modal instead of
-  // window.confirm — bulkDelete opens it, doBulkDelete runs after the danger
-  // button is pressed. Same request/optimistic-update logic as before.
+  // Keep selections scoped to this day and retain them when a deletion fails.
   const bulkDelete = () => { if (selIds.size) setConfirmBulkDelete(true); };
   const doBulkDelete = async () => {
-    const ids = [...selIds];
-    setConfirmBulkDelete(false);
+    if (deleteBusy) return;
+    const ids = dayActIds.filter(id => selIds.has(id));
     if (!ids.length) return;
-    removeActivitiesLocal(ids);
-    setSelIds(new Set());
-    setSelMode(false);
+    setDeleteBusy(true);
     try {
       const r = await api.post(`/trips/${tripId}/activities/delete`, { ids });
+      removeActivitiesLocal(ids);
+      setConfirmBulkDelete(false);
+      setSelIds(new Set());
+      setSelMode(false);
+      setUndoSnap(null);
       toast(t.tBulkDeleted(r.deleted));
-    } catch { toast(t.tSaveFailed, 'error'); load(); }
+    } catch { toast(t.tSaveFailed, 'error'); }
+    finally { setDeleteBusy(false); }
+  };
+  const doResetDay = async () => {
+    if (!resetDay || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      const r = await api.post(`/trips/${tripId}/activities/reset-day`, { day: resetDay });
+      await load();
+      setResetDay(null);
+      setSelIds(new Set());
+      setSelMode(false);
+      setUndoSnap(null);
+      setFocusPin(null);
+      toast(t.tBulkDeleted(r.deleted));
+    } catch { toast(t.tSaveFailed, 'error'); }
+    finally { setDeleteBusy(false); }
   };
 
   const budget = (data.dayBudgets ?? []).find((b: any) => b.day === selDay);
@@ -649,7 +676,12 @@ export default function Plan() {
                   {canEdit && dayActs.length > 0 && (
                     <button className={`btn sm ${selMode ? '' : 'ghost'}`}
                       onClick={() => { setSelMode(!selMode); setSelIds(new Set()); }}>
-                      <Icon name="check" size={16} /> {selMode ? t.cancel : t.selectBtn}
+                      <Icon name="check" size={16} /> {selMode ? t.cancel : t.selectActivities}
+                    </button>
+                  )}
+                  {canEdit && dayActs.length > 0 && (
+                    <button className="btn ghost sm" onClick={() => setResetDay(selDay)}>
+                      <Icon name="trash" size={16} /> {t.resetDay}
                     </button>
                   )}
                   {canEdit && dayActs.length > 0 && (
@@ -703,7 +735,7 @@ export default function Plan() {
                         onDragOver={e => { if (i.activity) e.preventDefault(); }}
                         onDrop={() => i.activity && dropOn(i.activity.id)}>
                         {selMode && i.activity && (
-                          <input type="checkbox" className="sel-box" checked={selIds.has(i.activity.id)}
+                          <input type="checkbox" className="sel-box" aria-label={`${t.selectBtn}: ${i.title}`} checked={selIds.has(i.activity.id)}
                             onChange={() => toggleSel(i.activity.id)} />
                         )}
                         <div className="pi-time">{i.time ?? '—'}{i.end_time ? `–${i.end_time}` : ''}</div>
@@ -919,13 +951,23 @@ export default function Plan() {
         <SuggestModal tripId={tripId} trip={trip} day={selDay} canEdit={canEdit}
           onClose={() => setSuggestOpen(false)} onAdded={() => load()} />
       )}
+      {resetDay && (
+        <Modal open onClose={() => !deleteBusy && setResetDay(null)} icon="trash"
+          title={`${t.resetDay} · ${fmtDate(resetDay, lang)}`} sub={t.resetDayDescription} closeLabel={t.close}
+          footer={<>
+            <button type="button" className="btn secondary" disabled={deleteBusy} onClick={() => setResetDay(null)}>{t.cancel}</button>
+            <button type="button" className="btn danger" disabled={deleteBusy} onClick={doResetDay}>{deleteBusy ? t.loading : t.resetDay}</button>
+          </>}>
+          <p>{t.resetDayCount(dayActs.length)} {t.deleteNoUndo}</p>
+        </Modal>
+      )}
       {confirmBulkDelete && (
-        <Modal open={confirmBulkDelete} onClose={() => setConfirmBulkDelete(false)} icon="trash"
-          title={t.deleteSelectedN(selIds.size)} sub={t.deleteNoUndo} closeLabel={t.close}
+        <Modal open={confirmBulkDelete} onClose={() => !deleteBusy && setConfirmBulkDelete(false)} icon="trash"
+          title={t.deleteSelectedN(selIds.size)} sub={`${fmtDate(selDay, lang)} · ${t.deleteNoUndo}`} closeLabel={t.close}
           footer={(
             <>
-              <button type="button" className="btn secondary" onClick={() => setConfirmBulkDelete(false)}>{t.cancel}</button>
-              <button type="button" className="btn danger" onClick={doBulkDelete}>{t.delete}</button>
+              <button type="button" className="btn secondary" disabled={deleteBusy} onClick={() => setConfirmBulkDelete(false)}>{t.cancel}</button>
+              <button type="button" className="btn danger" disabled={deleteBusy} onClick={doBulkDelete}>{deleteBusy ? t.loading : t.delete}</button>
             </>
           )} />
       )}

@@ -840,3 +840,45 @@ describe("public types", () => {
     expect(directionsUrl(a, b, "train")).toContain("travelmode=transit");
   });
 });
+
+
+describe('group activity deletion boundaries', () => {
+  const rest = (path: string, user: number, body: any) => legacyApp.request(`/api${path}`, {
+    method: 'POST', headers: {Cookie: `sid=session-${user}`, 'Content-Type': 'application/json'}, body: JSON.stringify(body),
+  }, env);
+  beforeAll(() => {
+    for (const id of [1,2,4,5]) sqlite.prepare('INSERT OR REPLACE INTO sessions(token,user_id,expires_at) VALUES(?,?,?)').run(`session-${id}`,id,'2099-01-01');
+    sqlite.exec(`INSERT INTO trips(id,name) VALUES(90,'Deletion sandbox'),(91,'Other sandbox');
+      INSERT INTO trip_members VALUES(90,1,'leader'),(90,4,'editor'),(90,2,'viewer');
+      INSERT INTO activities(id,trip_id,title,day) VALUES(9000,90,'Remove','2026-12-01'),(9001,90,'Keep next day','2026-12-02'),(9002,91,'Keep other trip','2026-12-01');
+      INSERT INTO activity_participants VALUES(9000,1);
+      INSERT INTO day_settings(trip_id,day,title) VALUES(90,'2026-12-01','Keep title');
+      INSERT INTO day_notes(trip_id,day,content) VALUES(90,'2026-12-01','Keep note');
+      INSERT INTO leg_overrides(trip_id,day,leg_key,mode) VALUES(90,'2026-12-01','act:9000->end','car'),(90,'2026-12-02','start->end','walk');`);
+  });
+  it('rejects viewers, non-members, hidden plans and invalid days', async () => {
+    for (const user of [2,5]) expect((await rest('/trips/90/activities/reset-day',user,{day:'2026-12-01'})).status).toBe(403);
+    for (const day of ['*','2026-02-30','2026-12-01 OR 1=1',null]) expect((await rest('/trips/90/activities/reset-day',4,{day})).status).toBe(400);
+    sqlite.exec(`UPDATE trips SET hidden_features='["plan"]' WHERE id=90`);
+    expect((await rest('/trips/90/activities/reset-day',4,{day:'2026-12-01'})).status).toBe(403);
+    sqlite.exec(`UPDATE trips SET hidden_features='[]' WHERE id=90`);
+  });
+  it('resets exactly one day atomically, preserves other content and supports retries', async () => {
+    expect(await (await rest('/trips/90/activities/reset-day',4,{day:'2026-12-01'})).json()).toEqual({deleted:1});
+    expect(sqlite.prepare('SELECT id FROM activities WHERE id=9000').get()).toBeUndefined();
+    expect(sqlite.prepare('SELECT activity_id FROM activity_participants WHERE activity_id=9000').get()).toBeUndefined();
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM activities WHERE id IN (9001,9002)').get()?.n).toBe(2);
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM leg_overrides WHERE trip_id=90').get()?.n).toBe(1);
+    expect(sqlite.prepare('SELECT title FROM day_settings WHERE trip_id=90').get()?.title).toBe('Keep title');
+    expect(sqlite.prepare('SELECT content FROM day_notes WHERE trip_id=90').get()?.content).toBe('Keep note');
+    expect(await (await rest('/trips/90/activities/reset-day',1,{day:'2026-12-01'})).json()).toEqual({deleted:0});
+  });
+  it('bulk deletes only requested activities in this trip, with more than 100 IDs', async () => {
+    const ids = Array.from({length:120},(_,i)=>9100+i);
+    for (const id of ids) sqlite.prepare("INSERT INTO activities(id,trip_id,title,day) VALUES(?,90,'Bulk','2026-12-03')").run(id);
+    expect((await rest('/trips/90/activities/delete',2,{ids})).status).toBe(403);
+    expect((await rest('/trips/90/activities/delete',4,{ids:['9001']})).status).toBe(400);
+    expect(await (await rest('/trips/90/activities/delete',4,{ids:[...ids,ids[0],9002]})).json()).toEqual({deleted:120});
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM activities WHERE id IN (9001,9002)').get()?.n).toBe(2);
+  });
+});
