@@ -3,7 +3,7 @@
 // design/ui-refresh/icons.js. Pure module (no JSX) so it can be imported
 // from both Icon.tsx and the vitest node tests without pulling in React.
 
-export const ICON_NAMES = ['home','calendar','wallet','receipt','coins','user','users','file','files','settings','shield','pin','plane','hotel','train','car','food','ticket','camera','temple','spark','plus','chev-d','chev-r','check','clock','alert','arrow-r','copy','trash','edit','moon','folder','link','chart','more','globe','logout','upload','gift','key','swap','chat','search','flag','eye','download','grip','bag','walk'] as const;
+export const ICON_NAMES = ['home','calendar','wallet','receipt','coins','user','users','file','files','settings','shield','pin','plane','hotel','train','car','food','ticket','camera','temple','spark','plus','chev-d','chev-r','check','clock','alert','arrow-r','copy','trash','edit','moon','folder','link','chart','more','globe','logout','upload','gift','key','swap','chat','search','flag','eye','download','grip','bag','walk','x','chev-l','chev-u','arrow-l','sun','monitor','info','external','filter','map','route','minus','refresh','sparkles','tag','note','list-check','save','inbox','baby','station','bed','more-v','sort','menu'] as const;
 export type IconName = typeof ICON_NAMES[number];
 
 export const DEFS = `
@@ -58,4 +58,29 @@ export const DEFS = `
 <g id="i-grip"><path d="M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01" stroke-width="2.8"/></g>
 <g id="i-bag"><path d="M6 7.5 7.5 4h9L18 7.5"/><rect x="4" y="7.5" width="16" height="13" rx="2"/><path d="M9 11.5a3 3 0 0 0 6 0"/></g>
 <g id="i-walk"><circle cx="13" cy="4" r="2"/><path d="M13 7l-2 5 3 3 1 6"/><path d="M11 12l-3 2-1 5"/><path d="M13 8l3 2 2-1"/></g>
+<g id="i-x"><path d="M18 6 6 18M6 6l12 12"/></g>
+<g id="i-chev-l"><path d="m15 18-6-6 6-6"/></g>
+<g id="i-chev-u"><path d="m18 15-6-6-6 6"/></g>
+<g id="i-arrow-l"><path d="M19 12H5M11 18l-6-6 6-6"/></g>
+<g id="i-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></g>
+<g id="i-monitor"><rect x="2.5" y="3.5" width="19" height="13" rx="2"/><path d="M8 21h8M12 16.5V21"/></g>
+<g id="i-info"><circle cx="12" cy="12" r="9.5"/><path d="M12 16v-4.5M12 8h.01"/></g>
+<g id="i-external"><path d="M14 3.5h6.5V10M20.5 3.5 11 13"/><path d="M18.5 13.5v5a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2h5"/></g>
+<g id="i-filter"><path d="M3.5 5h17l-6.5 7.5v6l-4 2v-8z"/></g>
+<g id="i-map"><path d="M9 4 3.5 6v14L9 18l6 2 5.5-2V4L15 6z"/><path d="M9 4v14M15 6v14"/></g>
+<g id="i-route"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/></g>
+<g id="i-minus"><path d="M5 12h14"/></g>
+<g id="i-refresh"><path d="M20.5 12a8.5 8.5 0 0 1-14.5 6l-2.5-2.5"/><path d="M3.5 12A8.5 8.5 0 0 1 18 6l2.5 2.5"/><path d="M20.5 3.5v5h-5M3.5 20.5v-5h5"/></g>
+<g id="i-sparkles"><path d="M10 3.5 11.6 8a2 2 0 0 0 1.3 1.3l4.6 1.6-4.6 1.6a2 2 0 0 0-1.3 1.3L10 18.5l-1.6-4.6a2 2 0 0 0-1.3-1.3l-4.6-1.6 4.6-1.6A2 2 0 0 0 8.4 8z"/><path d="M19 3v4M17 5h4M18.5 16v3M17 17.5h3"/></g>
+<g id="i-tag"><path d="M3.5 3.5h8l9 9-8 8-9-9z"/><path d="M8 8h.01" stroke-width="3"/></g>
+<g id="i-note"><path d="M14.5 3.5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14.5 3.5V9H20M8 13h8M8 17h5"/></g>
+<g id="i-list-check"><path d="M3.5 6.5 5 8l3-3M3.5 12.5 5 14l3-3M3.5 18.5 5 20l3-3"/><path d="M11 6.5h9.5M11 12.5h9.5M11 18.5h9.5"/></g>
+<g id="i-save"><path d="M5 3.5h11L20.5 8v11a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V5A1.5 1.5 0 0 1 5 3.5z"/><path d="M7.5 3.5v5h8v-5M7.5 20.5v-7h9v7"/></g>
+<g id="i-inbox"><path d="M3.5 13.5 6 5h12l2.5 8.5V19a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19z"/><path d="M3.5 13.5H8l1.5 2.5h5l1.5-2.5h4.5"/></g>
+<g id="i-baby"><circle cx="12" cy="12" r="8.5"/><path d="M9 11h.01M15 11h.01" stroke-width="2.6"/><path d="M9.5 15a3.5 3.5 0 0 0 5 0"/><path d="M12 3.5c1.5 1 1.5 2.5 0 3.5"/></g>
+<g id="i-station"><rect x="5" y="3" width="14" height="13" rx="3"/><path d="M5 10h14M9 13.5h.01M15 13.5h.01" /><path d="M8 20l2-4M16 20l-2-4"/></g>
+<g id="i-bed"><path d="M3 19.5V5.5M3 15h18v4.5M21 15v-3a3 3 0 0 0-3-3h-7v6"/><circle cx="7" cy="11" r="2"/></g>
+<g id="i-more-v"><path d="M12 5h.01M12 12h.01M12 19h.01" stroke-width="3"/></g>
+<g id="i-sort"><path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M17 20V4M13.5 7.5 17 4l3.5 3.5"/></g>
+<g id="i-menu"><path d="M4 6h16M4 12h16M4 18h16"/></g>
 </defs>`;

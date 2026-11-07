@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useT } from "../i18n";
 import PublicSchedule from "../components/PublicSchedule";
 import type { PublicJourney } from "../../shared/journey";
+import { Icon } from "../components/Icon";
 
 export default function PublicJourneys({
   guest = false,
@@ -65,7 +66,7 @@ export default function PublicJourneys({
     <main className="journey-public">
       <nav className="public-nav no-print">
         <Link to="/discover" className="journal-brand">
-          🧭 Jelajah
+          <Icon name="pin" size={20} /> Jelajah
         </Link>
         <div className="row">
           <button

@@ -5,7 +5,7 @@ import BrandMark from './BrandMark';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useT } from '../i18n';
-import { useSession, useTripNav, TripRole } from '../App';
+import { useSession, useTripNav, TripRole } from '../app/session';
 import { Icon } from './Icon';
 import Sheet from './Sheet';
 import { navModel } from './navModel';
@@ -74,14 +74,14 @@ export default function Sidebar() {
               </div>
               <Icon name="chev-d" size={16} className="tsw-chev" />
             </button>
-            <Link key={item.key} to={item.to} className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
+            <Link key={item.key} to={item.to} viewTransition className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
               <span className="ic"><Icon name={item.icon} size={20} /></span>
               <span className="lbl">{t[item.label] as string}</span>
               {item.pill && <span className="pill badge warning">{item.pill}</span>}
             </Link>
           </div>
         ) : (
-          <Link key={item.key} to={item.to} className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
+          <Link key={item.key} to={item.to} viewTransition className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
             <span className="ic"><Icon name={item.icon} size={20} /></span>
             <span className="lbl">{t[item.label] as string}</span>
             {item.pill && <span className="pill badge warning">{item.pill}</span>}
@@ -91,7 +91,7 @@ export default function Sidebar() {
 
       <div className="side-foot">
         {model.foot.map(item => (
-          <Link key={item.key} to={item.to} className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
+          <Link key={item.key} to={item.to} viewTransition className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
             <span className="ic"><Icon name={item.icon} size={20} /></span>
             <span className="lbl">{t[item.label] as string}</span>
           </Link>
@@ -111,7 +111,7 @@ export default function Sidebar() {
 
       <Sheet open={switcherOpen} onClose={() => setSwitcherOpen(false)} title={t.switchTrip}>
         {trips.map(tr => (
-          <button key={tr.id} className="srow" onClick={() => { setSwitcherOpen(false); navigate(`/trips/${tr.id}`); }}>
+          <button key={tr.id} className="srow" onClick={() => { setSwitcherOpen(false); navigate(`/trips/${tr.id}`, { viewTransition: true }); }}>
             <span className="em">{tr.emoji}</span>
             <div className="t">
               <b>{tr.name}</b>

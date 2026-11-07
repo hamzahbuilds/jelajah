@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useOutletContext, Link } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { useT } from '../i18n';
-import { TripCtx } from './TripShell';
+import { TripCtx } from '../app/tripContext';
 import { extractPdfText, renderPdfPages } from '../pdf';
 import { parseDocument } from '../../shared/parsers';
 import { OCR_LANGS, savedLangs, saveLangs, looksScanned, ocrImages, OcrProgress } from '../ocr';
@@ -12,6 +12,7 @@ import PageHead from '../components/PageHead';
 import Empty from '../components/Empty';
 import Modal from '../components/Modal';
 import { Icon, type IconName } from '../components/Icon';
+import Dialog from '../components/Dialog';
 
 
 export default function Documents() {
@@ -79,7 +80,7 @@ export default function Documents() {
   useEffect(() => { setDocs([]); setDestination('private'); setLibrary({folders:[],groups:[],categories:[]}); setFolder('all'); setSearch(''); void load(); }, [tripId]);
 
   const [ocrQueue, setOcrQueue] = useState<{ files: File[]; single: boolean } | null>(null);
-  // v0.12: visible import pipeline — ✈️ progress, counts, per-file errors
+  // v0.12: visible import pipeline — plane progress, counts, per-file errors
   const [prog, setProg] = useState<{ done: number; total: number; current: string; errors: Array<{ name: string; reason: string }> } | null>(null);
 
   const emptyParse = (warning?: string) => ({
@@ -151,7 +152,7 @@ export default function Documents() {
 
   return (
     <div>
-      <PageHead crumb={trip.name} title={t.documents} sub={bm ? 'Tempahan perjalanan dan fail peribadi, tersusun di satu tempat.' : 'Travel bookings and personal files, organised in one place.'} />
+      <PageHead title={t.documents} sub={bm ? 'Tempahan perjalanan dan fail peribadi, tersusun di satu tempat.' : 'Travel bookings and personal files, organised in one place.'} />
       { (
         <>
           <div className="document-upload-categories" role="group" aria-label={bm ? 'Loại tải lên' : 'Upload category'}>
@@ -196,7 +197,7 @@ export default function Documents() {
               {prog.errors.length > 0 && !busy && (
                 <div className="callout warn" style={{ marginTop: 6 }}>
                   {prog.errors.map((er, i) => <div key={i} className="tiny"><Icon name="alert" size={16} /> {er.name} — {er.reason}</div>)}
-                  <button type="button" className="btn ghost sm" style={{ marginTop: 4 }} onClick={() => setProg(null)}><Icon name="plus" className="x-close" size={16} /> {t.close}</button>
+                  <button type="button" className="btn ghost sm" style={{ marginTop: 4 }} onClick={() => setProg(null)}><Icon name="x" size={16} /> {t.close}</button>
                 </div>
               )}
             </div>
@@ -231,7 +232,7 @@ export default function Documents() {
           {!!docs.length && !visible.length && <Empty icon="file" title={search ? (bm ? 'Tiada padanan' : 'No matching files') : (bm ? 'Folder ini kosong' : 'This folder is empty')} sub={search ? (bm ? 'Cuba nama fail atau kategori lain.' : 'Try a different filename or category.') : (bm ? 'Pilih folder ini semasa memuat naik fail.' : 'Choose this folder when uploading your next file.')} action={search ? {label:bm?'Kosongkan carian':'Clear search',onClick:()=>setSearch('')} : undefined} />}
           <div className={view === 'list' ? 'document-table-scroll' : 'document-file-grid'}>
             {view === 'list' && visible.length > 0 ? <table className="document-table"><thead><tr><th>{bm ? 'Nama fail' : 'File name'}</th><th>{bm ? 'Kategori' : 'Category'}</th><th>Folder / {bm ? 'Akses' : 'Visibility'}</th><th>{bm ? 'Tarikh' : 'Uploaded'}</th><th>{bm ? 'Tindakan' : 'Actions'}</th></tr></thead><tbody>
-              {visible.map(d => <tr key={d.id}><td><b>{d.filename}</b>{d.doc_type !== 'personal' && ['accommodation','logistics'].includes(docCategory(d)) && <small>{d.status === 'confirmed' ? t.confirmedStatus : t.draft}</small>}{d.expense_id && <Link className="badge brand" to={`/trips/${tripId}/ledger`}>{t.linkedExpense}</Link>}</td><td>{categoryName(d)}</td><td>{folderLabel(d)}{folderLabel(d) !== accessLabel(d) && <small>{accessLabel(d)}</small>}</td><td>{fmtDate(d.created_at?.slice(0,10),lang)}</td><td>{fileActions(d)}</td></tr>)}
+              {visible.map(d => <tr key={d.id}><td><b>{d.filename}</b>{d.doc_type !== 'personal' && ['accommodation','logistics'].includes(docCategory(d)) && <small>{d.status === 'confirmed' ? t.confirmedStatus : t.draft}</small>}{d.expense_id && <Link className="badge brand" to={`/trips/${tripId}/money/ledger`}>{t.linkedExpense}</Link>}</td><td>{categoryName(d)}</td><td>{folderLabel(d)}{folderLabel(d) !== accessLabel(d) && <small>{accessLabel(d)}</small>}</td><td>{fmtDate(d.created_at?.slice(0,10),lang)}</td><td>{fileActions(d)}</td></tr>)}
             </tbody></table> : visible.map(d => <article className="document-file" key={d.id}><span className="tile sm"><Icon name="file" /></span><div className="document-file-info"><b>{d.filename}</b><small>{categoryName(d)} · {folderLabel(d)}</small><span className="badge brand">{accessLabel(d)}</span></div>{fileActions(d)}</article>)}
           </div>
         </>}
@@ -342,11 +343,10 @@ function OcrModal({ files, single, upload, onClose }: {
 
   const running = prog !== null || uploading;
   return (
-    <div className="overlay" onClick={() => !running && onClose()}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+    <Dialog className="overlay-dlg modal" onClose={onClose} dismissible={!running} label={t.ocrTitle} style={{ maxWidth: 480 }}>
         <div className="row-between">
           <h2><Icon name="search" size={20} /> {t.ocrTitle}</h2>
-          {!running && <button className="icon" onClick={onClose} aria-label={t.close}><Icon name="plus" className="x-close" size={20} /></button>}
+          {!running && <button className="icon" onClick={onClose} aria-label={t.close}><Icon name="x" size={20} /></button>}
         </div>
         <p className="tiny">{file.name}{files.length > 1 ? ` (${idx + 1}/${files.length})` : ''}</p>
         <p className="tiny">{t.ocrHint}</p>
@@ -378,7 +378,6 @@ function OcrModal({ files, single, upload, onClose }: {
           <button className="btn ghost" disabled={running} onClick={skip}>{t.ocrSkip}</button>
           <button className="btn" disabled={running} onClick={run}><Icon name="chev-r" size={16} /> {t.ocrStart}</button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

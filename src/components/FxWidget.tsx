@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
+import Dialog from './Dialog';
 
 import { FX_WINDOWS, FxWindow } from '../../shared/fxband';
 
@@ -67,7 +68,7 @@ export function CurrencyFields({ base, watch, onBase, onWatch }: {
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           {watch.map(w => (
             <span key={w} className="chip on">{w}
-              <button type="button" className="icon" onClick={() => onWatch(watch.filter(x => x !== w))}>✕</button>
+              <button type="button" className="icon" onClick={() => onWatch(watch.filter(x => x !== w))} aria-label={`${t.remove} ${w}`}><Icon name="x" size={16} /></button>
             </span>
           ))}
           <input list="fx-codes" value={add} placeholder={t.fxAddCurrency} style={{ minWidth: 180 }}
@@ -178,8 +179,7 @@ export default function FxWidget({ tripId, trip, isAdmin, onChanged }: {
         );
       })}
       {editor && (
-        <div className="overlay" onClick={() => setEditor(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+        <Dialog className="overlay-dlg modal" onClose={() => setEditor(null)} label={t.fxEditCurrencies}>
             <h2><Icon name="swap" size={16} /> {t.fxEditCurrencies}</h2>
             <div className="form-grid">
               <CurrencyFields base={editor.base} watch={editor.watch}
@@ -190,8 +190,7 @@ export default function FxWidget({ tripId, trip, isAdmin, onChanged }: {
               <button className="btn ghost" onClick={() => setEditor(null)}>{t.cancel}</button>
               <button className="btn" disabled={busy} onClick={save}>{t.save}</button>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
     </div>
   );

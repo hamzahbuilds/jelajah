@@ -29,9 +29,6 @@ export interface WizardActivity {
 
 export type ActivityCategory = 'sightseeing' | 'food' | 'transport' | 'lodging' | 'shopping' | 'other';
 export const ACTIVITY_CATEGORIES: ActivityCategory[] = ['sightseeing', 'food', 'transport', 'lodging', 'shopping', 'other'];
-export const ACTIVITY_CAT_ICON: Record<ActivityCategory, string> = {
-  sightseeing: '🏞️', food: '🍜', transport: '🚐', lodging: '🛏️', shopping: '🛍️', other: '📍',
-};
 
 const CAT_RULES: Array<[ActivityCategory, RegExp]> = [
   ['food', /lunch|dinner|breakfast|brunch|snack|meal|makan|sarapan|eat\b|cafe|café|restaurant|ramen|sushi|onigiri|market food|halal|hotpot|dessert|coffee/i],

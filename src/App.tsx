@@ -1,69 +1,38 @@
 import Loading from './components/Loading';
 import BrandMark from './components/BrandMark';
-import { createContext, useContext, useEffect, useState } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { SessionCtx, TripNavCtx, TripNavSetCtx, useSession, useTripNav, type TripNavInfo, type User, type Trip } from './app/session';
+export type { TripRole, User, Trip, TripNavInfo } from './app/session';
+import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
+import { PageSkeleton } from './ui';
+import { ConfirmProvider } from './ui/Confirm';
 import { api, setOfflineListener } from './api';
 import { applyUpdate, clearApiCaches, hasPendingUpdate } from './lib/pwa';
 import { I18nProvider, useT, Lang } from './i18n';
 import { getThemePref, setThemePref } from './theme';
 import Login from './pages/Login';
-import Join from './pages/Join';
-import Trips from './pages/Trips';
-import TripShell from './pages/TripShell';
-import Dashboard from './pages/Dashboard';
-import Plan from './pages/JournalPlan';
-import Recovery from './pages/Recovery';
-import PublicJourneys from './pages/PublicJourneys';
-import MySpend from './pages/MySpend';
-import Documents from './pages/Documents';
-import Review from './pages/Review';
-import Ledger from './pages/Ledger';
-import Payments from './pages/Payments';
-import People from './pages/People';
-import Settings from './pages/Settings';
-import Admin from './pages/Admin';
+const Join = lazy(() => import('./pages/Join'));
+const Trips = lazy(() => import('./pages/Trips'));
+const TripShell = lazy(() => import('./pages/TripShell'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Plan = lazy(() => import('./pages/JournalPlan'));
+const Recovery = lazy(() => import('./pages/Recovery'));
+const PublicJourneys = lazy(() => import('./pages/PublicJourneys'));
+const MySpend = lazy(() => import('./pages/MySpend'));
+const Documents = lazy(() => import('./pages/Documents'));
+const Review = lazy(() => import('./pages/Review'));
+const Ledger = lazy(() => import('./pages/Ledger'));
+const Payments = lazy(() => import('./pages/Payments'));
+const People = lazy(() => import('./pages/People'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Admin = lazy(() => import('./pages/Admin'));
 import { ToastProvider } from './components/Toast';
-import { Icon, IconDefs } from './components/Icon';
+import { IconDefs } from './components/Icon';
 import Sidebar from './components/Sidebar';
 import TabBar from './components/TabBar';
 import { AppBanner } from './components/AppBanner';
 
-export type TripRole = 'leader' | 'editor' | 'viewer';
-
-export interface User {
-  id: number; email: string; name: string; role: 'admin' | 'member';
-  lang: Lang; theme?: string; participant_id: number | null; must_change_password: number;
-  platform_admin?: boolean;
-}
-export interface Trip {
-  id: number; name: string; destination: string | null;
-  start_date: string | null; end_date: string | null; emoji: string;
-  my_role?: TripRole;
-  cover_key?: string | null; cover_credit?: string | null;
-}
-
-interface Session {
-  user: User; trips: Trip[];
-  refresh: () => Promise<void>; logout: () => Promise<void>;
-}
-const SessionCtx = createContext<Session | null>(null);
-export const useSession = () => useContext(SessionCtx)!;
-
-// Lightweight bridge so the Sidebar (rendered once, in Chrome, above the
-// router Outlet) can know about the *current trip*'s role + hidden-features
-// set, which only TripShell has loaded. TripShell publishes into this via
-// `useSetTripNav()` (a plain setter, stable identity) inside a useEffect —
-// keeping the setter out of the read context avoids a render loop where
-// Sidebar re-rendering would re-trigger the effect that feeds it.
-export interface TripNavInfo {
-  trip: Trip;
-  myRole: TripRole;
-  hidden: Set<string>;
-}
-const TripNavCtx = createContext<TripNavInfo | null>(null);
-const TripNavSetCtx = createContext<(info: TripNavInfo | null) => void>(() => {});
-export const useTripNav = () => useContext(TripNavCtx);
-export const useSetTripNav = () => useContext(TripNavSetCtx);
+const DevGallery = lazy(() => import('./pages/DevGallery'));
 
 function Shell() {
   const { t } = useT();
@@ -114,24 +83,36 @@ function Shell() {
         <TripNavCtx.Provider value={tripNav}>
         <TripNavSetCtx.Provider value={setTripNav}>
         <ToastProvider>
+        <ConfirmProvider>
         <Chrome>
+          <Suspense fallback={<PageSkeleton label={t.loading} />}>
           <Routes>
             <Route path="/" element={<Trips />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/admin" element={<Admin />} />
+            {state.user.role === 'admin' && (
+              <Route path="/dev/ui" element={<DevGallery />} />
+            )}
             <Route path="/trips/:tripId" element={<TripShell />}>
               <Route index element={<Dashboard />} />
               <Route path="plan" element={<Plan />} />
-              <Route path="myspend" element={<MySpend />} />
+              <Route path="money/ledger" element={<Ledger />} />
+              <Route path="money/payments" element={<Payments />} />
+              <Route path="money/me" element={<MySpend />} />
               <Route path="documents" element={<Documents />} />
               <Route path="documents/:docId/review" element={<Review />} />
-              <Route path="ledger" element={<Ledger />} />
-              <Route path="payments" element={<Payments />} />
               <Route path="people" element={<People />} />
+              <Route path="settings" element={<People section="settings" />} />
+              {/* v0.30 route moves — keep old links (bookmarks, e2e, shared URLs) working */}
+              <Route path="ledger" element={<KeepSearchRedirect to="money/ledger" />} />
+              <Route path="payments" element={<KeepSearchRedirect to="money/payments" />} />
+              <Route path="myspend" element={<KeepSearchRedirect to="money/me" />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
         </Chrome>
+        </ConfirmProvider>
         </ToastProvider>
         </TripNavSetCtx.Provider>
         </TripNavCtx.Provider>
@@ -142,7 +123,7 @@ function Shell() {
 
 function Chrome({ children }: { children: React.ReactNode }) {
   const { t } = useT();
-  const { user, logout } = useSession();
+  const { user } = useSession();
   const [offline, setOffline] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
@@ -164,31 +145,62 @@ function Chrome({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main">{t.skipToContent}</a>
+      <RouteEffects />
       <Sidebar />
-      {/* mobile-only chrome (<1024px) — replaced by a bottom tab bar in T7 */}
-      <div className="topbar mobile-topbar">
-        <div className="topbar-inner">
-          <a className="logo" href="/"><BrandMark size={28} /> {t.appName}</a>
-          <div className="spacer" />
-          <a href="/settings" style={{ color: '#fff', textDecoration: 'none', fontSize: '.85rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}><Icon name="settings" size={16} /> {t.settings}</a>
-          {user.role === 'admin' && (
-            <a href="/admin" style={{ color: '#fff', textDecoration: 'none', fontSize: '.85rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}><Icon name="shield" size={16} /> {t.adminTitle}</a>
-          )}
-          <span style={{ fontSize: '.85rem', opacity: .9 }}>{user.name}</span>
-          <button onClick={logout}>{t.logout}</button>
-        </div>
-      </div>
       <div className="main">
         <AppBanner offline={offline} updateAvailable={updateAvailable} onRefresh={applyUpdate} />
-        <div className="container">
+        <main id="main" className="container" tabIndex={-1}>
           {user.must_change_password ? <PasswordNudge /> : null}
           {children}
-        </div>
+        </main>
       </div>
       {/* mobile-only bottom tab bar (T7) — CSS-hidden at >=1024px; always mounted */}
       <TabBar />
     </div>
   );
+}
+
+/** Old trip sub-routes redirect relative to the trip, keeping ?query (e.g. payments deep links). */
+function KeepSearchRedirect({ to }: { to: string }) {
+  const { tripId } = useParams();
+  const { search } = useLocation();
+  return <Navigate to={`/trips/${tripId}/${to}${search}`} replace />;
+}
+
+/**
+ * Per-route document title and focus management (docs/18 §5.3, A1). After a
+ * client-side navigation, focus moves to <main> (without scrolling) so
+ * keyboard and screen-reader users land on the new page instead of a stale
+ * nav link; the first render is left alone so autofocus/browser restore win.
+ */
+function RouteEffects() {
+  const { t } = useT();
+  const { pathname } = useLocation();
+  const tripNav = useTripNav();
+  const first = useRef(true);
+  useEffect(() => {
+    const seg = pathname.split('/').filter(Boolean);
+    let page: string = t.myTrips;
+    if (seg[0] === 'settings') page = t.settings;
+    else if (seg[0] === 'admin') page = t.adminTitle;
+    else if (seg[0] === 'dev') page = 'Component gallery';
+    else if (seg[0] === 'trips') {
+      const sub = seg[2] === 'money' ? seg[3] : seg[2];
+      const map: Record<string, string> = {
+        plan: t.plan, ledger: t.ledger, payments: t.payments, me: t.myspend,
+        documents: t.documents, people: t.people, settings: t.tripSettings,
+      };
+      page = sub ? (map[sub] ?? t.overview) : t.overview;
+    }
+    const trip = seg[0] === 'trips' && tripNav?.trip?.name ? ` · ${tripNav.trip.name}` : '';
+    document.title = `${page}${trip} · ${t.appName}`;
+  }, [pathname, tripNav?.trip?.name, t]);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    document.getElementById('main')?.focus({ preventScroll: true });
+  }, [pathname]);
+  return null;
 }
 
 function PasswordNudge() {
@@ -213,6 +225,7 @@ function PasswordNudge() {
 
 export default function App() {
   return (
+    <Suspense fallback={<Loading />}>
     <Routes>
       <Route path="/forgot-password" element={<I18nProvider><Recovery /></I18nProvider>} />
       <Route path="/reset-password" element={<I18nProvider><Recovery reset /></I18nProvider>} />
@@ -223,5 +236,6 @@ export default function App() {
       <Route path="/join/:code" element={<I18nProvider><Join /></I18nProvider>} />
       <Route path="*" element={<Shell />} />
     </Routes>
+    </Suspense>
   );
 }

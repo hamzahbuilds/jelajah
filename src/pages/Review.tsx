@@ -3,8 +3,8 @@ import { Link, useLocation, useOutletContext, useParams } from 'react-router-dom
 import { api, fmtMoney } from '../api';
 import { useT } from '../i18n';
 import { useToast } from '../components/Toast';
-import { useSession } from '../App';
-import { TripCtx } from './TripShell';
+import { useSession } from '../app/session';
+import { TripCtx } from '../app/tripContext';
 import ExpenseForm, { emptyDraft, equalShares, ExpenseDraft } from '../components/ExpenseForm';
 import Loading from '../components/Loading';
 import Empty from '../components/Empty';
@@ -118,7 +118,7 @@ export default function Review() {
       {error && <p className="callout warn" role="alert">{error}</p>}
       {duplicate && <p className="callout warn"><Icon name="alert" size={16} /> {t.duplicateWarn}</p>}
       {(parsed.warnings ?? []).map((w: string, i: number) => (
-        <p className="callout info" key={i}>ℹ️ {w}</p>
+        <p className="callout info" key={i}><Icon name="info" size={16} /> {w}</p>
       ))}
 
       <div className="grid grid-2">
@@ -212,7 +212,7 @@ export default function Review() {
             return (
               <div className="kw-panel">
                 <div className="row-between">
-                  <h3 style={{ margin: 0 }}>🔍 {t.detectedKeywords}</h3>
+                  <h3 style={{ margin: 0 }}><Icon name="search" size={16} /> {t.detectedKeywords}</h3>
                   <span className="tiny">{t.kwTip}</span>
                 </div>
                 {kw.dates.length > 0 && (
@@ -255,7 +255,7 @@ export default function Review() {
               style={{ width: 18, height: 18, accentColor: 'var(--brand-700)' }} />
             <strong>{doc.expense ? (ms?'Kemas kini perbelanjaan terpaut':'Update linked expense') : t.createExpense}</strong>
           </label>
-          {doc.expense?.split_json ? <p className="callout info">{ms?'Pembahagian bilik diurus dalam lejar.':'This expense uses room-based splitting. Edit its participants in the ledger to preserve that calculation.'} <Link to={`/trips/${tripId}/ledger`}>{ms?'Buka lejar':'Open ledger'}</Link></p> : createExp ? (
+          {doc.expense?.split_json ? <p className="callout info">{ms?'Pembahagian bilik diurus dalam lejar.':'This expense uses room-based splitting. Edit its participants in the ledger to preserve that calculation.'} <Link to={`/trips/${tripId}/money/ledger`}>{ms?'Buka lejar':'Open ledger'}</Link></p> : createExp ? (
             // v0.25: rooms-split-at-confirm is deliberately unsupported here —
             // POST /documents/:id/confirm never calls resolveRoomsSplit, so a
             // `split` payload would 400 (or, if that guard ever slipped,

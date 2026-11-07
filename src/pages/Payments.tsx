@@ -1,14 +1,16 @@
+import { useConfirm } from '../ui/Confirm';
 import Loading from '../components/Loading';
 import { useEffect, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { api, fmtMYR, fmtDate } from '../api';
 import { useT } from '../i18n';
-import { TripCtx } from './TripShell';
+import { TripCtx } from '../app/tripContext';
 import { useToast } from '../components/Toast';
 import MoneyTabs from '../components/MoneyTabs';
 import PageHead from '../components/PageHead';
 import Empty from '../components/Empty';
 import { Icon } from '../components/Icon';
+import Dialog from '../components/Dialog';
 
 // initials for the `.avatar` chip — mirrors the People.tsx helper.
 const initials = (name: string) => {
@@ -19,6 +21,7 @@ const initials = (name: string) => {
 };
 
 export default function Payments() {
+  const ask = useConfirm();
   const { t, lang } = useT();
   const { toast } = useToast();
   const { trip, tripId, members, canLead } = useOutletContext<TripCtx>();
@@ -80,14 +83,14 @@ export default function Payments() {
   };
 
   const removePayment = async (p: any) => {
-    if (!window.confirm(t.confirmDelete)) return;
+    if (!(await ask({ title: t.confirmDelete, tone: 'danger', confirmLabel: t.delete }))) return;
     await api.del(`/payments/${p.id}`);
     await load();
   };
 
   return (
     <div>
-      <PageHead crumb={trip.name} title={t.money} sub={t.moneySub} />
+      <PageHead title={t.money} sub={t.moneySub} />
       <MoneyTabs />
       <div className="grid grid-2" style={{ alignItems: 'start' }}>
       {/* v0.27: column stacks get .grid so consecutive cards don't touch */}
@@ -182,15 +185,14 @@ export default function Payments() {
       </div>
 
       {open && (
-        <div className="overlay" onClick={() => setOpen(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+        <Dialog className="overlay-dlg modal" onClose={() => setOpen(null)} label={t.statement}>
             <div className="row-between">
               <h2>{t.statement}: {open.b.participant.name} → {pname(open.bp.to_participant_id)}</h2>
-              <button className="icon" onClick={() => setOpen(null)} aria-label={t.close}><Icon name="plus" className="x-close" size={20} /></button>
+              <button className="icon" onClick={() => setOpen(null)} aria-label={t.close}><Icon name="x" size={20} /></button>
             </div>
             {canLead && open.bp.remaining > 0.004 && (
               <button type="button" className="btn sm" style={{ marginBottom: 8 }}
-                onClick={() => window.confirm(`${t.settleAll}: ${fmtMYR(open.bp.remaining)}?`) && settle(open.b, open.bp)}>
+                onClick={async () => (await ask({ title: `${t.settleAll}: ${fmtMYR(open.bp.remaining)}?`, confirmLabel: t.settleAll })) && settle(open.b, open.bp)}>
                 <Icon name="check" size={16} /> {t.settleAll} · {fmtMYR(open.bp.remaining)}
               </button>
             )}
@@ -211,7 +213,7 @@ export default function Payments() {
                       {canLead && (
                         <td>{it.remaining > 0.004 && (
                           <button type="button" className="btn ghost sm"
-                            onClick={() => window.confirm(`${t.settleItem} "${it.description}": ${fmtMYR(it.remaining)}?`) && settle(open.b, open.bp, it)}>
+                            onClick={async () => (await ask({ title: `${t.settleItem} "${it.description}": ${fmtMYR(it.remaining)}?`, confirmLabel: t.settleItem })) && settle(open.b, open.bp, it)}>
                             {t.settleItem}
                           </button>
                         )}</td>
@@ -221,8 +223,7 @@ export default function Payments() {
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
     </div>
     </div>

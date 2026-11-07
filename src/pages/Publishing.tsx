@@ -5,7 +5,8 @@ import { useT } from "../i18n";
 import { useToast } from "../components/Toast";
 import PublicSchedule from "../components/PublicSchedule";
 import type { PublicJourney } from "../../shared/journey";
-import type { TripCtx } from "./TripShell";
+import type { TripCtx } from "../app/tripContext";
+import { Icon } from "../components/Icon";
 
 export default function Publishing() {
   const { t } = useT(),
@@ -329,7 +330,7 @@ export default function Publishing() {
             {j.copyLink}
           </button>
           <a href={link} target="_blank" rel="noreferrer">
-            {j.preview} ↗
+            {j.preview} <Icon name="external" size={16} />
           </a>
         </section>
       )}

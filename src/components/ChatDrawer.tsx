@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { useT } from '../i18n';
+import { Icon } from './Icon';
 
 type ChatLang = 'en' | 'ms' | 'ms-swk';
 interface Msg { role: 'user' | 'assistant'; content: string }
@@ -48,12 +49,12 @@ export default function ChatDrawer({ tripId }: { tripId: number }) {
   return (
     <>
       <button className="chat-fab" onClick={() => setOpen(!open)} aria-label={t.chatTitle}>
-        {open ? '✕' : '💬'}
+        <Icon name={open ? 'x' : 'chat'} size={24} />
       </button>
       {open && (
         <div className="chat-drawer">
           <div className="row-between" style={{ marginBottom: 6 }}>
-            <strong>💬 {t.chatTitle}</strong>
+            <strong><Icon name="chat" size={16} /> {t.chatTitle}</strong>
             <span className="row" style={{ gap: 4 }}>
               {([['en', t.langEnglish], ['ms', t.langBm], ['ms-swk', t.langSwk]] as const).map(([l, lbl]) => (
                 <span key={l} className={`chip ${lang === l ? 'on' : ''}`} onClick={() => pickLang(l)}>{lbl}</span>

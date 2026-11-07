@@ -5,7 +5,7 @@
 // alone controls visibility.
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import { useSession, useTripNav, TripRole } from '../App';
+import { useSession, useTripNav, TripRole } from '../app/session';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
 import Sheet from './Sheet';
@@ -86,14 +86,14 @@ export default function TabBar() {
 
   const homeOn = pathname === '/' || Boolean(model?.main.find(i => i.key === 'overview')?.on);
   const tripBase = tripId != null ? `/trips/${tripId}` : null;
-  const moreOn = pathname === '/settings' || pathname === '/admin' || (tripBase != null && pathname === `${tripBase}/people`);
+  const moreOn = pathname === '/settings' || pathname === '/admin' || (tripBase != null && (pathname === `${tripBase}/people` || pathname === `${tripBase}/settings`));
 
   const openSwitcher = () => setSwitcherOpen(true);
   const planLP = useLongPress(openSwitcher);
   const moneyLP = useLongPress(openSwitcher);
   const docsLP = useLongPress(openSwitcher);
 
-  const goTrip = (id: number) => { setSwitcherOpen(false); navigate(`/trips/${id}`); };
+  const goTrip = (id: number) => { setSwitcherOpen(false); navigate(`/trips/${id}`, { viewTransition: true }); };
 
   const tripTab = (
     key: string, to: string | null, icon: Parameters<typeof Icon>[0]['name'],
@@ -121,7 +121,7 @@ export default function TabBar() {
     }
     return (
       <Link
-        key={key} to={to} className={'tab' + (on ? ' on' : '')}
+        key={key} to={to} viewTransition className={'tab' + (on ? ' on' : '')}
         onPointerDown={lp.onPointerDown} onPointerUp={lp.onPointerUp}
         onPointerLeave={lp.onPointerLeave} onPointerCancel={lp.onPointerCancel}
         onContextMenu={lp.onContextMenu} onClick={lp.onClick}
@@ -134,7 +134,7 @@ export default function TabBar() {
   return (
     <>
       <nav className="tabbar">
-        <Link to="/" className={'tab' + (homeOn ? ' on' : '')}>
+        <Link to="/" viewTransition className={'tab' + (homeOn ? ' on' : '')}>
           <span className="ic"><Icon name="folder" size={20} /></span>
           {t.home}
           {homeOn && <span className="dot" />}
@@ -160,7 +160,7 @@ export default function TabBar() {
             {tr.my_role && <span className="badge gray">{roleLabel(t, tr.my_role)}</span>}
           </button>
         ))}
-        <button className="srow" onClick={() => { setSwitcherOpen(false); navigate('/'); }}>
+        <button className="srow" onClick={() => { setSwitcherOpen(false); navigate('/', { viewTransition: true }); }}>
           <span className="em"><Icon name="folder" size={20} /></span>
           <div className="t"><b>{t.allTrips}</b></div>
           <Icon name="chev-r" size={16} />
@@ -169,26 +169,38 @@ export default function TabBar() {
 
       <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title={t.more}>
         {tripId != null && (
-          <button className="srow" onClick={() => { setMoreOpen(false); navigate(`/trips/${tripId}`); }}>
+          <button className="srow" onClick={() => { setMoreOpen(false); navigate(`/trips/${tripId}`, { viewTransition: true }); }}>
             <span className="em"><Icon name="home" size={20} /></span>
             <div className="t"><b>{t.overview}</b></div>
             <Icon name="chev-r" size={16} />
           </button>
         )}
         {tripId != null && (
-          <button className="srow" onClick={() => { setMoreOpen(false); navigate(`/trips/${tripId}/people`); }}>
+          <button className="srow" onClick={() => { setMoreOpen(false); navigate(`/trips/${tripId}/people`, { viewTransition: true }); }}>
             <span className="em"><Icon name="users" size={20} /></span>
             <div className="t"><b>{t.people}</b></div>
             <Icon name="chev-r" size={16} />
           </button>
         )}
-        <button className="srow" onClick={() => { setMoreOpen(false); navigate('/settings'); }}>
+        {tripId != null && myRole === 'leader' && (
+          <button className="srow" onClick={() => { setMoreOpen(false); navigate(`/trips/${tripId}/settings`, { viewTransition: true }); }}>
+            <span className="em"><Icon name="edit" size={20} /></span>
+            <div className="t"><b>{t.tripSettings}</b></div>
+            <Icon name="chev-r" size={16} />
+          </button>
+        )}
+        <button className="srow" onClick={() => { setMoreOpen(false); navigate('/discover', { viewTransition: true }); }}>
+          <span className="em"><Icon name="globe" size={20} /></span>
+          <div className="t"><b>{t.discover}</b></div>
+          <Icon name="chev-r" size={16} />
+        </button>
+        <button className="srow" onClick={() => { setMoreOpen(false); navigate('/settings', { viewTransition: true }); }}>
           <span className="em"><Icon name="settings" size={20} /></span>
           <div className="t"><b>{t.settings}</b></div>
           <Icon name="chev-r" size={16} />
         </button>
         {user.role === 'admin' && (
-          <button className="srow" onClick={() => { setMoreOpen(false); navigate('/admin'); }}>
+          <button className="srow" onClick={() => { setMoreOpen(false); navigate('/admin', { viewTransition: true }); }}>
             <span className="em"><Icon name="shield" size={20} /></span>
             <div className="t"><b>{t.adminTitle}</b></div>
             <Icon name="chev-r" size={16} />

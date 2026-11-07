@@ -3,7 +3,7 @@
 // Kept dependency-free (no React, no router) so it is trivially unit-testable.
 import type { IconName } from './iconDefs';
 import type { Dict } from '../i18n';
-import type { TripRole } from '../App';
+import type { TripRole } from '../app/session';
 
 export interface NavItem {
   key: string;
@@ -30,9 +30,9 @@ export interface NavModel {
 function isMoneyPath(path: string, tripId: number): boolean {
   const base = `/trips/${tripId}`;
   return (
-    path === `${base}/ledger` ||
-    path === `${base}/payments` ||
-    path === `${base}/myspend`
+    path === `${base}/money/ledger` ||
+    path === `${base}/money/payments` ||
+    path === `${base}/money/me`
   );
 }
 
@@ -43,9 +43,9 @@ function isMoneyPath(path: string, tripId: number): boolean {
  * Its target is the first visible sub-page, in this priority order.
  */
 function moneyTarget(base: string, hidden: Set<string>): string {
-  if (!hidden.has('ledger')) return `${base}/ledger`;
-  if (!hidden.has('payments')) return `${base}/payments`;
-  return `${base}/myspend`;
+  if (!hidden.has('ledger')) return `${base}/money/ledger`;
+  if (!hidden.has('payments')) return `${base}/money/payments`;
+  return `${base}/money/me`;
 }
 
 export function navModel(path: string, opts: NavOpts): NavModel {
@@ -56,6 +56,8 @@ export function navModel(path: string, opts: NavOpts): NavModel {
 
   const main: NavItem[] = [
     { key: 'home', to: '/', icon: 'folder', label: 'home', on: path === '/' },
+    // v0.30: Discover is global (docs/18 §0) — public guides, opens outside the app chrome.
+    { key: 'discover', to: '/discover', icon: 'globe', label: 'discover', on: path === '/discover' },
   ];
 
   if (tripId != null) {
@@ -77,6 +79,11 @@ export function navModel(path: string, opts: NavOpts): NavModel {
     // leader-only cards (invites/details/danger) while showing a read-only
     // member list + the Rooms card to editors/viewers.
     main.push({ key: 'people', to: `${base}/people`, icon: 'users', label: 'people', on: path === `${base}/people` });
+
+    // v0.30: Trip settings (details, visibility, delete) split from People — leaders only.
+    if (myRole === 'leader') {
+      main.push({ key: 'tripsettings', to: `${base}/settings`, icon: 'settings', label: 'tripSettings', on: path === `${base}/settings` });
+    }
   }
 
   return { main, foot };

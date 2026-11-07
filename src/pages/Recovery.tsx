@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useT } from "../i18n";
 import { clearApiCaches } from "../lib/pwa";
+import { Icon } from "../components/Icon";
 
 export default function Recovery({ reset = false }: { reset?: boolean }) {
   const { t, lang, setLang } = useT(),
@@ -47,7 +48,7 @@ export default function Recovery({ reset = false }: { reset?: boolean }) {
   };
   return (
     <main className="journey-public recovery-page">
-      <div className="journal-brand">🧭 Jelajah</div>
+      <div className="journal-brand"><Icon name="pin" size={20} /> Jelajah</div>
       <button
         className="btn ghost sm"
         onClick={() => setLang(lang === "en" ? "ms" : "en")}

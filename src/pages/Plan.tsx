@@ -1,3 +1,4 @@
+import { useConfirm } from '../ui/Confirm';
 import Loading from '../components/Loading';
 import PlanDaySummary from '../components/PlanDaySummary';
 import TransportLeg from '../components/TransportLeg';
@@ -8,8 +9,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, fmtMYR, fmtDate } from '../api';
 import { useT } from '../i18n';
-import { useSession } from '../App';
-import { TripCtx } from './TripShell';
+import { useSession } from '../app/session';
+import { TripCtx } from '../app/tripContext';
 import LeafletMap, { Pin } from '../components/LeafletMap';
 import ExpandedMap from '../components/ExpandedMap';
 import TransitOptions from '../components/TransitOptions';
@@ -20,7 +21,8 @@ import { toCsv, parseCsv, PLAN_COLUMNS, PLAN_EXAMPLE_ROW } from '../../shared/cs
 import { daysBetween, todayYmd } from '../../shared/days';
 import { pinNumbers, actRef } from '../../shared/pins';
 import { reflowDay } from '../../shared/reflow';
-import { transformGrid, WizardMapping, ACTIVITY_CATEGORIES, ACTIVITY_CAT_ICON, ActivityCategory } from '../../shared/wizard';
+import { transformGrid, WizardMapping, ACTIVITY_CATEGORIES, ActivityCategory } from '../../shared/wizard';
+import { activityIcon } from '../lib/categoryIcons';
 import { geocode, nearestStations, walkMinutes, Station } from '../geo';
 import { Suggestion } from '../../shared/assistant';
 import { useToast } from '../components/Toast';
@@ -102,6 +104,7 @@ const emptyActivity = (day: string) => ({
 });
 
 export default function Plan() {
+  const ask = useConfirm();
   const { t, lang } = useT();
   const { user } = useSession();
   const { trip, tripId, members, canLead, canEdit } = useOutletContext<TripCtx>();
@@ -250,12 +253,12 @@ export default function Plan() {
   const startPt: ChainPt | null = ds?.start_lat != null
     ? { ref: 'start', name: ds.start_name ?? '', lat: ds.start_lat, lng: ds.start_lng }
     : stayMorning?.lat != null
-      ? { ref: 'start', name: `🏨 ${stayMorning.description}`, lat: stayMorning.lat, lng: stayMorning.lng }
+      ? { ref: 'start', name: stayMorning.description, lat: stayMorning.lat, lng: stayMorning.lng }
       : null;
   const endPt: ChainPt | null = ds?.end_lat != null
     ? { ref: 'end', name: ds.end_name ?? '', lat: ds.end_lat, lng: ds.end_lng }
     : stayNight?.lat != null
-      ? { ref: 'end', name: `🏨 ${stayNight.description}`, lat: stayNight.lat, lng: stayNight.lng }
+      ? { ref: 'end', name: stayNight.description, lat: stayNight.lat, lng: stayNight.lng }
       : null;
   const locatedActs: ChainPt[] = items
     .filter(i => i.activity?.lat != null)
@@ -278,7 +281,7 @@ export default function Plan() {
     const jpy = Number(raw);
     if (!(jpy > 0)) return;
     const rate = jpyRate ?? 0.03;
-    const desc = `${leg.from.name} → ${leg.to.name}`.replace(/🏨 /g, '');
+    const desc = `${leg.from.name} → ${leg.to.name}`;
     if (target === 'private') {
       await api.post(`/trips/${tripId}/myspend`, {
         spend_date: selDay, category: 'transport', description: desc,
@@ -575,8 +578,8 @@ export default function Plan() {
           )}
           {canEdit && (
             <>
-              <button className="btn ghost sm" onClick={() => setSuggestOpen(true)}>✨ {t.suggestAi}</button>
-              <button className="btn" onClick={() => setModal(emptyActivity(selDay || days[0] || today))}>＋ {t.addActivity}</button>
+              <button className="btn ghost sm" onClick={() => setSuggestOpen(true)}><Icon name="sparkles" size={16} /> {t.suggestAi}</button>
+              <button className="btn" onClick={() => setModal(emptyActivity(selDay || days[0] || today))}><Icon name="plus" size={16} /> {t.addActivity}</button>
             </>
           )}
         </div>
@@ -646,7 +649,7 @@ export default function Plan() {
                       {canEdit && (
                         <button className="icon" title={dayTitleOf(selDay) ? t.editDayTitle : t.addDayTitle}
                           onClick={() => setTitleEdit(dayTitleOf(selDay) ?? '')}>
-                          {dayTitleOf(selDay) ? '✏️' : `🏷️ ${t.addDayTitle}`}
+                          {dayTitleOf(selDay) ? <Icon name="edit" size={16} /> : <><Icon name="tag" size={16} /> {t.addDayTitle}</>}
                         </button>
                       )}
                     </span>
@@ -665,7 +668,7 @@ export default function Plan() {
                 <span className="row" style={{ gap: 6 }}>
                   {(budget || canLead) && (
                     <button className="badge brand" style={{ border: 'none', cursor: canLead ? 'pointer' : 'default' }}
-                      title={budget ? `🚆${budget.transport ?? 0} 🏨${budget.accommodation ?? 0} 🍜${budget.food ?? 0} 🎟️${budget.attractions ?? 0} 📦${budget.misc ?? 0}` : t.editBudget}
+                      title={budget ? `${t.transport} ¥${budget.transport ?? 0} · ${t.accommodation} ¥${budget.accommodation ?? 0} · ${t.food} ¥${budget.food ?? 0} · ${t.entrance} ¥${budget.attractions ?? 0} · ${t.other} ¥${budget.misc ?? 0}` : t.editBudget}
                       onClick={() => canLead && setBudgetModal(true)}>
                       <Icon name="coins" size={16} /> {budget ? `¥${(budget.total ?? 0).toLocaleString()}${budget.myr_estimate ? ` (~${fmtMYR(budget.myr_estimate)})` : ''}` : t.dayBudget}
                     </button>
@@ -719,8 +722,8 @@ export default function Plan() {
                   // (the desktop edit/delete icon buttons and the mobile Menu
                   // items) call the exact same logic — freeze per spec §4.
                   const doEditActivity = () => setModal({ ...i.activity, est_cost_myr: i.activity.est_cost_myr ?? '' });
-                  const doDeleteActivity = () => {
-                    if (!window.confirm(t.confirmDelete)) return;
+                  const doDeleteActivity = async () => {
+                    if (!(await ask({ title: t.confirmDelete, tone: 'danger', confirmLabel: t.delete }))) return;
                     const aid = i.activity.id;
                     removeActivitiesLocal([aid]);
                     toast(t.tActivityDeleted);
@@ -756,7 +759,7 @@ export default function Plan() {
                         </div>
                         <div className="pi-body">
                           <div className="pi-title">
-                            {i.activity && <span className="pi-cat">{ACTIVITY_CAT_ICON[(i.activity?.category as ActivityCategory) ?? 'other'] ?? <Icon name="pin" size={16} />} </span>}
+                            {i.activity && <span className="pi-cat"><Icon name={activityIcon(i.activity?.category)} size={16} /> </span>}
                             {i.title}
                           </div>
                           {i.subtitle && <div className="tiny">{i.subtitle}</div>}
@@ -773,7 +776,7 @@ export default function Plan() {
                           {i.activity?.lat != null && (
                             <a className="tiny" target="_blank" rel="noreferrer"
                               href={`https://www.google.com/maps/dir/?api=1&destination=${i.activity.lat},${i.activity.lng}&travelmode=transit`}>
-                              🗺️ {t.directions}
+                              <Icon name="route" size={16} /> {t.directions}
                             </a>
                           )}
                         </div>
@@ -847,7 +850,7 @@ export default function Plan() {
               </p>
               {unpinnedStay && (
                 <p className="callout info" style={{ cursor: 'pointer' }} onClick={() => setSeModal('start')}>
-                  📌 {t.setStayPin}: {unpinnedStay.description}
+                  <Icon name="pin" size={16} /> {t.setStayPin}: {unpinnedStay.description}
                 </p>
               )}
 
@@ -978,7 +981,7 @@ export default function Plan() {
 function MonthView({ days, selDay, itemsByDay, onPick }: {
   days: string[]; selDay: string; itemsByDay: Map<string, PlanItem[]>; onPick: (d: string) => void;
 }) {
-  const { lang } = useT();
+  const { t, lang } = useT();
   const anchor = selDay || days[0];
   const [month, setMonth] = useState(anchor?.slice(0, 7) ?? new Date().toISOString().slice(0, 7));
   const first = new Date(month + '-01T00:00:00');
@@ -997,9 +1000,9 @@ function MonthView({ days, selDay, itemsByDay, onPick }: {
   return (
     <div className="card">
       <div className="row-between" style={{ marginBottom: 8 }}>
-        <button className="btn ghost sm" onClick={() => shift(-1)}>←</button>
+        <button className="btn ghost sm" onClick={() => shift(-1)} aria-label={t.prevMonth}><Icon name="chev-l" size={16} /></button>
         <strong>{first.toLocaleDateString(lang === 'ms' ? 'ms-MY' : 'en-MY', { month: 'long', year: 'numeric' })}</strong>
-        <button className="btn ghost sm" onClick={() => shift(1)}>→</button>
+        <button className="btn ghost sm" onClick={() => shift(1)} aria-label={t.nextMonth}><Icon name="chev-r" size={16} /></button>
       </div>
       <div className="cal-grid">
         {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <div key={i} className="cal-dow">{d}</div>)}
@@ -1091,17 +1094,20 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
           <label>{t.activityTitle}</label>
           <input value={d.title} onChange={e => set({ title: e.target.value })} required />
         </div>
+        {/* v0.30 (B7): date on its own row, start/end each labelled — the old "Time / End time"
+            pair was squeezed into half a row and the end field was cut off on phones. */}
+        <div className="fld">
+          <label htmlFor="act-day">{t.date}</label>
+          <input id="act-day" type="date" value={d.day} onChange={e => set({ day: e.target.value })} required />
+        </div>
         <div className="mrow">
           <div className="fld">
-            <label>{t.date}</label>
-            <input type="date" value={d.day} onChange={e => set({ day: e.target.value })} required />
+            <label htmlFor="act-start">{t.timeLabel}</label>
+            <input id="act-start" type="time" value={d.start_time ?? ''} onChange={e => set({ start_time: e.target.value })} />
           </div>
           <div className="fld">
-            <label>{t.timeLabel} / {t.endTimeLabel}</label>
-            <div className="row" style={{ flexWrap: 'nowrap' }}>
-              <input type="time" value={d.start_time ?? ''} onChange={e => set({ start_time: e.target.value })} />
-              <input type="time" value={d.end_time ?? ''} onChange={e => set({ end_time: e.target.value })} />
-            </div>
+            <label htmlFor="act-end">{t.endTimeLabel}</label>
+            <input id="act-end" type="time" value={d.end_time ?? ''} onChange={e => set({ end_time: e.target.value })} />
           </div>
         </div>
         <div className="mrow">
@@ -1115,7 +1121,7 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
               <option value="">—</option>
               {ACTIVITY_CATEGORIES.map(cval => (
                 <option key={cval} value={cval}>
-                  {ACTIVITY_CAT_ICON[cval]} {(t as any)[`cat${cval.charAt(0).toUpperCase()}${cval.slice(1)}`]}
+                  {(t as any)[`cat${cval.charAt(0).toUpperCase()}${cval.slice(1)}`]}
                 </option>
               ))}
             </select>
@@ -1145,7 +1151,7 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
               if (!sts.length) return null;
               return (
                 <div style={{ margin: '6px 0' }}>
-                  <span className="tiny" style={{ fontWeight: 700 }}>🚉 {t.nearestStations}:</span>
+                  <span className="tiny" style={{ fontWeight: 700 }}><Icon name="station" size={16} /> {t.nearestStations}:</span>
                   <div className="row" style={{ gap: 4, marginTop: 3 }}>
                     {sts.map((s, i2) => (
                       <button type="button" key={i2} className={`chip ${(d.station_idx ?? 0) === i2 ? 'on' : ''}`}
@@ -1189,13 +1195,13 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
           <div className="chips" style={{ marginTop: 6 }}>
             {members.map((m: any) => (
               <span key={m.id} className={`chip ${d.participant_ids.includes(m.id) ? 'on' : ''}`} onClick={() => toggle(m.id)}>
-                {m.name}{m.is_infant ? ' 👶' : ''}
+                {m.name}{m.is_infant ? <> <Icon name="baby" size={16} /><span className="sr-only">{t.infant}</span></> : ''}
               </span>
             ))}
           </div>
           {d.participant_ids.length > 1 && (
             <button type="button" className="btn ghost sm" style={{ marginTop: 6 }} onClick={saveGroup}>
-              💾 {t.saveGroup}
+              <Icon name="save" size={16} /> {t.saveGroup}
             </button>
           )}
         </div>
@@ -1281,7 +1287,7 @@ function StartEndModal({ tripId, day, ds, stays, onClose, onSaved }: {
       </div>
       {val !== null ? <PlacePicker value={val} onChange={setVal} />
         : <button type="button" className="btn ghost sm"
-            onClick={() => setVal({ name: '', lat: 35.68, lng: 139.76 })}>✏️ {t.edit}</button>}
+            onClick={() => setVal({ name: '', lat: 35.68, lng: 139.76 })}><Icon name="edit" size={16} /> {t.edit}</button>}
     </div>
   );
 
@@ -1305,7 +1311,7 @@ function StartEndModal({ tripId, day, ds, stays, onClose, onSaved }: {
       {side(t.dayEnd, end, setEnd)}
       {unpinned.length > 0 && (
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginBottom: 10 }}>
-          <strong style={{ fontSize: '.88rem' }}>📌 {t.setStayPin}</strong>
+          <strong style={{ fontSize: '.88rem' }}><Icon name="pin" size={16} /> {t.setStayPin}</strong>
           <select style={{ margin: '6px 0' }} value={pinStay?.expense_id ?? ''}
             onChange={e => setPinStay(unpinned.find(s => s.expense_id === Number(e.target.value)) ?? null)}>
             <option value="">—</option>
@@ -1482,7 +1488,7 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
       ) : undefined}>
         {!grid ? (
           <label className="dropzone" style={{ display: 'block' }}>
-            📥 CSV
+            <Icon name="upload" size={16} /> CSV
             <input type="file" accept=".csv,text/csv" hidden onChange={e => onFile(e.target.files?.[0] ?? null)} />
           </label>
         ) : (
@@ -1495,7 +1501,7 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
               <label className="fld"><span>{t.fieldCategory}</span>{colSelect(map2.category, v => setMap2({ ...map2, category: v }))}</label>
               <label className="fld"><span>{t.fieldPrice}</span>{colSelect(map2.price, v => setMap2({ ...map2, price: v }))}</label>
               <label className="fld"><span>{t.fieldOvernight}</span>{colSelect(map2.overnight, v => setMap2({ ...map2, overnight: v }))}</label>
-              <label className="fld"><span>{t.fieldBudgets} (🚆/🏨/🍜/🎟️/📦/Σ)</span>
+              <label className="fld"><span>{t.fieldBudgets} ({t.transport} / {t.accommodation} / {t.food} / {t.entrance} / {t.other} / {t.total})</span>
                 <div className="row" style={{ gap: 3, flexWrap: 'wrap' }}>
                   {colSelect(map2.bTransport, v => setMap2({ ...map2, bTransport: v }))}
                   {colSelect(map2.bAccom, v => setMap2({ ...map2, bAccom: v }))}
@@ -1507,7 +1513,7 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
               </label>
             </div>
             <div className="row" style={{ margin: '8px 0' }}>
-              <button className="btn ghost sm" disabled={map2.title < 0} onClick={transform}>👁️ {t.importPreview}</button>
+              <button className="btn ghost sm" disabled={map2.title < 0} onClick={transform}><Icon name="eye" size={16} /> {t.importPreview}</button>
               {result && (
                 <button className="btn ghost sm" onClick={findLocations} disabled={!!geoProg && geoProg[0] < geoProg[1]}>
                   <Icon name="pin" size={16} /> {geoProg && geoProg[0] < geoProg[1] ? t.geocoding(geoProg[0], geoProg[1]) : t.geocodeNow}
@@ -1627,9 +1633,9 @@ function SuggestModal({ tripId, trip, day, canEdit, onClose, onAdded }: {
         </form>
         <div className="row tiny" style={{ gap: 4 }}>
           <span className={`chip ${scope === 'day' ? 'on' : ''}`} onClick={() => setScope('day')}><Icon name="calendar" size={16} /> {day}</span>
-          <span className={`chip ${scope === 'trip' ? 'on' : ''}`} onClick={() => setScope('trip')}>🧳 {trip.name}</span>
+          <span className={`chip ${scope === 'trip' ? 'on' : ''}`} onClick={() => setScope('trip')}>{trip.emoji || <Icon name="plane" size={16} />} {trip.name}</span>
         </div>
-        {busy && <p className="muted" style={{ marginTop: 10 }}>🤖 {t.suggesting}</p>}
+        {busy && <p className="muted" style={{ marginTop: 10 }}><Icon name="sparkles" size={16} /> {t.suggesting}</p>}
         {err && <p className="callout warn">{err}</p>}
         {suggestions && suggestions.length === 0 && <p className="muted" style={{ marginTop: 10 }}>—</p>}
         {suggestions && suggestions.length > 0 && (
@@ -1638,7 +1644,7 @@ function SuggestModal({ tripId, trip, day, canEdit, onClose, onAdded }: {
               <span className="tiny"><Icon name="alert" size={16} /> {t.aiDisclaimer}</span>
               {canEdit && (
                 <button className="btn ghost sm" onClick={addAll} disabled={adding !== null}>
-                  ＋ {t.addAll} ({suggestions.length})
+                  <Icon name="plus" size={16} /> {t.addAll} ({suggestions.length})
                 </button>
               )}
             </div>
@@ -1646,14 +1652,14 @@ function SuggestModal({ tripId, trip, day, canEdit, onClose, onAdded }: {
               <div key={i} className={`suggest-card ${added.has(i) ? 'added' : ''}`}>
                 <div className="sc-time">{s.day.slice(5)}<br />{s.start_time ?? '—'}</div>
                 <div className="sc-body">
-                  <div className="sc-title">{ACTIVITY_CAT_ICON[(s.category as ActivityCategory) ?? 'sightseeing'] ?? <Icon name="pin" size={16} />} {s.title}</div>
+                  <div className="sc-title"><Icon name={activityIcon(s.category ?? 'sightseeing')} size={16} /> {s.title}</div>
                   {s.why && <div className="tiny">{s.why}</div>}
                   {s.place && <div className="tiny"><Icon name="pin" size={16} /> {s.place}</div>}
                 </div>
                 {canEdit && (
                   <button className="btn sm" disabled={added.has(i) || adding !== null}
                     onClick={() => addOne(s, i)}>
-                    {added.has(i) ? `✓ ${t.addedLbl}` : adding === i ? '…' : `＋ ${t.add}`}
+                    {added.has(i) ? <><Icon name="check" size={16} /> {t.addedLbl}</> : adding === i ? '…' : <><Icon name="plus" size={16} /> {t.add}</>}
                   </button>
                 )}
               </div>

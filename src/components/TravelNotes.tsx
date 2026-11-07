@@ -1,3 +1,4 @@
+import { useConfirm } from '../ui/Confirm';
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useT } from "../i18n";
@@ -12,6 +13,7 @@ export default function TravelNotes({
   canEdit: boolean;
   day?: string;
 }) {
+  const ask = useConfirm();
   const { t, lang } = useT(),
     j = t.j,
     { toast } = useToast();
@@ -172,8 +174,8 @@ export default function TravelNotes({
                   <button
                     className="btn ghost sm"
                     disabled={busy}
-                    onClick={() => {
-                      if (window.confirm(j.deleteConfirm))
+                    onClick={async () => {
+                      if (await ask({ title: j.deleteConfirm, tone: 'danger', confirmLabel: t.delete }))
                         run(() =>
                           api.del(
                             `/journey/trips/${tripId}/notes/${n.visibility}/${n.id}`,
@@ -187,8 +189,8 @@ export default function TravelNotes({
                     <button
                       className="btn ghost sm"
                       disabled={busy}
-                      onClick={() => {
-                        if (window.confirm(j.copyConfirm))
+                      onClick={async () => {
+                        if (await ask({ title: j.copyConfirm }))
                           run(() =>
                             api.post(`/journey/trips/${tripId}/notes`, {
                               day: n.day,

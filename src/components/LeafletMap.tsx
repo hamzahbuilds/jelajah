@@ -11,6 +11,10 @@ setWorkerUrl(workerUrl);
 
 export interface Pin { lat: number; lng: number; label?: string; icon?: string }
 
+/** Marker HTML for a sprite icon (the <IconDefs> sprite is in the DOM, so <use> resolves inside Leaflet divIcons). */
+export const pinIcon = (name: string, size = 14) =>
+  `<svg viewBox="0 0 24 24" width="${size}" height="${size}" class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+
 export interface Arc { from: Pin; to: Pin; label?: string }
 
 export interface Route { points: [number, number][]; mode: string; color?: string; label?: string }
@@ -21,7 +25,7 @@ export interface Route { points: [number, number][]; mode: string; color?: strin
 // page's stylesheet cascade, so `var(--gray-400)` would not resolve there;
 // #A8A69F is that token's actual value (src/styles.css --gray-400).
 const ROUTE_STYLE: Record<string, { color: string; dashArray?: string }> = {
-  train: { color: '#0E9384' }, metro: { color: '#0E9384' }, transit: { color: '#0E9384' }, intercity: { color: '#0E9384' },
+  train: { color: '#116B58' }, metro: { color: '#116B58' }, transit: { color: '#116B58' }, intercity: { color: '#116B58' },
   walk: { color: '#087F8C', dashArray: '2 7' },
   taxi: { color: '#F79009', dashArray: '7 5' }, car: { color: '#F79009', dashArray: '7 5' }, drive: { color: '#F79009', dashArray: '7 5' },
 };
@@ -127,14 +131,14 @@ export default function LeafletMap({ pins, picked, onPick, onSelectPin, height =
       const popup = document.createElement('span');
       popup.textContent = a.label ?? '';
       L.marker([mid.lat, mid.lng], {
-        icon: L.divIcon({ className: '', html: '<div style="font-size:16px">✈️</div>', iconSize: [20, 20], iconAnchor: [10, 10] }),
+        icon: L.divIcon({ className: '', html: `<div class="map-plane">${pinIcon('plane', 18)}</div>`, iconSize: [20, 20], iconAnchor: [10, 10] }),
       }).addTo(layer).bindPopup(popup);
     }
     if (picked) {
       L.marker([picked.lat, picked.lng], {
         icon: L.divIcon({
           className: '',
-          html: '<div class="pin-wrap"><div class="pin-dot picked"><span>✓</span></div></div>',
+          html: '<div class="pin-wrap"><div class="pin-dot picked"><span>' + pinIcon('check') + '</span></div></div>',
           iconSize: [26, 32], iconAnchor: [13, 30], popupAnchor: [0, -28],
         }),
       }).addTo(layer);

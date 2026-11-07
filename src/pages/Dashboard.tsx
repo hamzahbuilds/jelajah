@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { useOutletContext, Link } from 'react-router-dom';
 import { api, fmtMYR, fmtDate } from '../api';
 import { useT, Dict } from '../i18n';
-import { useSession } from '../App';
-import { TripCtx } from './TripShell';
-import LeafletMap, { Pin, Arc } from '../components/LeafletMap';
+import { useSession } from '../app/session';
+import { TripCtx } from '../app/tripContext';
+import LeafletMap, { Pin, Arc, pinIcon } from '../components/LeafletMap';
 import FxWidget from '../components/FxWidget';
 import PageHead from '../components/PageHead';
 import { Icon, type IconName } from '../components/Icon';
@@ -68,7 +68,7 @@ export default function Dashboard() {
   })();
   const daysUntil = (d: Date) => Math.max(0, Math.round((new Date(d.toDateString()).getTime() - new Date(new Date().toDateString()).getTime()) / 86400000));
 
-  // Journey overview: 🏨 stay pins + numbered 📍 activity pins + ✈️ dashed arcs between airports.
+  // Journey overview: hotel stay pins + numbered activity pins + plane-marked dashed arcs between airports.
   const journey = (() => {
     if (!plan) return null;
     const pins: Pin[] = [];
@@ -78,7 +78,7 @@ export default function Dashboard() {
       const k = `${s.lat.toFixed(4)},${s.lng.toFixed(4)}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      pins.push({ lat: s.lat, lng: s.lng, icon: '🏨', label: s.description });
+      pins.push({ lat: s.lat, lng: s.lng, icon: pinIcon('hotel'), label: s.description });
     }
     const stayCount = pins.length;
     let n = 0;
@@ -135,7 +135,7 @@ export default function Dashboard() {
 
   return (
     <div>
-      <PageHead crumb={trip.name} title={t.dashboard} />
+      <PageHead title={t.overview} />
       <div className="hero">
         <div className="big">{cd.big}</div>
         <div className="sub">{trip.destination} · {fmtDate(trip.start_date, lang)} → {fmtDate(trip.end_date, lang)}</div>
@@ -185,9 +185,9 @@ export default function Dashboard() {
           <LeafletMap pins={journey.pins} arcs={journey.arcs} height={300}
             accent={(trip as any).color || undefined} />
           <div className="journey-stats">
-            {journey.flights > 0 && <span className="jstat"><Icon name="plane" size={16} /> {journey.flights} {t.flights}</span>}
-            {journey.stays > 0 && <span className="jstat"><Icon name="hotel" size={16} /> {journey.stays} {t.stays}</span>}
-            {journey.places > 0 && <span className="jstat"><Icon name="pin" size={16} /> {journey.places} {t.places}</span>}
+            {journey.flights > 0 && <span className="jstat"><Icon name="plane" size={16} /> {t.nFlights(journey.flights)}</span>}
+            {journey.stays > 0 && <span className="jstat"><Icon name="hotel" size={16} /> {t.nStays(journey.stays)}</span>}
+            {journey.places > 0 && <span className="jstat"><Icon name="pin" size={16} /> {t.nPlaces(journey.places)}</span>}
             {journey.km > 0 && <span className="jstat"><Icon name="globe" size={16} /> {journey.km.toLocaleString()} km {t.totalDistance}</span>}
           </div>
         </div>
@@ -283,7 +283,7 @@ export default function Dashboard() {
                 );
               })}
             </div>
-            <Link to={`/trips/${tripId}/payments`} className="tiny">{t.payments} →</Link>
+            <Link to={`/trips/${tripId}/money/payments`} className="tiny">{t.payments} →</Link>
           </div>
         ) : (
           <div className="card">
@@ -296,7 +296,7 @@ export default function Dashboard() {
                   <strong>{fmtMYR(bp.remaining)}</strong>
                 </div>
               ))}
-            <Link to={`/trips/${tripId}/payments`} className="tiny">{t.statement} →</Link>
+            <Link to={`/trips/${tripId}/money/payments`} className="tiny">{t.statement} →</Link>
           </div>
         )}
 
@@ -306,7 +306,7 @@ export default function Dashboard() {
           {openDues.map(d => (
             <div className="row-between" key={d.id} style={{ padding: '5px 0' }}>
               <Link style={{ color: 'inherit', display: 'block' }}
-                to={`/trips/${tripId}/payments?expense=${d.expense_id}${d.participant_id ? `&participant=${d.participant_id}` : ''}`}>
+                to={`/trips/${tripId}/money/payments?expense=${d.expense_id}${d.participant_id ? `&participant=${d.participant_id}` : ''}`}>
                 <div>{d.description} {d.participant_id != null && <span className="badge gray"><Icon name="user" size={16} /> {d.participant_name}</span>} <span className="tiny">→</span></div>
                 <div className="tiny">{fmtDate(d.due_date, lang)}{d.vendor ? ` · ${d.vendor}` : ''}</div>
               </Link>

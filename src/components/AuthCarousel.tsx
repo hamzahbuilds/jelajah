@@ -71,6 +71,8 @@ export default function AuthCarousel() {
   // pre-v0.23 gradient-only carousel; this page is pre-auth, so a raw
   // `fetch` is used (no auth header, no `api` helper).
   const [photos, setPhotos] = useState<Record<string, CarouselPhoto> | null>(null);
+  // v0.30 (B5): a photo that fails to load is dropped so the slide's gradient + scene shows, not a broken-image glyph.
+  const [failed, setFailed] = useState<Set<string>>(() => new Set());
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   const reducedMotion = () =>
@@ -138,13 +140,17 @@ export default function AuthCarousel() {
             className={`ph${idx === i ? ' on' : ''}`}
             style={{ backgroundImage: s.gradient }}
           >
-            {photo && (
+            {photo && !failed.has(s.destination) && (
               <img
                 className="caro-photo"
                 src={photo.url}
                 alt=""
                 aria-hidden="true"
-                loading="lazy"
+                // first slide is the LCP candidate; the hidden slides must not compete with it
+                loading={idx === 0 ? 'eager' : 'lazy'}
+                fetchPriority={idx === 0 ? 'high' : 'low'}
+                decoding="async"
+                onError={() => setFailed(prev => new Set(prev).add(s.destination))}
               />
             )}
             <span className="scene" aria-hidden="true">{s.scene}</span>

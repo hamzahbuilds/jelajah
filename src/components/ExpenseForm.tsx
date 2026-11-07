@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError, fmtMYR } from '../api';
 import { useT } from '../i18n';
+import { Icon } from './Icon';
 import { useToast } from './Toast';
-import { Participant } from '../pages/TripShell';
+import { Participant } from '../app/tripContext';
 import { allocateByWeight, ROOM_SPLIT_ERROR_CODES } from '../../shared/roomSplit';
 import { occupancyLabel } from '../../shared/rooms';
 import { daysBetween } from '../../shared/days';
@@ -443,11 +444,12 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
         </label>
         <label className="fld"><span>{t.amount}</span>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
-            <select style={{ width: 90 }} value={d.currency} onChange={e => set({ currency: e.target.value })}>
+            {/* v0.30 (A9): a <label> only names its first control, so name both explicitly */}
+            <select style={{ width: 90 }} value={d.currency} onChange={e => set({ currency: e.target.value })} aria-label={t.currency}>
               {CURRENCIES.map(c => <option key={c}>{c}</option>)}
             </select>
-            <input type="number" step="0.01" min="0" value={d.amount_original || ''}
-              onChange={e => set({ amount_original: Number(e.target.value) })} required />
+            <input type="number" step="0.01" min="0" inputMode="decimal" value={d.amount_original || ''}
+              onChange={e => set({ amount_original: Number(e.target.value) })} required aria-label={t.amount} />
           </div>
         </label>
         {d.currency !== 'MYR' && (
@@ -560,7 +562,7 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
           {members.map(m => (
             <button type="button" aria-pressed={d.participant_ids.includes(m.id)} key={m.id} className={`chip ${d.participant_ids.includes(m.id) ? 'on' : ''}`}
               onClick={() => toggleParticipant(m.id)}>
-              {m.name}{m.is_infant ? ' 👶' : ''}
+              {m.name}{m.is_infant ? <> <Icon name="baby" size={16} /><span className="sr-only">{t.infant}</span></> : ''}
             </button>
           ))}
         </div>
@@ -620,7 +622,7 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
             <input placeholder={t.note} value={dd.note ?? ''} style={{ flex: 1, minWidth: 90 }}
               onChange={e => set({ due_dates: d.due_dates.map((x, j) => j === i ? { ...x, note: e.target.value } : x) })} />
             <button type="button" className="icon"
-              onClick={() => set({ due_dates: d.due_dates.filter((_, j) => j !== i) })}>✕</button>
+              onClick={() => set({ due_dates: d.due_dates.filter((_, j) => j !== i) })} aria-label={t.remove}><Icon name="x" size={16} /></button>
           </div>
         ))}
       </div>

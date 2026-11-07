@@ -1,8 +1,9 @@
+import { useConfirm } from '../ui/Confirm';
 import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, fmtMYR, fmtMoney, fmtDate } from '../api';
 import { useT } from '../i18n';
-import { TripCtx } from './TripShell';
+import { TripCtx } from '../app/tripContext';
 import ExpenseForm, { CATEGORIES, emptyDraft, ExpenseDraft } from '../components/ExpenseForm';
 import { useToast } from '../components/Toast';
 import MoneyTabs from '../components/MoneyTabs';
@@ -10,15 +11,14 @@ import PageHead from '../components/PageHead';
 import Empty from '../components/Empty';
 import Modal from '../components/Modal';
 import { Icon, type IconName } from '../components/Icon';
+import { expenseIcon } from '../lib/categoryIcons';
 import { roomsDrift, parseRoomsSplitJson } from '../lib/roomsDrift';
 
 // tile icon by category — plane/hotel/train/ticket/food, falling back to a
 // generic receipt for anything without a closer match (shopping, other…).
-const CAT_ICON: Record<string, IconName> = {
-  flight: 'plane', accommodation: 'hotel', transport: 'train', entrance: 'ticket', pass: 'ticket', food: 'food',
-};
 
 export default function Ledger() {
+  const ask = useConfirm();
   const { t, lang } = useT();
   const { toast } = useToast();
   const { trip, tripId, members, canLead } = useOutletContext<TripCtx>();
@@ -111,7 +111,7 @@ export default function Ledger() {
   };
 
   const remove = async (e: any) => {
-    if (!window.confirm(t.confirmDelete)) return;
+    if (!(await ask({ title: t.confirmDelete, tone: 'danger', confirmLabel: t.delete }))) return;
     await api.del(`/expenses/${e.id}`);
     toast(t.tExpenseDeleted);
     await load();
@@ -119,7 +119,7 @@ export default function Ledger() {
 
   return (
     <div>
-      <PageHead crumb={trip.name} title={t.money} sub={t.moneySub} />
+      <PageHead title={t.money} sub={t.moneySub} />
       <MoneyTabs />
 
       <div className="stats">
@@ -129,7 +129,7 @@ export default function Ledger() {
           <span className="t">{list.length} {t.expenses}</span>
         </div>
         <div className="card stat">
-          <span className="k"><span className="tile sm"><Icon name="hotel" /></span>{t.committed}</span>
+          <span className="k"><span className="tile sm"><Icon name="hotel" /></span>{t.committedLabel}</span>
           <span className="v">{fmtMYR(committedTotal)}</span>
           <span className="t">{t.committedNote}</span>
         </div>
@@ -173,14 +173,14 @@ export default function Ledger() {
           const drifted = roomsSplitJson ? roomsDrift(e.split_json, rooms) : false;
           return (
             <div className="lrow" key={e.id}>
-              <span className="tile"><Icon name={CAT_ICON[e.category] ?? 'receipt'} /></span>
+              <span className="tile"><Icon name={expenseIcon(e.category)} /></span>
               <div className="l-main">
                 <b>{e.description}</b>
                 {roomsSplitJson && <span className="badge brand" style={{ marginLeft: 6 }}>{t.byRooms}</span>}
                 <small>
                   {fmtDate(e.expense_date, lang)}
                   {e.payer_participant_id ? ` · ${pname(e.payer_participant_id)}` : ''}
-                  {shareCount > 0 ? ` · ${shareCount} ${t.participants}` : ''}
+                  {shareCount > 0 ? ` · ${t.nPeople(shareCount)}` : ''}
                   {e.vendor ? ` · ${e.vendor}` : ''}
                 </small>
               </div>

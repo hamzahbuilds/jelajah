@@ -5,7 +5,7 @@
 // Sidebar/TabBar Money item: hidden_features hides Ledger/Payments individually,
 // My spend is never gate-able.
 import { NavLink, useParams } from 'react-router-dom';
-import { useTripNav } from '../App';
+import { useTripNav } from '../app/session';
 import { useT } from '../i18n';
 
 export default function MoneyTabs() {
@@ -18,16 +18,16 @@ export default function MoneyTabs() {
   return (
     <div className="seg" style={{ marginBottom: 12 }}>
       {!hidden.has('ledger') && (
-        <NavLink to={`${base}/ledger`} className={({ isActive }) => (isActive ? 'on' : '')}>
+        <NavLink viewTransition to={`${base}/money/ledger`} className={({ isActive }) => (isActive ? 'on' : '')}>
           {t.ledger}
         </NavLink>
       )}
       {!hidden.has('payments') && (
-        <NavLink to={`${base}/payments`} className={({ isActive }) => (isActive ? 'on' : '')}>
+        <NavLink viewTransition to={`${base}/money/payments`} className={({ isActive }) => (isActive ? 'on' : '')}>
           {t.payments}
         </NavLink>
       )}
-      <NavLink to={`${base}/myspend`} className={({ isActive }) => (isActive ? 'on' : '')}>
+      <NavLink viewTransition to={`${base}/money/me`} className={({ isActive }) => (isActive ? 'on' : '')}>
         {t.myspend}
       </NavLink>
     </div>

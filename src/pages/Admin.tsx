@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { api } from '../api';
 import { useT, Dict } from '../i18n';
-import { useSession } from '../App';
+import { useSession } from '../app/session';
 import { useToast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import PageHead from '../components/PageHead';
@@ -382,7 +382,7 @@ export default function Admin() {
           {showTemp && (
             <p className="callout info">
               {t.tempPassword}: <strong style={{ fontFamily: 'monospace' }}>{showTemp}</strong>
-              <button className="btn ghost sm" onClick={() => setShowTemp(null)} aria-label={t.close}>✕</button>
+              <button className="btn ghost sm" onClick={() => setShowTemp(null)} aria-label={t.close}><Icon name="x" size={16} /></button>
             </p>
           )}
           {users.map(u => (
@@ -419,7 +419,7 @@ export default function Admin() {
                 </select></label>
             </div>
             <button className="btn sm">{t.addUser}</button>
-            <span className="tiny" style={{ marginLeft: 8 }}>({t.tempPassword} ✨)</span>
+            <span className="tiny" style={{ marginLeft: 8 }}><Icon name="key" size={16} /> {t.tempPassword}</span>
           </form>
         </div>
 

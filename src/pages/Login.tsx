@@ -87,7 +87,7 @@ export default function Login() {
           <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>
             {mode === 'setup' ? t.setupGo : t.signIn}
           </button>
-          <p><Link to="/discover">{t.j.discover} ↗</Link></p>
+          <p><Link to="/discover">{t.j.discover} <Icon name="external" size={16} /></Link></p>
           <p className="tiny muted" style={{ marginTop: 16, textAlign: 'center' }}>{t.loginInviteHint}</p>
         </form>
       </div>

@@ -1,3 +1,4 @@
+import { useConfirm } from '../ui/Confirm';
 import Loading from '../components/Loading';
 import PlanDaySummary from '../components/PlanDaySummary';
 import TransportLeg from '../components/TransportLeg';
@@ -6,8 +7,8 @@ import { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { api, fmtDate } from "../api";
 import { useT } from "../i18n";
-import { useSession } from "../App";
-import type { TripCtx } from "./TripShell";
+import { useSession } from "../app/session";
+import type { TripCtx } from "../app/tripContext";
 import Plan from "./Plan";
 import Publishing from "./Publishing";
 import TravelNotes from "../components/TravelNotes";
@@ -24,6 +25,7 @@ import {
   type JourneyDay,
 } from "../../shared/journey";
 import { geocode, type GeoResult } from "../geo";
+import { Icon } from "../components/Icon";
 
 export default function JournalPlan() {
   const { t, lang } = useT(),
@@ -65,7 +67,7 @@ export default function JournalPlan() {
     <div className="journal-workspace">
       <div className="journal-intro">
         <div><span className="journal-eyebrow">{trip.destination || trip.name}</span><h1>{lang === "ms" ? "Rancang pengembaraan anda" : "Your next adventure"}</h1><p>{j.journeyIntro}</p></div>
-        <Link to="/discover">{j.discover} ↗</Link>
+        <Link to="/discover">{j.discover} <Icon name="external" size={16} /></Link>
       </div>
       <nav className="journal-tabs" aria-label={t.plan}>
         {[
@@ -134,6 +136,7 @@ export default function JournalPlan() {
 }
 
 function PersonalPlan({ id }: { id: number }) {
+  const ask = useConfirm();
   const { t, lang } = useT(),
     j = t.j,
     { user } = useSession(),
@@ -281,7 +284,7 @@ function PersonalPlan({ id }: { id: number }) {
                 target="_blank"
                 rel="noreferrer"
               >
-                {l.chosen === "transit" ? j.transitDirections : j.directions} ↗
+                {l.chosen === "transit" ? j.transitDirections : j.directions} <Icon name="external" size={16} />
               </a>
 
     {mine && content.stops.some(s => s.id === l.originId) && <div className="row">
@@ -600,8 +603,8 @@ function PersonalPlan({ id }: { id: number }) {
                     <button
                       className="btn ghost sm"
                       disabled={busy}
-                      onClick={() => {
-                        if (window.confirm(j.deleteConfirm))
+                      onClick={async () => {
+                        if (await ask({ title: j.deleteConfirm, tone: 'danger', confirmLabel: t.delete }))
                           run(() =>
                             save({
                               ...content,

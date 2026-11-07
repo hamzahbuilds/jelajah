@@ -1,9 +1,10 @@
+import { useConfirm } from '../ui/Confirm';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { useT } from '../i18n';
-import { useSession } from '../App';
-import { TripCtx, Participant } from './TripShell';
+import { useSession } from '../app/session';
+import { TripCtx, Participant } from '../app/tripContext';
 import { useToast } from '../components/Toast';
 import PageHead from '../components/PageHead';
 import { Icon } from '../components/Icon';
@@ -29,7 +30,12 @@ const initials = (name: string) => {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 };
 
-export default function People() {
+// v0.30 (docs/18 §5): one component, two routes — /people (members, rooms,
+// invites) and /settings (details, visibility, delete). They share the trip
+// state and handlers, so the split is a render-time filter, not a copy.
+export default function People({ section = 'people' }: { section?: 'people' | 'settings' }) {
+  const isSettings = section === 'settings';
+  const ask = useConfirm();
   const { t, lang } = useT();
   const bm = lang === 'ms';
   const { toast } = useToast();
@@ -125,7 +131,7 @@ export default function People() {
   };
 
   const transferLead = async (pid: number, name: string) => {
-    if (!window.confirm(t.transferConfirm(name))) return;
+    if (!(await ask({ title: t.transferConfirm(name) }))) return;
     try {
       await api.post(`/trips/${tripId}/transfer`, { participant_id: pid });
       toast(t.tLeadershipMoved);
@@ -354,9 +360,9 @@ export default function People() {
 
   return (
     <div>
-      <PageHead crumb={trip.name} title={t.people} />
+      <PageHead title={isSettings ? t.tripSettings : t.people} />
       <div className="grid grid-2 trip-settings" style={{ alignItems: 'start' }}>
-      {canLead && (
+      {isSettings && canLead && (
         <div className="card settings-details">
           <div className="cardhead"><h3><Icon name="edit" /> {t.tripDetails}</h3></div>
           <form onSubmit={saveTripDetails}>
@@ -420,7 +426,7 @@ export default function People() {
         </div>
       )}
 
-      {canLead && (
+      {isSettings && canLead && (
         <div className="card">
           <div className="cardhead"><h3><Icon name="eye" /> {t.visibility}</h3></div>
           <p className="hint">{t.visibilityHint}</p>
@@ -438,7 +444,7 @@ export default function People() {
           </label>
         </div>
       )}
-      <div className="card">
+      {!isSettings && <div className="card">
         <div className="cardhead"><h3>{t.tripMembers}</h3><span className="badge gray">{members.length}</span></div>
         <div className="settings-member-avatars" aria-label={t.tripMembers}>
           {members.map(m => <button type="button" key={m.id} className="settings-member-avatar" aria-label={m.name}
@@ -450,11 +456,11 @@ export default function People() {
         {!members.length && <p className="hint">{bm ? 'Belum ada ahli.' : 'No members yet.'}</p>}
         {canLead && <button className="btn secondary sm" onClick={() => { setDirectorySearch(''); setDirectoryPage(0); setManageMembers(true); }}><Icon name="edit" size={16} />{bm ? 'Urus ahli' : 'Manage members'}</button>}
 
-      </div>
+      </div>}
 
-      <RoomsCard tripId={tripId} members={members} canEdit={canEdit} />
+      {!isSettings && <RoomsCard tripId={tripId} members={members} canEdit={canEdit} />}
 
-      {canLead && (
+      {!isSettings && canLead && (
         <div className="card">
           <div className="cardhead">
             <h3><Icon name="link" /> {t.inviteTitle}</h3>
@@ -548,7 +554,7 @@ export default function People() {
         )}
       </Modal>
 
-      {canLead && (
+      {isSettings && canLead && (
         <div className="card danger-card">
           <div className="cardhead"><h3 className="danger-title"><Icon name="trash" /> {t.deleteTrip}</h3></div>
           <p className="hint">{t.deleteTripHint(trip.name)}</p>

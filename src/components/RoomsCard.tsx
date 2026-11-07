@@ -14,7 +14,7 @@ import { Icon } from './Icon';
 import Modal from './Modal';
 import { occupancyLabel } from '../../shared/rooms';
 import { daysBetween } from '../../shared/days';
-import type { Participant } from '../pages/TripShell';
+import type { Participant } from '../app/tripContext';
 
 type RoomOccupant = { participant_id: number; nights: number | null };
 type Room = {
@@ -385,10 +385,10 @@ export default function RoomsCard({ tripId, members, canEdit }: {
                                   </button>
                                   {popoverOpen && (
                                     <div className="nights-popover">
-                                      <button type="button" className="nights-step" aria-label="-"
+                                      <button type="button" className="nights-step" aria-label={t.fewerNights}
                                         onClick={() => saveNights(room, m.id, Math.max(1, (n ?? stayNights) - 1))}>−</button>
                                       <span className="nights-popover-value">{n}/{stayNights}</span>
-                                      <button type="button" className="nights-step" aria-label="+"
+                                      <button type="button" className="nights-step" aria-label={t.moreNights}
                                         onClick={() => saveNights(room, m.id, Math.min(stayNights, (n ?? stayNights) + 1))}>+</button>
                                       <button type="button" className="nights-all" onClick={() => saveNights(room, m.id, null)}>
                                         {t.allNights}
@@ -402,7 +402,7 @@ export default function RoomsCard({ tripId, members, canEdit }: {
                             )}
                             {canEdit && (
                               <button type="button" className="room-occ-x" title={t.removeFromRoom} aria-label={t.removeFromRoom}
-                                onClick={() => unassign(room, m.id)}>×</button>
+                                onClick={() => unassign(room, m.id)}><Icon name="x" size={16} /></button>
                             )}
                           </span>
                         );

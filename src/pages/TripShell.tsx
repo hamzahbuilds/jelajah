@@ -3,19 +3,12 @@ import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useT } from '../i18n';
-import { useSetTripNav, Trip, TripRole } from '../App';
+import { useSetTripNav, type Trip, type TripRole } from '../app/session';
 import ChatDrawer from '../components/ChatDrawer';
 import { Icon } from '../components/Icon';
 
-export interface Participant {
-  id: number; name: string; is_infant: number;
-  trip_role?: 'leader' | 'editor' | 'viewer'; has_account?: number;
-}
-export interface TripCtx {
-  trip: Trip; members: Participant[]; tripId: number;
-  reload: () => Promise<void>;
-  myRole: TripRole; canLead: boolean; canEdit: boolean;
-}
+export type { Participant, TripCtx } from '../app/tripContext';
+import type { Participant, TripCtx } from '../app/tripContext';
 
 export default function TripShell() {
   const { t } = useT();
@@ -80,9 +73,8 @@ export default function TripShell() {
 
   const accent = (data.trip as any).color || '';
   return (
-    <div style={accent ? ({
+    <div className={accent ? 'trip-accent' : undefined} style={accent ? ({
       ['--accent' as any]: accent,
-      ['--brand-600' as any]: accent, ['--brand-700' as any]: accent,
     } as any) : undefined}>
       <div className="trip-header">
         {data.trip.cover_key && (
@@ -93,7 +85,7 @@ export default function TripShell() {
         <div className="row trip-header-row">
           <span style={{ fontSize: '1.6rem' }}>{data.trip.emoji}</span>
           <div>
-            <h1 style={{ marginBottom: 0 }}>{data.trip.name}</h1>
+            <p className="trip-title">{data.trip.name}</p>
             <div className="muted">{data.trip.destination}</div>
           </div>
         </div>

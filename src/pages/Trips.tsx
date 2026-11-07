@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { useT, Dict } from '../i18n';
-import { useSession, Trip, TripRole } from '../App';
+import { useSession, Trip, TripRole } from '../app/session';
 import { StylePicker } from '../components/TripStyle';
 import { useToast } from '../components/Toast';
 import { CurrencyFields } from '../components/FxWidget';

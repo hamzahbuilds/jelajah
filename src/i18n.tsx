@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
 const en = {
   j: {
@@ -120,7 +120,7 @@ const en = {
   tagline: 'Family travel, sorted.',
   // common
   save: 'Save', cancel: 'Cancel', delete: 'Delete', add: 'Add', edit: 'Edit',
-  confirm: 'Confirm', close: 'Close', download: 'Download', loading: 'Loading…',
+  confirm: 'Confirm', close: 'Close', remove: 'Remove', skipToContent: 'Skip to content', prevMonth: 'Previous month', nextMonth: 'Next month', download: 'Download', loading: 'Loading…',
   total: 'Total', date: 'Date', actions: 'Actions', none: 'None', name: 'Name',
   yes: 'Yes', no: 'No', back: 'Back', optional: 'optional',
   // login / account
@@ -181,7 +181,7 @@ const en = {
   today: 'Today',
   // tabs
   dashboard: 'Dashboard', documents: 'Documents', ledger: 'Ledger',
-  payments: 'Payments', people: 'Trip Settings', plan: 'Plan',
+  payments: 'Payments', people: 'People', tripSettings: 'Trip settings', discover: 'Discover', plan: 'Plan',
   // v-nav: sidebar (T6)
   home: 'Home', overview: 'Overview', money: 'Money',
   collapseNav: 'Collapse sidebar', switchTrip: 'Switch trip', youChip: 'You',
@@ -343,6 +343,21 @@ const en = {
   fxAddCurrency: 'Add currency (code or name)…', fxMax6: 'Up to 6 watch currencies',
   fxBuy: 'Good time to buy', fxOk: 'Within its usual range', fxWait: 'Pricier than usual — consider waiting',
   fxVsDays: (n: number) => `vs last ${n} days`,
+  // v0.29 date-range picker + plurals
+  nNights: (n: number) => (n === 1 ? '1 night' : `${n} nights`),
+  nFlights: (n: number) => (n === 1 ? '1 flight' : `${n} flights`),
+  nStays: (n: number) => (n === 1 ? '1 stay' : `${n} stays`),
+  nPlaces: (n: number) => (n === 1 ? '1 place' : `${n} places`),
+  nPeople: (n: number) => (n === 1 ? '1 person' : `${n} people`),
+  committedLabel: 'Committed',
+  fewerNights: 'One night fewer', moreNights: 'One night more',
+  nDays: (n: number) => (n === 1 ? '1 day' : `${n} days`),
+  addDates: 'Add dates', clear: 'Clear', done: 'Done',
+  selectStart: 'Select start date', selectEnd: 'Select end date',
+  selectCheckIn: 'Select check-in', selectCheckOut: 'Select check-out',
+  checkoutAfterCheckin: 'Check-out must be after check-in',
+  inSelectedRange: 'in selected range',
+  tripDates: 'Trip dates', stayDatesLabel: 'Stay dates', chooseDates: 'Choose dates',
   fxNoHistory: 'Not enough history yet', fxUnavailable: 'Rates unavailable right now',
   fxEditCurrencies: 'Edit currencies',
   addDayTitle: 'Name this day', editDayTitle: 'Rename this day',
@@ -366,7 +381,7 @@ const en = {
   outstanding: 'Outstanding', topOutstanding: 'Largest outstanding balances',
   upcomingDues: 'Payment due dates', myChecklist: 'My checklist',
   addTask: 'Add a task…', noTasks: 'Nothing here yet — add your first task.',
-  allSettled: 'Everything is settled 🎉', myBalance: 'My balance',
+  allSettled: 'Everything is settled', myBalance: 'My balance',
   owed: 'Owed', paid: 'Paid', remaining: 'Remaining', expenses: 'expenses',
   settled: 'Settled', markSettled: 'Mark settled',
   // documents
@@ -652,7 +667,7 @@ const ms: typeof en = {
   appName: 'Jelajah',
   tagline: 'Perjalanan keluarga, tersusun.',
   save: 'Simpan', cancel: 'Batal', delete: 'Padam', add: 'Tambah', edit: 'Sunting',
-  confirm: 'Sahkan', close: 'Tutup', download: 'Muat turun', loading: 'Memuatkan…',
+  confirm: 'Sahkan', close: 'Tutup', remove: 'Buang', skipToContent: 'Langkau ke kandungan', prevMonth: 'Bulan sebelumnya', nextMonth: 'Bulan seterusnya', download: 'Muat turun', loading: 'Memuatkan…',
   total: 'Jumlah', date: 'Tarikh', actions: 'Tindakan', none: 'Tiada', name: 'Nama',
   yes: 'Ya', no: 'Tidak', back: 'Kembali', optional: 'pilihan',
   email: 'E-mel', password: 'Kata laluan', signIn: 'Log masuk',
@@ -709,7 +724,7 @@ const ms: typeof en = {
   daysSince: (n: number) => `${n} hari selepas perjalanan`,
   today: 'Hari ini',
   dashboard: 'Papan pemuka', documents: 'Dokumen', ledger: 'Lejar',
-  payments: 'Bayaran', people: 'Tetapan Trip', plan: 'Rancangan',
+  payments: 'Bayaran', people: 'Ahli', tripSettings: 'Tetapan trip', discover: 'Teroka', plan: 'Rancangan',
   home: 'Utama', overview: 'Ringkasan', money: 'Wang',
   collapseNav: 'Kecilkan menu', switchTrip: 'Tukar perjalanan', youChip: 'Anda',
   more: 'Lagi', allTrips: 'Semua perjalanan',
@@ -863,6 +878,20 @@ const ms: typeof en = {
   fxAddCurrency: 'Tambah mata wang (kod atau nama)…', fxMax6: 'Maksimum 6 mata wang dipantau',
   fxBuy: 'Masa sesuai untuk beli', fxOk: 'Dalam julat biasa', fxWait: 'Lebih mahal dari biasa — boleh tunggu dulu',
   fxVsDays: (n: number) => `berbanding ${n} hari lepas`,
+  nNights: (n: number) => `${n} malam`,
+  nFlights: (n: number) => `${n} penerbangan`,
+  nStays: (n: number) => `${n} penginapan`,
+  nPlaces: (n: number) => `${n} tempat`,
+  nPeople: (n: number) => `${n} orang`,
+  committedLabel: 'Komited',
+  fewerNights: 'Kurang satu malam', moreNights: 'Tambah satu malam',
+  nDays: (n: number) => `${n} hari`,
+  addDates: 'Tambah tarikh', clear: 'Kosongkan', done: 'Selesai',
+  selectStart: 'Pilih tarikh mula', selectEnd: 'Pilih tarikh tamat',
+  selectCheckIn: 'Pilih daftar masuk', selectCheckOut: 'Pilih daftar keluar',
+  checkoutAfterCheckin: 'Daftar keluar mesti selepas daftar masuk',
+  inSelectedRange: 'dalam julat dipilih',
+  tripDates: 'Tarikh perjalanan', stayDatesLabel: 'Tarikh penginapan', chooseDates: 'Pilih tarikh',
   fxNoHistory: 'Sejarah belum mencukupi', fxUnavailable: 'Kadar tidak tersedia buat masa ini',
   fxEditCurrencies: 'Sunting mata wang',
   addDayTitle: 'Namakan hari ini', editDayTitle: 'Tukar nama hari ini',
@@ -885,7 +914,7 @@ const ms: typeof en = {
   outstanding: 'Belum jelas', topOutstanding: 'Baki tertunggak terbesar',
   upcomingDues: 'Tarikh akhir bayaran', myChecklist: 'Senarai semak saya',
   addTask: 'Tambah tugasan…', noTasks: 'Belum ada apa-apa — tambah tugasan pertama anda.',
-  allSettled: 'Semua sudah selesai 🎉', myBalance: 'Baki saya',
+  allSettled: 'Semua sudah selesai', myBalance: 'Baki saya',
   owed: 'Terhutang', paid: 'Dibayar', remaining: 'Baki', expenses: 'perbelanjaan',
   settled: 'Selesai', markSettled: 'Tanda selesai',
   uploadDoc: 'Muat naik dokumen', dropHint: 'Resit PDF, itinerari dan pengesahan',
@@ -1055,6 +1084,8 @@ const I18nCtx = createContext<{ t: Dict; lang: Lang; setLang: (l: Lang) => void 
 
 export function I18nProvider({ children, initial }: { children: ReactNode; initial?: Lang }) {
   const [lang, setLang] = useState<Lang>(initial ?? 'en');
+  // v0.30 (A2): screen readers pick their voice from <html lang>; keep it in step with the UI language.
+  useEffect(() => { document.documentElement.lang = lang === 'ms' ? 'ms' : 'en'; }, [lang]);
   return <I18nCtx.Provider value={{ t: dicts[lang], lang, setLang }}>{children}</I18nCtx.Provider>;
 }
 

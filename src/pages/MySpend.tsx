@@ -1,23 +1,24 @@
+import { useConfirm } from '../ui/Confirm';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, fmtMYR, fmtMoney, fmtDate } from '../api';
 import { useT } from '../i18n';
-import { useSession } from '../App';
-import { TripCtx } from './TripShell';
+import { useSession } from '../app/session';
+import { TripCtx } from '../app/tripContext';
 import { useToast } from '../components/Toast';
 import MoneyTabs from '../components/MoneyTabs';
 import PageHead from '../components/PageHead';
 import Empty from '../components/Empty';
 import { Icon, type IconName } from '../components/Icon';
+import { expenseIcon } from '../lib/categoryIcons';
 
 const CATS = ['food', 'shopping', 'transport', 'entrance', 'other'] as const;
 // tile icon by category, falling back to a generic receipt (shopping/other
 // have no closer match in the shared icon sprite).
-const CAT_ICON: Record<string, IconName> = { food: 'food', transport: 'train', entrance: 'ticket' };
 // the old emoji dict stays for the (untouched) add-spend form's <option> labels.
-const CAT_EMOJI: Record<string, string> = { food: '🍜', shopping: '🛍️', transport: '🚇', entrance: '🎟️', other: '📌' };
 
 export default function MySpend() {
+  const ask = useConfirm();
   const { t, lang } = useT();
   const { user } = useSession();
   const { toast } = useToast();
@@ -117,14 +118,14 @@ export default function MySpend() {
   };
 
   const remove = async (i: any) => {
-    if (!window.confirm(t.confirmDelete)) return;
+    if (!(await ask({ title: t.confirmDelete, tone: 'danger', confirmLabel: t.delete }))) return;
     await api.del(`/myspend/${i.id}`);
     toast(t.tDeleted);
     await load();
   };
 
   const promote = async (i: any) => {
-    if (!window.confirm(t.promoteConfirm)) return;
+    if (!(await ask({ title: t.promoteConfirm }))) return;
     try {
       await api.post(`/myspend/${i.id}/promote`);
       toast(t.tPromoted);
@@ -142,7 +143,7 @@ export default function MySpend() {
 
   return (
     <div>
-      <PageHead crumb={trip.name} title={t.money} sub={t.moneySub} />
+      <PageHead title={t.money} sub={t.moneySub} />
       <MoneyTabs />
       <p className="callout info"><Icon name="shield" size={16} /> {t.privateNote}</p>
       <div className="stats">
@@ -165,7 +166,7 @@ export default function MySpend() {
         )}
         {byCat.slice(0, 1).map(([c, v]) => (
           <div className="card stat" key={c}>
-            <span className="k"><span className="tile sm"><Icon name={CAT_ICON[c] ?? 'receipt'} /></span>{(t as any)[c]}</span>
+            <span className="k"><span className="tile sm"><Icon name={expenseIcon(c)} /></span>{(t as any)[c]}</span>
             <span className="v">{fmtMYR(v)}</span>
           </div>
         ))}
@@ -179,7 +180,7 @@ export default function MySpend() {
               <input type="date" value={form.spend_date} onChange={e => setForm({ ...form, spend_date: e.target.value })} required /></label>
             <label className="fld"><span>{t.category}</span>
               <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
-                {CATS.map(c => <option key={c} value={c}>{CAT_EMOJI[c]} {(t as any)[c]}</option>)}
+                {CATS.map(c => <option key={c} value={c}>{(t as any)[c]}</option>)}
               </select></label>
             <label className="fld full"><span>{t.description}</span>
               <input ref={descRef} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} required /></label>
@@ -235,7 +236,7 @@ export default function MySpend() {
             )}
             {items.map(i => (
               <div key={i.id} className="lrow" style={{ flexWrap: 'wrap' }}>
-                <span className="tile sm"><Icon name={CAT_ICON[i.category] ?? 'receipt'} /></span>
+                <span className="tile sm"><Icon name={expenseIcon(i.category)} /></span>
                 <div className="l-main">
                   <b>{i.description}</b>
                   <small>
