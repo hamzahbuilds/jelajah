@@ -18,6 +18,7 @@ import { fillDays, lastNDaysUtc } from '../shared/metrics';
 import { singleOccupancyBatch } from '../shared/rooms';
 import { roomShares, RoomSplitError, RoomSplitRoom } from '../shared/roomSplit';
 import { daysBetween } from '../shared/days';
+import { geocode, tripCenter, validLatLng, type Candidate, type LatLng } from './lib/geocode';
 
 type Vars = { user: SessionUser };
 const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
@@ -2382,6 +2383,40 @@ app.delete('/activities/:id', async c => {
   return c.json({ ok: true });
 });
 
+/** Shared by the reset-day route and MCP clear_day: one transaction, group schedule only —
+ *  booking-derived flights/stays, notes, day title and budget stay. Returns rows deleted. */
+async function resetDayActivities(env: Env, tripId: number, day: string): Promise<number> {
+  const results = await env.DB.batch([
+    env.DB.prepare('DELETE FROM activity_participants WHERE activity_id IN (SELECT id FROM activities WHERE trip_id=? AND day=?)').bind(tripId, day),
+    env.DB.prepare('DELETE FROM activities WHERE trip_id=? AND day=?').bind(tripId, day),
+    env.DB.prepare('DELETE FROM leg_overrides WHERE trip_id=? AND day=?').bind(tripId, day),
+  ]);
+  return results[1].meta.changes;
+}
+
+/** Shared by the bulk-delete route and MCP delete_activities: only ids that belong to
+ *  this trip are deleted, in one batch. Returns the ids actually deleted. */
+async function deleteActivityIds(env: Env, tripId: number, ids: number[]): Promise<Array<{ id: number; title: string; day: string }>> {
+  const own: Array<{ id: number; title: string; day: string }> = [];
+  const unique = [...new Set(ids)];
+  for (let offset = 0; offset < unique.length; offset += 90) {
+    const chunk = unique.slice(offset, offset + 90);
+    // ≤90 ids per query: D1 caps bound parameters per statement
+    const rows = await env.DB.prepare(`SELECT id, title, day FROM activities WHERE trip_id = ? AND id IN (${chunk.map(() => '?').join(',')})`)
+      .bind(tripId, ...chunk).all();
+    own.push(...(rows.results as any[]).map(r => ({ id: r.id, title: r.title, day: r.day })));
+  }
+  if (own.length) {
+    const stmts: any[] = [];
+    for (const { id: aid } of own) {
+      stmts.push(env.DB.prepare('DELETE FROM activity_participants WHERE activity_id = ?').bind(aid));
+      stmts.push(env.DB.prepare('DELETE FROM activities WHERE id = ?').bind(aid));
+    }
+    await env.DB.batch(stmts);
+  }
+  return own;
+}
+
 /** Reset only the editable group schedule; booking-derived events and finances stay intact. */
 app.post('/trips/:id/activities/reset-day', async c => {
   const id = Number(c.req.param('id'));
@@ -2389,13 +2424,9 @@ app.post('/trips/:id/activities/reset-day', async c => {
   const { day } = await c.req.json<{ day: string }>();
   if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)
     || !Number.isFinite(Date.parse(day)) || new Date(day).toISOString().slice(0, 10) !== day) return bad(c, 'invalid_day');
-  const results = await c.env.DB.batch([
-    c.env.DB.prepare('DELETE FROM activity_participants WHERE activity_id IN (SELECT id FROM activities WHERE trip_id=? AND day=?)').bind(id, day),
-    c.env.DB.prepare('DELETE FROM activities WHERE trip_id=? AND day=?').bind(id, day),
-    c.env.DB.prepare('DELETE FROM leg_overrides WHERE trip_id=? AND day=?').bind(id, day),
-  ]);
+  const deleted = await resetDayActivities(c.env, id, day);
   await audit(c.env, c.get('user').id, `activities_reset_day: ${day}`, 'trip', id);
-  return c.json({ deleted: results[1].meta.changes });
+  return c.json({ deleted });
 });
 
 /** v0.13 bulk delete — one permission check, one batch, only this trip's rows. */
@@ -2405,22 +2436,7 @@ app.post('/trips/:id/activities/delete', async c => {
   const { ids } = await c.req.json<{ ids: number[] }>();
   if (!Array.isArray(ids) || !ids.length || ids.length > 300) return bad(c, 'ids_required');
   if (ids.some(aid => !Number.isSafeInteger(aid) || aid <= 0)) return bad(c, 'invalid_ids');
-  const own: number[] = [];
-  const unique = [...new Set(ids)];
-  for (let offset = 0; offset < unique.length; offset += 90) {
-    const chunk = unique.slice(offset, offset + 90);
-    const rows = await c.env.DB.prepare(`SELECT id FROM activities WHERE trip_id = ? AND id IN (${chunk.map(() => '?').join(',')})`)
-      .bind(id, ...chunk).all();
-    own.push(...(rows.results as any[]).map(r => r.id));
-  }
-  if (own.length) {
-    const stmts: any[] = [];
-    for (const aid of own) {
-      stmts.push(c.env.DB.prepare('DELETE FROM activity_participants WHERE activity_id = ?').bind(aid));
-      stmts.push(c.env.DB.prepare('DELETE FROM activities WHERE id = ?').bind(aid));
-    }
-    await c.env.DB.batch(stmts);
-  }
+  const own = await deleteActivityIds(c.env, id, ids);
   await audit(c.env, c.get('user').id, 'activities_bulk_delete', 'trip', id);
   return c.json({ deleted: own.length });
 });
@@ -3472,168 +3488,361 @@ async function mcpHidden(env: Env, user: SessionUser, tripId: number): Promise<S
   try { return new Set(JSON.parse(t?.hidden_features ?? '[]')); } catch { return new Set(); }
 }
 
+/* ---- MCP v2 (docs/19): workflow-shaped tools, trip-biased geocoding, annotations,
+ *      isError results, structuredContent, version negotiation, server instructions ---- */
+
+const MCP_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
+const MCP_SERVER_VERSION = '0.31.0';
+const MCP_INSTRUCTIONS = [
+  'Jelajah is a group trip planner. Dates are YYYY-MM-DD, times HH:MM in the trip\'s local time.',
+  'Start with list_trips to get trip ids. get_itinerary shows each activity with its id and whether it has a map pin ("located").',
+  'To add several stops use add_activities (one call, up to 50). Always set "place" to the venue name plus area (e.g. "Ichiran, Shibuya") and keep "title" short; if you already know coordinates, pass lat/lng too.',
+  'After adding, check "unlocated" in the result: pick a candidate and call update_activity with its lat/lng, call search_place for more options, or ask the user.',
+  'pin_activities fixes every stop that has no pin yet. To empty a whole day use clear_day (one call); to remove several stops use delete_activities.',
+  'Flights and hotel stays come from bookings and are not activities: clear_day keeps them, along with notes, the day title and budget.',
+].join(' ');
+
+const DAY = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'YYYY-MM-DD' };
+const TIME = { type: 'string', pattern: '^\\d{2}:\\d{2}$', description: 'HH:MM, 24-hour, local time' };
+const TRIP = { type: 'number', description: 'Trip id from list_trips' };
+const CATEGORY = { type: 'string', enum: ['sightseeing', 'food', 'transport', 'lodging', 'shopping', 'other'] };
+const PLACE = { type: 'string', description: 'Venue name plus area, e.g. "Sensō-ji, Asakusa, Tokyo". Used to put the stop on the map.' };
+const LAT = { type: 'number', minimum: -90, maximum: 90, description: 'Latitude, if known (wins over geocoding "place")' };
+const LNG = { type: 'number', minimum: -180, maximum: 180, description: 'Longitude, if known' };
+
+const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+const GEO_WRITE = { ...WRITE, openWorldHint: true };
+const UPDATE = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+const DESTROY = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
+
+const activityItem = {
+  type: 'object',
+  properties: {
+    day: DAY, title: { type: 'string', description: 'Short name of the stop, e.g. "Lunch"' },
+    start_time: TIME, end_time: TIME, duration_min: { type: 'number', description: 'Used when end_time is not given' },
+    place: PLACE, lat: LAT, lng: LNG, category: CATEGORY, notes: { type: 'string' },
+  },
+  required: ['day', 'title'],
+};
+
 const MCP_TOOLS = [
-  { name: 'list_trips', description: 'List the trips this token can see.', inputSchema: { type: 'object', properties: {} } },
   {
-    name: 'get_itinerary',
-    description: 'Get the itinerary for a trip: activities (with times, places, notes), flight/stay bookings, and per-day budgets. Optionally filter to one day (YYYY-MM-DD).',
-    inputSchema: { type: 'object', properties: { trip_id: { type: 'number' }, day: { type: 'string' } }, required: ['trip_id'] },
+    name: 'list_trips', title: 'List trips', annotations: READ,
+    description: 'List the trips this token can see, with dates, destination, your role and the map centre used for place lookups.',
+    inputSchema: { type: 'object', properties: {} },
   },
   {
-    name: 'get_balances',
-    description: 'Read-only: who owes whom for a trip (outstanding amounts in MYR, targeted-settlement aware).',
-    inputSchema: { type: 'object', properties: { trip_id: { type: 'number' } }, required: ['trip_id'] },
+    name: 'get_itinerary', title: 'Get itinerary', annotations: READ,
+    description: 'Activities (id, time, title, place, located flag), flight/stay bookings, day titles, notes, budgets and rooms. Filter to one day with "day". detail "concise" returns only the activity list.',
+    inputSchema: { type: 'object', properties: { trip_id: TRIP, day: DAY, detail: { type: 'string', enum: ['full', 'concise'] } }, required: ['trip_id'] },
   },
   {
-    name: 'get_expenses',
-    description: 'Read-only: the trip expense ledger (a member token sees only expenses it shares in).',
-    inputSchema: { type: 'object', properties: { trip_id: { type: 'number' } }, required: ['trip_id'] },
+    name: 'search_place', title: 'Search for a place', annotations: { ...READ, openWorldHint: true },
+    description: 'Look up a venue near the trip (OpenStreetMap). Returns up to 5 candidates with coordinates and distance from the trip, so you can pass the right lat/lng to add_activities or update_activity.',
+    inputSchema: { type: 'object', properties: { trip_id: TRIP, query: { type: 'string' }, limit: { type: 'number', minimum: 1, maximum: 5 } }, required: ['trip_id', 'query'] },
   },
   {
-    name: 'suggest_free_slots',
+    name: 'get_balances', title: 'Get balances', annotations: READ,
+    description: 'Who owes whom for a trip (outstanding amounts in MYR, targeted-settlement aware).',
+    inputSchema: { type: 'object', properties: { trip_id: TRIP }, required: ['trip_id'] },
+  },
+  {
+    name: 'get_expenses', title: 'Get expenses', annotations: READ,
+    description: 'The trip expense ledger (a member token sees only expenses it shares in).',
+    inputSchema: { type: 'object', properties: { trip_id: TRIP }, required: ['trip_id'] },
+  },
+  {
+    name: 'suggest_free_slots', title: 'Find free time', annotations: READ,
     description: 'Gaps between timed activities on one day — where new activities fit.',
-    inputSchema: { type: 'object', properties: { trip_id: { type: 'number' }, day: { type: 'string' } }, required: ['trip_id', 'day'] },
+    inputSchema: { type: 'object', properties: { trip_id: TRIP, day: DAY }, required: ['trip_id', 'day'] },
   },
   {
-    name: 'add_activity',
-    description: 'Add an itinerary activity (needs an editor role on the trip). If "place" is given it is geocoded so the activity gets a map pin.',
+    name: 'add_activities', title: 'Add activities', annotations: GEO_WRITE,
+    description: 'Add 1–50 activities in one call (needs edit access to the plan). Each stop is pinned on the map from lat/lng if given, otherwise by looking up "place" near the trip. The result lists what was pinned and, for anything not pinned, candidate locations.',
+    inputSchema: { type: 'object', properties: { trip_id: TRIP, activities: { type: 'array', minItems: 1, maxItems: 50, items: activityItem } }, required: ['trip_id', 'activities'] },
+  },
+  {
+    name: 'add_activity', title: 'Add one activity', annotations: GEO_WRITE,
+    description: 'Add a single activity. Prefer add_activities for more than one stop.',
+    inputSchema: { type: 'object', properties: { trip_id: TRIP, ...activityItem.properties }, required: ['trip_id', 'day', 'title'] },
+  },
+  {
+    name: 'update_activity', title: 'Update an activity', annotations: { ...UPDATE, openWorldHint: true },
+    description: 'Change fields of an activity by id; only the fields you pass change. Setting "place" re-pins it near the trip; lat/lng set the pin directly.',
     inputSchema: {
       type: 'object',
       properties: {
-        trip_id: { type: 'number' }, day: { type: 'string', description: 'YYYY-MM-DD' },
-        title: { type: 'string' }, start_time: { type: 'string', description: 'HH:MM' },
-        duration_min: { type: 'number' }, notes: { type: 'string' }, place: { type: 'string' },
-        category: { type: 'string', enum: ['sightseeing', 'food', 'transport', 'lodging', 'shopping', 'other'] },
-      },
-      required: ['trip_id', 'day', 'title'],
-    },
-  },
-  {
-    name: 'update_activity',
-    description: 'Update fields of an activity by id (needs an editor role on the trip). Only provided fields change.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        activity_id: { type: 'number' }, day: { type: 'string' }, title: { type: 'string' },
-        start_time: { type: 'string' }, end_time: { type: 'string' }, notes: { type: 'string' },
-        done: { type: 'boolean' },
+        activity_id: { type: 'number' }, day: DAY, title: { type: 'string' }, start_time: TIME, end_time: TIME,
+        notes: { type: 'string' }, done: { type: 'boolean' }, category: CATEGORY, place: PLACE, lat: LAT, lng: LNG,
       },
       required: ['activity_id'],
     },
   },
   {
-    name: 'delete_activity',
-    description: 'Delete an activity by id (needs an editor role on the trip).',
+    name: 'pin_activities', title: 'Pin unlocated activities', annotations: { ...UPDATE, openWorldHint: true },
+    description: 'Find map pins for every activity that has a place name but no pin (optionally one day). Confident matches are saved; the rest come back with candidates.',
+    inputSchema: { type: 'object', properties: { trip_id: TRIP, day: DAY }, required: ['trip_id'] },
+  },
+  {
+    name: 'delete_activities', title: 'Delete activities', annotations: DESTROY,
+    description: 'Delete several activities by id in one call (only ids on this trip are touched). Returns the titles removed.',
+    inputSchema: { type: 'object', properties: { trip_id: TRIP, activity_ids: { type: 'array', minItems: 1, maxItems: 300, items: { type: 'number' } } }, required: ['trip_id', 'activity_ids'] },
+  },
+  {
+    name: 'clear_day', title: 'Clear a day', annotations: DESTROY,
+    description: 'Remove every activity on one day in a single step. Flights and stays from bookings, notes, the day title and budget are kept. Returns the titles removed.',
+    inputSchema: { type: 'object', properties: { trip_id: TRIP, day: DAY }, required: ['trip_id', 'day'] },
+  },
+  {
+    name: 'delete_activity', title: 'Delete an activity', annotations: DESTROY,
+    description: 'Delete one activity by id. For several, use delete_activities; for a whole day, clear_day.',
     inputSchema: { type: 'object', properties: { activity_id: { type: 'number' } }, required: ['activity_id'] },
   },
   {
-    name: 'get_notes',
-    description: "Read the day notes and checklist items written under the plan — the planner's free-text intentions and to-dos. Optionally filter to one day (YYYY-MM-DD). Checklist items carry a done flag; plain notes do not.",
-    inputSchema: { type: 'object', properties: { trip_id: { type: 'number' }, day: { type: 'string' } }, required: ['trip_id'] },
+    name: 'get_notes', title: 'Get notes', annotations: READ,
+    description: "Day notes and checklist items under the plan. Optionally one day. Checklist items carry a done flag; plain notes do not.",
+    inputSchema: { type: 'object', properties: { trip_id: TRIP, day: DAY }, required: ['trip_id'] },
   },
   {
-    name: 'add_note',
-    description: 'Add a note or checklist item under a day of the plan (needs an editor role on the trip). Set is_check true for a tickable to-do, false for a plain note.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        trip_id: { type: 'number' }, day: { type: 'string', description: 'YYYY-MM-DD' },
-        content: { type: 'string' }, is_check: { type: 'boolean' },
-      },
-      required: ['trip_id', 'day', 'content'],
-    },
+    name: 'add_note', title: 'Add a note', annotations: WRITE,
+    description: 'Add a note or checklist item under a day (needs edit access). is_check true = tickable to-do.',
+    inputSchema: { type: 'object', properties: { trip_id: TRIP, day: DAY, content: { type: 'string' }, is_check: { type: 'boolean' } }, required: ['trip_id', 'day', 'content'] },
   },
   {
-    name: 'update_note',
-    description: 'Update a note by id (needs an editor role on the trip): change its text, or tick/untick a checklist item. Only provided fields change.',
-    inputSchema: {
-      type: 'object',
-      properties: { note_id: { type: 'number' }, content: { type: 'string' }, done: { type: 'boolean' }, is_check: { type: 'boolean' } },
-      required: ['note_id'],
-    },
+    name: 'update_note', title: 'Update a note', annotations: UPDATE,
+    description: 'Change a note\'s text, or tick/untick a checklist item. Only provided fields change.',
+    inputSchema: { type: 'object', properties: { note_id: { type: 'number' }, content: { type: 'string' }, done: { type: 'boolean' }, is_check: { type: 'boolean' } }, required: ['note_id'] },
   },
   {
-    name: 'delete_note',
-    description: 'Delete a day note by id (needs an editor role on the trip).',
+    name: 'delete_note', title: 'Delete a note', annotations: DESTROY,
+    description: 'Delete a day note by id.',
     inputSchema: { type: 'object', properties: { note_id: { type: 'number' } }, required: ['note_id'] },
   },
   {
-    name: 'set_day_title',
-    description: "Name what a day of the trip is about (needs an editor role on the trip) — e.g. 'Arrival & Shinjuku night walk'. Shown on the day tab. Pass an empty title to clear it.",
-    inputSchema: {
-      type: 'object',
-      properties: { trip_id: { type: 'number' }, day: { type: 'string', description: 'YYYY-MM-DD' }, title: { type: 'string' } },
-      required: ['trip_id', 'day', 'title'],
-    },
+    name: 'set_day_title', title: 'Name a day', annotations: UPDATE,
+    description: "Name what a day is about, e.g. 'Arrival & Shinjuku night walk'. Shown on the day tab. Empty title clears it.",
+    inputSchema: { type: 'object', properties: { trip_id: TRIP, day: DAY, title: { type: 'string' } }, required: ['trip_id', 'day', 'title'] },
   },
 ];
 
-/** Server-side geocode (Photon → Nominatim) for MCP add_activity. */
-async function geocodeServer(q: string, env: Env): Promise<{ name: string; lat: number; lng: number } | null> {
-  try {
-    const res = await fetch(`${env.GEOCODER_URL || 'https://photon.komoot.io/api/'}?q=${encodeURIComponent(q)}&limit=1`, { signal: AbortSignal.timeout(8000) });
-    if (res.ok) {
-      const data: any = await res.json();
-      const f = data.features?.[0];
-      if (f) {
-        return {
-          name: [f.properties.name, f.properties.city ?? f.properties.county].filter(Boolean).join(', '),
-          lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0],
-        };
-      }
-    }
-  } catch { /* fall through */ }
-  return null;
+/** Business errors (not found, no permission, bad input) — returned as isError tool results so the model can self-correct. */
+class McpError extends Error { code: number; constructor(code: number, message: string) { super(message); this.code = code; } }
+const toolError = (message: string) => new McpError(-32000, message);
+
+const validDayStr = (d: unknown): d is string => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)
+  && Number.isFinite(Date.parse(d)) && new Date(d).toISOString().slice(0, 10) === d;
+const validTime = (t: unknown): t is string => typeof t === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+const plusMinutes = (t: string, m: number) => {
+  const total = Math.min(Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) + Math.min(m, 720), 1435);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+};
+const MCP_CATS = ['sightseeing', 'food', 'transport', 'lodging', 'shopping', 'other'];
+
+/** Writes follow the app's rule (canEditPlan): editor role and the plan not hidden for this account. */
+async function mcpCanEditPlan(env: Env, user: SessionUser, tripId: number) {
+  if (!Number.isFinite(tripId)) throw toolError('trip_id is required');
+  if (!(await mcpTripAccess(env, user, tripId))) throw toolError(`No access to trip ${tripId}. Call list_trips for trips you can see.`);
+  if ((await mcpHidden(env, user, tripId)).has('plan')) throw toolError('The plan is hidden for this account');
+  if (!atLeast(await tripRole(env, user, tripId), 'editor')) throw toolError('Changing the plan needs an editor role on this trip');
 }
 
-class McpError extends Error { code: number; constructor(code: number, message: string) { super(message); this.code = code; } }
+interface PinOutcome { lat: number | null; lng: number | null; located: boolean; pinned_from: 'coordinates' | 'place' | null; matched?: { name: string; kind: string | null; address: string }; candidates?: Candidate[]; reason?: string }
+
+/** Resolve a pin for one stop: explicit coordinates win, else trip-biased lookup of `place`. */
+async function resolvePin(env: Env, place: string | null, lat: unknown, lng: unknown, center: LatLng | null): Promise<PinOutcome> {
+  if (validLatLng(lat, lng)) return { lat: lat as number, lng: lng as number, located: true, pinned_from: 'coordinates' };
+  if (!place) return { lat: null, lng: null, located: false, pinned_from: null, reason: 'no place given' };
+  const r = await geocode(env, place, center);
+  if (r.hit) return { lat: r.hit.lat, lng: r.hit.lng, located: true, pinned_from: 'place', matched: { name: r.hit.name, kind: r.hit.kind, address: r.hit.address } };
+  return { lat: null, lng: null, located: false, pinned_from: null, candidates: r.candidates.slice(0, 3), reason: r.reason };
+}
 
 async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any): Promise<unknown> {
+  args = args && typeof args === 'object' ? args : {};
   const needTrip = async (tripId: number) => {
-    if (!Number.isFinite(tripId)) throw new McpError(-32602, 'trip_id required');
-    if (!(await mcpTripAccess(env, user, tripId))) throw new McpError(-32000, 'No access to that trip');
+    if (!Number.isFinite(tripId)) throw toolError('trip_id is required');
+    if (!(await mcpTripAccess(env, user, tripId))) throw toolError(`No access to trip ${tripId}. Call list_trips for trips you can see.`);
   };
   const needTripRole = async (tripId: number, min: TripRole) => {
     await needTrip(tripId);
-    if (!atLeast(await tripRole(env, user, tripId), min)) throw new McpError(-32000, `This tool needs a ${min} role on the trip`);
+    if (!atLeast(await tripRole(env, user, tripId), min)) throw toolError(`This needs a ${min} role on the trip`);
   };
-
   switch (name) {
     case 'list_trips': {
       const rows = user.role === 'admin'
-        ? await env.DB.prepare('SELECT id, name, destination, start_date, end_date, emoji FROM trips ORDER BY start_date DESC').all()
+        ? await env.DB.prepare('SELECT id, name, destination, start_date, end_date, emoji FROM trips ORDER BY start_date DESC').all<any>()
         : await env.DB.prepare(
             `SELECT t.id, t.name, t.destination, t.start_date, t.end_date, t.emoji FROM trips t
              JOIN trip_members m ON m.trip_id = t.id WHERE m.participant_id = ? ORDER BY t.start_date DESC`,
-          ).bind(user.participant_id ?? -1).all();
-      return rows.results;
+          ).bind(user.participant_id ?? -1).all<any>();
+      const trips = [];
+      for (const t of rows.results as any[]) {
+        trips.push({ ...t, your_role: await tripRole(env, user, t.id), map_center: await tripCenter(env, t.id).catch(() => null) });
+      }
+      return { trips };
     }
     case 'get_itinerary': {
       await needTrip(args.trip_id);
-      if ((await mcpHidden(env, user, args.trip_id)).has('plan')) throw new McpError(-32000, 'The plan is hidden for this account');
+      if ((await mcpHidden(env, user, args.trip_id)).has('plan')) throw toolError('The plan is hidden for this account');
+      if (args.day !== undefined && !validDayStr(args.day)) throw toolError('day must be YYYY-MM-DD');
       const dayFilter = typeof args.day === 'string' ? ' AND day = ?' : '';
-      const q = env.DB.prepare(`SELECT id, day, start_time, end_time, title, notes, location_name, lat, lng, done, sort FROM activities WHERE trip_id = ?${dayFilter} ORDER BY day, sort, start_time, id`);
-      const acts = await (dayFilter ? q.bind(args.trip_id, args.day) : q.bind(args.trip_id)).all();
+      const q = env.DB.prepare(`SELECT id, day, start_time, end_time, title, notes, location_name, lat, lng, category, done, sort FROM activities WHERE trip_id = ?${dayFilter} ORDER BY day, sort, start_time, id`);
+      const acts = ((await (dayFilter ? q.bind(args.trip_id, args.day) : q.bind(args.trip_id)).all()).results as any[])
+        .map(a => ({ ...a, place: a.location_name, located: validLatLng(a.lat, a.lng), done: !!a.done }));
+      const unlocated = acts.filter(a => !a.located).length;
+      if (args.detail === 'concise') {
+        return { activities: acts.map(a => ({ id: a.id, day: a.day, start_time: a.start_time, end_time: a.end_time, title: a.title, place: a.place, located: a.located })), unlocated_count: unlocated };
+      }
       const bookings = await env.DB.prepare(
         `SELECT category, description, expense_date, end_date, location FROM expenses WHERE trip_id = ? AND category IN ('flight','accommodation') ORDER BY expense_date`,
       ).bind(args.trip_id).all();
       const budgets = await env.DB.prepare('SELECT day, currency, total, myr_estimate FROM day_budgets WHERE trip_id = ? ORDER BY day').bind(args.trip_id).all();
-      const titleQ = env.DB.prepare(
-        `SELECT day, title FROM day_settings WHERE trip_id = ? AND title IS NOT NULL AND title <> ''${dayFilter}`);
+      const titleQ = env.DB.prepare(`SELECT day, title FROM day_settings WHERE trip_id = ? AND title IS NOT NULL AND title <> ''${dayFilter}`);
       const titles = await (dayFilter ? titleQ.bind(args.trip_id, args.day) : titleQ.bind(args.trip_id)).all();
-      const noteQ = env.DB.prepare(
-        `SELECT id, day, content, is_check, done FROM day_notes WHERE trip_id = ?${dayFilter} ORDER BY day, sort, id`);
+      const noteQ = env.DB.prepare(`SELECT id, day, content, is_check, done FROM day_notes WHERE trip_id = ?${dayFilter} ORDER BY day, sort, id`);
       const notes = await (dayFilter ? noteQ.bind(args.trip_id, args.day) : noteQ.bind(args.trip_id)).all();
-      const roomLines = await compactRoomsLines(env, args.trip_id);
       return {
-        activities: acts.results, bookings: bookings.results, day_budgets: budgets.results,
+        activities: acts, unlocated_count: unlocated, bookings: bookings.results, day_budgets: budgets.results,
         day_titles: titles.results,
-        notes: (notes.results as any[]).map(n => ({
-          id: n.id, day: n.day, content: n.content,
-          is_checklist: !!n.is_check, done: n.is_check ? !!n.done : null,
-        })),
-        rooms: roomLines,
+        notes: (notes.results as any[]).map(n => ({ id: n.id, day: n.day, content: n.content, is_checklist: !!n.is_check, done: n.is_check ? !!n.done : null })),
+        rooms: await compactRoomsLines(env, args.trip_id),
       };
+    }
+    case 'search_place': {
+      await needTrip(args.trip_id);
+      const query = String(args.query ?? '').trim();
+      if (!query) throw toolError('query is required');
+      const center = await tripCenter(env, args.trip_id);
+      const r = await geocode(env, query, center);
+      const limit = Math.min(Math.max(Number(args.limit) || 5, 1), 5);
+      return { query, trip_center: center, best_match: r.hit, candidates: r.candidates.slice(0, limit), note: r.reason ?? null };
+    }
+    case 'add_activity':
+    case 'add_activities': {
+      const tripId = Number(args.trip_id);
+      await mcpCanEditPlan(env, user, tripId);
+      const items: any[] = name === 'add_activity' ? [args] : Array.isArray(args.activities) ? args.activities : [];
+      if (!items.length) throw toolError('activities must be a non-empty array');
+      if (items.length > 50) throw toolError('At most 50 activities per call — split the list');
+      const problems: string[] = [];
+      items.forEach((it, i) => {
+        if (!String(it?.title ?? '').trim()) problems.push(`#${i + 1}: title is required`);
+        if (!validDayStr(it?.day)) problems.push(`#${i + 1}: day must be YYYY-MM-DD`);
+        if (it?.start_time !== undefined && !validTime(it.start_time)) problems.push(`#${i + 1}: start_time must be HH:MM`);
+        if (it?.end_time !== undefined && !validTime(it.end_time)) problems.push(`#${i + 1}: end_time must be HH:MM`);
+      });
+      if (problems.length) throw toolError(`Nothing was added. Fix: ${problems.join('; ')}`);
+      const center = await tripCenter(env, tripId);
+      // Geocode two at a time — public geocoders' fair use — then insert everything in one batch.
+      const pins: PinOutcome[] = new Array(items.length);
+      for (let i = 0; i < items.length; i += 2) {
+        await Promise.all(items.slice(i, i + 2).map(async (it, k) => {
+          const place = typeof it.place === 'string' && it.place.trim() ? it.place.trim().slice(0, 120) : null;
+          pins[i + k] = await resolvePin(env, place, it.lat, it.lng, center);
+        }));
+      }
+      const stmts = items.map((it, i) => {
+        const start = validTime(it.start_time) ? it.start_time : null;
+        const end = validTime(it.end_time) ? it.end_time : start && Number(it.duration_min) > 0 ? plusMinutes(start, Number(it.duration_min)) : null;
+        const place = typeof it.place === 'string' && it.place.trim() ? it.place.trim().slice(0, 120) : null;
+        return env.DB.prepare(
+          `INSERT INTO activities (trip_id, title, day, start_time, end_time, notes, location_name, lat, lng, category)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        ).bind(tripId, String(it.title).trim().slice(0, 120), it.day, start, end,
+          typeof it.notes === 'string' ? it.notes.slice(0, 500) : null, place,
+          pins[i].lat, pins[i].lng, MCP_CATS.includes(String(it.category)) ? String(it.category) : null);
+      });
+      const res = await env.DB.batch(stmts);
+      const created = items.map((it, i) => ({
+        id: Number(res[i].meta.last_row_id), day: it.day, title: String(it.title).trim().slice(0, 120),
+        place: typeof it.place === 'string' ? it.place.trim() || null : null,
+        located: pins[i].located, pinned_from: pins[i].pinned_from, lat: pins[i].lat, lng: pins[i].lng,
+        // what the place name matched in OpenStreetMap, so the model can tell a station from a bus stop
+        ...(pins[i].matched ? { matched: pins[i].matched } : {}),
+      }));
+      await audit(env, user.id, created.length === 1 ? 'mcp_activity_create' : `mcp_activities_bulk_create: ${created.map(c => c.id).join(',')}`, 'activity', created[0].id);
+      const unlocated = created.flatMap((c, i) => c.located ? [] : [{ id: c.id, title: c.title, place: c.place, reason: pins[i].reason ?? null, candidates: pins[i].candidates ?? [] }]);
+      const summary = { added: created.length, located: created.length - unlocated.length, unlocated, activities: created };
+      return name === 'add_activity' ? { ...created[0], unlocated } : summary;
+    }
+    case 'update_activity': {
+      const act = await env.DB.prepare('SELECT * FROM activities WHERE id = ?').bind(Number(args.activity_id)).first<any>();
+      if (!act) throw toolError(`No activity ${args.activity_id}. Call get_itinerary to list ids.`);
+      await mcpCanEditPlan(env, user, act.trip_id);
+      if (args.day !== undefined && !validDayStr(args.day)) throw toolError('day must be YYYY-MM-DD');
+      for (const k of ['start_time', 'end_time']) if (args[k] !== undefined && args[k] !== null && args[k] !== '' && !validTime(args[k])) throw toolError(`${k} must be HH:MM`);
+      const val = (k: string, cur: any) => (args[k] !== undefined ? args[k] : cur);
+      let lat = act.lat, lng = act.lng, place = act.location_name, pin: PinOutcome | null = null;
+      if (args.place !== undefined || args.lat !== undefined || args.lng !== undefined) {
+        place = typeof args.place === 'string' ? args.place.trim().slice(0, 120) || null : place;
+        pin = await resolvePin(env, args.place !== undefined ? place : null, args.lat, args.lng, await tripCenter(env, act.trip_id));
+        if (pin.located) { lat = pin.lat; lng = pin.lng; }
+        else if (args.place !== undefined) { lat = null; lng = null; } // a new place must not keep the old place's pin
+      }
+      const category = args.category !== undefined ? (MCP_CATS.includes(String(args.category)) ? String(args.category) : null) : act.category;
+      await env.DB.prepare(
+        'UPDATE activities SET title=?, day=?, start_time=?, end_time=?, notes=?, done=?, location_name=?, lat=?, lng=?, category=? WHERE id=?',
+      ).bind(String(val('title', act.title)).slice(0, 120), val('day', act.day), val('start_time', act.start_time) || null,
+        val('end_time', act.end_time) || null, val('notes', act.notes), args.done !== undefined ? (args.done ? 1 : 0) : act.done,
+        place, lat, lng, category, act.id).run();
+      await audit(env, user.id, 'mcp_activity_update', 'activity', act.id);
+      return {
+        id: act.id, title: String(val('title', act.title)), day: val('day', act.day), place, located: validLatLng(lat, lng), lat, lng,
+        ...(pin?.matched ? { matched: pin.matched } : {}),
+        ...(pin && !pin.located ? { pin_note: pin.reason ?? 'not pinned', candidates: pin.candidates ?? [] } : {}),
+      };
+    }
+    case 'pin_activities': {
+      const tripId = Number(args.trip_id);
+      await mcpCanEditPlan(env, user, tripId);
+      if (args.day !== undefined && !validDayStr(args.day)) throw toolError('day must be YYYY-MM-DD');
+      const dayFilter = typeof args.day === 'string' ? ' AND day = ?' : '';
+      const q = env.DB.prepare(`SELECT id, day, title, location_name FROM activities WHERE trip_id = ?${dayFilter} AND (lat IS NULL OR lng IS NULL) ORDER BY day, sort, id`);
+      const rows = ((await (dayFilter ? q.bind(tripId, args.day) : q.bind(tripId)).all()).results as any[]).slice(0, 50);
+      const center = await tripCenter(env, tripId);
+      const pinned: any[] = [], still: any[] = [];
+      for (let i = 0; i < rows.length; i += 2) {
+        await Promise.all(rows.slice(i, i + 2).map(async a => {
+          if (!a.location_name) { still.push({ id: a.id, day: a.day, title: a.title, reason: 'no place name — set one with update_activity' }); return; }
+          const pin = await resolvePin(env, a.location_name, undefined, undefined, center);
+          if (pin.located) {
+            await env.DB.prepare('UPDATE activities SET lat=?, lng=? WHERE id=?').bind(pin.lat, pin.lng, a.id).run();
+            pinned.push({ id: a.id, day: a.day, title: a.title, place: a.location_name, lat: pin.lat, lng: pin.lng, matched: pin.matched });
+          } else still.push({ id: a.id, day: a.day, title: a.title, place: a.location_name, reason: pin.reason, candidates: pin.candidates ?? [] });
+        }));
+      }
+      if (pinned.length) await audit(env, user.id, `mcp_pin_activities: ${pinned.map(p => p.id).join(',')}`, 'trip', tripId);
+      return { checked: rows.length, pinned, unlocated: still };
+    }
+    case 'delete_activities': {
+      const tripId = Number(args.trip_id);
+      await mcpCanEditPlan(env, user, tripId);
+      const ids: number[] = Array.isArray(args.activity_ids) ? args.activity_ids.map(Number) : [];
+      if (!ids.length || ids.length > 300 || ids.some(i => !Number.isSafeInteger(i) || i <= 0)) throw toolError('activity_ids must be 1–300 positive ids');
+      const deleted = await deleteActivityIds(env, tripId, ids);
+      await audit(env, user.id, `mcp_activities_bulk_delete: ${deleted.map(d => d.id).join(',')}`, 'trip', tripId);
+      const gone = new Set(deleted.map(d => d.id));
+      return { deleted, not_found_on_this_trip: [...new Set(ids)].filter(i => !gone.has(i)) };
+    }
+    case 'clear_day': {
+      const tripId = Number(args.trip_id);
+      await mcpCanEditPlan(env, user, tripId);
+      if (!validDayStr(args.day)) throw toolError('day must be YYYY-MM-DD');
+      const before = await env.DB.prepare('SELECT id, title, start_time FROM activities WHERE trip_id = ? AND day = ? ORDER BY sort, start_time, id')
+        .bind(tripId, args.day).all<any>();
+      const n = await resetDayActivities(env, tripId, args.day);
+      await audit(env, user.id, `mcp_clear_day: ${args.day}`, 'trip', tripId);
+      return { day: args.day, deleted_count: n, deleted: before.results, kept: 'flights/stays from bookings, notes, day title, budget' };
+    }
+    case 'delete_activity': {
+      const id = Number(args.activity_id);
+      const act = await env.DB.prepare('SELECT trip_id, title, day FROM activities WHERE id = ?').bind(id).first<any>();
+      if (!act) throw toolError(`No activity ${args.activity_id}. Call get_itinerary to list ids.`);
+      await mcpCanEditPlan(env, user, act.trip_id);
+      await deleteActivityIds(env, act.trip_id, [id]);
+      await audit(env, user.id, 'mcp_activity_delete', 'activity', id);
+      return { deleted: { id, title: act.title, day: act.day } };
     }
     case 'get_balances': {
       await needTrip(args.trip_id);
@@ -3670,41 +3879,6 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       const acts = await env.DB.prepare('SELECT start_time, end_time FROM activities WHERE trip_id = ? AND day = ?')
         .bind(args.trip_id, args.day).all();
       return { day: args.day, free_slots: freeSlots(acts.results as any[]) };
-    }
-    case 'add_activity': {
-      await needTripRole(args.trip_id, 'editor');
-      const title = String(args.title ?? '').trim();
-      if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(String(args.day ?? ''))) throw new McpError(-32602, 'title and day (YYYY-MM-DD) required');
-      let geo: { name: string; lat: number; lng: number } | null = null;
-      if (typeof args.place === 'string' && args.place.trim()) geo = await geocodeServer(args.place.trim(), env);
-      let end: string | null = null;
-      if (typeof args.start_time === 'string' && /^\d{2}:\d{2}$/.test(args.start_time) && Number(args.duration_min) > 0) {
-        const m = Number(args.start_time.slice(0, 2)) * 60 + Number(args.start_time.slice(3, 5)) + Math.min(Number(args.duration_min), 720);
-        end = `${String(Math.floor(Math.min(m, 1435) / 60)).padStart(2, '0')}:${String(Math.min(m, 1435) % 60).padStart(2, '0')}`;
-      }
-      const cat = ['sightseeing', 'food', 'transport', 'lodging', 'shopping', 'other'].includes(String(args.category)) ? String(args.category) : null;
-      const r = await env.DB.prepare(
-        `INSERT INTO activities (trip_id, title, day, start_time, end_time, notes, location_name, lat, lng, category)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      ).bind(args.trip_id, title.slice(0, 120), args.day,
-        typeof args.start_time === 'string' && /^\d{2}:\d{2}$/.test(args.start_time) ? args.start_time : null, end,
-        typeof args.notes === 'string' ? args.notes.slice(0, 500) : null,
-        geo?.name ?? (typeof args.place === 'string' ? args.place.slice(0, 120) : null),
-        geo?.lat ?? null, geo?.lng ?? null, cat).run();
-      await audit(env, user.id, 'mcp_activity_create', 'activity', Number(r.meta.last_row_id));
-      return { id: Number(r.meta.last_row_id), located: !!geo, location_name: geo?.name ?? null };
-    }
-    case 'update_activity': {
-      const act = await env.DB.prepare('SELECT * FROM activities WHERE id = ?').bind(Number(args.activity_id)).first<any>();
-      if (!act) throw new McpError(-32000, 'Activity not found');
-      await needTripRole(act.trip_id, 'editor');
-      const val = (k: string, cur: any) => (args[k] !== undefined ? args[k] : cur);
-      await env.DB.prepare(
-        'UPDATE activities SET title=?, day=?, start_time=?, end_time=?, notes=?, done=? WHERE id=?',
-      ).bind(String(val('title', act.title)).slice(0, 120), val('day', act.day), val('start_time', act.start_time),
-        val('end_time', act.end_time), val('notes', act.notes), args.done !== undefined ? (args.done ? 1 : 0) : act.done, act.id).run();
-      await audit(env, user.id, 'mcp_activity_update', 'activity', act.id);
-      return { ok: true };
     }
     case 'get_notes': {
       await needTrip(args.trip_id);
@@ -3763,18 +3937,6 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       await audit(env, user.id, 'mcp_day_title', 'trip', Number(args.trip_id));
       return { ok: true, title };
     }
-    case 'delete_activity': {
-      const id = Number(args.activity_id);
-      const act = await env.DB.prepare('SELECT trip_id FROM activities WHERE id = ?').bind(id).first<any>();
-      if (!act) throw new McpError(-32000, 'Activity not found');
-      await needTripRole(act.trip_id, 'editor');
-      await env.DB.batch([
-        env.DB.prepare('DELETE FROM activity_participants WHERE activity_id = ?').bind(id),
-        env.DB.prepare('DELETE FROM activities WHERE id = ?').bind(id),
-      ]);
-      await audit(env, user.id, 'mcp_activity_delete', 'activity', id);
-      return { ok: true };
-    }
     default:
       throw new McpError(-32601, `Unknown tool: ${name}`);
   }
@@ -3788,27 +3950,44 @@ async function mcpHandleOne(env: Env, user: SessionUser, msg: any): Promise<any 
   if (id === undefined || id === null) return null; // notification — nothing to send back
   try {
     switch (msg.method) {
-      case 'initialize':
+      case 'initialize': {
+        // Negotiate: echo the client's version when we support it, else offer our latest.
+        const asked = msg.params?.protocolVersion;
+        const protocolVersion = MCP_PROTOCOL_VERSIONS.includes(asked) ? asked : MCP_PROTOCOL_VERSIONS[0];
         return reply({
-          protocolVersion: msg.params?.protocolVersion ?? '2025-03-26',
-          capabilities: { tools: {} },
-          serverInfo: { name: 'jelajah', version: '0.12.0' },
+          protocolVersion,
+          capabilities: { tools: { listChanged: false } },
+          serverInfo: { name: 'jelajah', title: 'Jelajah trip planner', version: MCP_SERVER_VERSION },
+          instructions: MCP_INSTRUCTIONS,
         });
+      }
       case 'ping':
         return reply({});
       case 'tools/list':
         return reply({ tools: MCP_TOOLS });
       case 'tools/call': {
-        const data = await mcpToolCall(env, user, msg.params?.name, msg.params?.arguments ?? {});
-        return reply({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
+        const name = msg.params?.name;
+        if (typeof name !== 'string' || !MCP_TOOLS.some(t => t.name === name)) return err(-32602, `Unknown tool: ${name}`);
+        try {
+          const data = await mcpToolCall(env, user, name, msg.params?.arguments ?? {});
+          // structuredContent must be an object; the JSON text copy keeps older clients working.
+          const structured = Array.isArray(data) ? { items: data } : (data as object);
+          return reply({ content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }], structuredContent: structured, isError: false });
+        } catch (e: any) {
+          // Tool execution errors go back to the model as a result it can read and correct (MCP spec);
+          // only protocol problems stay JSON-RPC errors.
+          if (e instanceof McpError && e.code === -32601) return err(-32602, e.message);
+          const text = e instanceof McpError ? e.message : 'Something went wrong on the Jelajah server. Try again, or try fewer items.';
+          if (!(e instanceof McpError)) console.error('mcp tool error:', e?.message ?? e);
+          return reply({ content: [{ type: 'text', text }], isError: true });
+        }
       }
       default:
         return err(-32601, `Method not found: ${msg.method}`);
     }
   } catch (e: any) {
-    if (e instanceof McpError) return err(e.code, e.message);
-    console.error('mcp tool error:', e?.message ?? e);
-    return err(-32000, 'Internal error');
+    console.error('mcp error:', e?.message ?? e);
+    return err(-32603, 'Internal error');
   }
 }
 
