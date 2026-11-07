@@ -19,8 +19,8 @@ import { singleOccupancyBatch } from '../shared/rooms';
 import { roomShares, RoomSplitError, RoomSplitRoom } from '../shared/roomSplit';
 import { daysBetween } from '../shared/days';
 import { geocode, tripCenter, validLatLng, type Candidate, type LatLng } from './lib/geocode';
-import { cleanDraft, parseDraftReply, draftSystemPrompt, DRAFT_LIMITS } from '../shared/draft';
-import { findUrl, readSource, sourceBlock, type SourceResult } from './lib/sources';
+import { cleanDraft, parseDraftReply, draftSystemPrompt, draftResponseSchema, draftPlaceCount, DRAFT_LIMITS, type DraftMode } from '../shared/draft';
+import { findUrl, readSource, sourceBlock, canonicalSource, type SourceResult } from './lib/sources';
 
 type Vars = { user: SessionUser };
 const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
@@ -3449,6 +3449,20 @@ interface RichInput {
   images?: Array<{ mime: string; data: string }>;
   json?: boolean;
   maxTokens: number;
+  /** Gemini only: the exact reply shape (structured output). */
+  schema?: object;
+  /** Gemini only: 'low' for extraction and small edits — faster, and leaves the budget for the answer. */
+  thinking?: 'low' | 'default';
+  /** Gemini only: frames per second to sample from the video (default 1). */
+  videoFps?: number;
+}
+
+/** Gemini thinking settings by model family; unknown models keep their default. */
+export function geminiThinking(model: string, level: 'low' | 'default' = 'default'): object | null {
+  if (level !== 'low') return null;
+  if (/gemini-3/i.test(model)) return { thinkingLevel: 'low' };
+  if (/gemini-2\.5-(flash|pro)/i.test(model)) return { thinkingBudget: 1024 };
+  return null;
 }
 
 const isGeminiCfg = (cfg: AiConfig | null) => !!cfg && /generativelanguage\.googleapis\.com/i.test(cfg.base_url);
@@ -3467,27 +3481,39 @@ async function callAIRich(env: Env, input: RichInput): Promise<string> {
       const parts: any[] = [];
       if (i === lastUser) {
         // Media first, then the text that refers to it (Gemini's recommended order).
-        if (input.youtubeUrl) parts.push({ fileData: { fileUri: input.youtubeUrl, mimeType: 'video/*' } });
+        if (input.youtubeUrl) parts.push({
+          fileData: { fileUri: input.youtubeUrl, mimeType: 'video/*' },
+          ...(input.videoFps ? { videoMetadata: { fps: input.videoFps } } : {}),
+        });
         for (const img of images) parts.push({ inlineData: { mimeType: img.mime, data: img.data } });
       }
       parts.push({ text: m.content });
       return { role: m.role === 'assistant' ? 'model' : 'user', parts };
     });
+    const thinkingConfig = geminiThinking(model, input.thinking);
     const body = {
       systemInstruction: { parts: [{ text: input.system }] },
       contents,
       generationConfig: {
         temperature: 0.4, maxOutputTokens: input.maxTokens,
         ...(input.json ? { responseMimeType: 'application/json' } : {}),
+        ...(input.json && input.schema ? { responseSchema: input.schema } : {}),
+        ...(thinkingConfig ? { thinkingConfig } : {}),
         // Low resolution: ~1/3 the tokens per video second; plenty for reading place names.
         ...(input.youtubeUrl || images.length ? { mediaResolution: 'MEDIA_RESOLUTION_LOW' } : {}),
       },
     };
+    const send = (b: object) => fetch(`${origin}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.api_key }, body: JSON.stringify(b),
+    });
     let res: Response;
     try {
-      res = await fetch(`${origin}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.api_key }, body: JSON.stringify(body),
-      });
+      res = await send(body);
+      // Some models reject a schema (or its size): ask again without it; the prompt still has the shape.
+      if (res.status === 400 && input.schema && /schema/i.test(await res.clone().text())) {
+        const { responseSchema: _drop, ...generationConfig } = body.generationConfig as Record<string, unknown>;
+        res = await send({ ...body, generationConfig });
+      }
     } catch { throw new AiError('ai_unreachable'); }
     if (!res.ok) throw await aiHttpError(res);
     const { text, finishReason } = parseGeminiNativeResponse(await res.json().catch(() => null));
@@ -3504,7 +3530,8 @@ async function callAIRich(env: Env, input: RichInput): Promise<string> {
   try {
     res = await fetch(`${cfg.base_url.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.api_key}` },
-      body: JSON.stringify({ model: cfg.model, messages, temperature: 0.4, max_tokens: input.maxTokens }),
+      // Many OpenAI-compatible models cap output at 16k; Gemini native takes the full budget.
+        body: JSON.stringify({ model: cfg.model, messages, temperature: 0.4, max_tokens: Math.min(input.maxTokens, 16000) }),
     });
   } catch { throw new AiError('ai_unreachable'); }
   if (!res.ok) throw await aiHttpError(res);
@@ -3522,6 +3549,37 @@ app.get('/plan/status', async c => {
 
 const IMAGE_MIME = /^image\/(jpeg|png|webp|heic|heif)$/;
 
+/* Extraction cache: one row per (link, ask, language, model). Bump PLAN_CACHE_V when the prompt or schema changes. */
+const PLAN_CACHE_V = 'v2';
+const PLAN_CACHE_TTL_MS = 30 * 24 * 3600 * 1000;
+let planCacheReady: Promise<unknown> | null = null;
+const planCacheTable = (env: Env) => (planCacheReady ??= env.DB.prepare(
+  'CREATE TABLE IF NOT EXISTS plan_cache (key TEXT PRIMARY KEY, content TEXT NOT NULL, expires_at INTEGER NOT NULL)',
+).run().catch(e => { planCacheReady = null; throw e; }));
+
+async function planCacheKey(url: string, message: string, lang: string, model: string): Promise<string | null> {
+  const link = canonicalSource(url);
+  if (!link) return null;
+  const ask = message.replace(url, ' ').toLowerCase().replace(/\s+/g, ' ').trim();
+  const raw = JSON.stringify([PLAN_CACHE_V, link, ask, lang, model]);
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function planCacheGet(env: Env, key: string): Promise<any | null> {
+  try {
+    await planCacheTable(env);
+    const row = await env.DB.prepare('SELECT content FROM plan_cache WHERE key=? AND expires_at>?').bind(key, Date.now()).first<{ content: string }>();
+    return row ? JSON.parse(row.content) : null;
+  } catch { return null; }
+}
+async function planCachePut(env: Env, key: string, value: unknown) {
+  await planCacheTable(env);
+  await env.DB.batch([
+    env.DB.prepare('INSERT OR REPLACE INTO plan_cache(key,content,expires_at) VALUES (?,?,?)').bind(key, JSON.stringify(value), Date.now() + PLAN_CACHE_TTL_MS),
+    env.DB.prepare('DELETE FROM plan_cache WHERE expires_at<?').bind(Date.now()),
+  ]);
+}
+
 app.post('/plan/draft', async c => {
   const b = await c.req.json<any>().catch(() => ({}));
   const lang = b.lang === 'ms' ? 'ms' : 'en';
@@ -3538,9 +3596,26 @@ app.post('/plan/draft', async c => {
   // A link in the newest message is read once, on that turn; later turns edit the draft.
   const latest = msgs[msgs.length - 1].content;
   const url = findUrl(latest);
+  // Small follow-ups ("make it 2 days") come back as edit ops, not a rewrite of the whole draft.
+  const mode: DraftMode = draftPlaceCount(current) > 0 && !url && !images.length ? 'edit' : 'full';
+
+  // Same link + same ask on an empty draft → same extraction. Shared across users for 30 days.
+  const cacheKey = url && !images.length && draftPlaceCount(current) === 0 && cfg
+    ? await planCacheKey(url, latest, lang, cfg.model) : null;
+  if (cacheKey) {
+    const hit = await planCacheGet(c.env, cacheKey);
+    if (hit) return c.json({ ...hit, cached: true });
+  }
+
   let source: SourceResult | null = null;
-  if (url) source = await readSource(url);
+  if (url) {
+    // A Gemini key from AI Studio usually also works for the YouTube Data API when that API is enabled.
+    const youtubeKey = c.env.YOUTUBE_API_KEY || (isGeminiCfg(cfg) ? cfg!.api_key : null);
+    source = await readSource(url, { youtubeKey });
+  }
   const videoUrl = source?.youtube_id && isGeminiCfg(cfg) ? `https://www.youtube.com/watch?v=${source.youtube_id}` : null;
+  // Place names stay on screen for seconds: sampling fewer frames halves the video cost or better.
+  const videoFps = (source?.duration_s ?? 0) > 30 * 60 ? 0.25 : 0.5;
 
   const ctx = [
     `TODAY: ${new Date().toISOString().slice(0, 10)}`,
@@ -3551,22 +3626,28 @@ app.post('/plan/draft', async c => {
   const turns = msgs.map((m: any, i: number) => (i === msgs.length - 1 ? { ...m, content: `${ctx}\n\nUSER: ${m.content}` } : m));
 
   const ask = (video: string | null) => callAIRich(c.env, {
-    system: draftSystemPrompt(lang), messages: turns, youtubeUrl: video, images, json: true, maxTokens: 12000,
+    system: draftSystemPrompt(lang, mode), messages: turns, youtubeUrl: video, images, json: true,
+    maxTokens: mode === 'edit' ? 8000 : 32000, schema: draftResponseSchema(mode), videoFps,
+    // Extraction and edits need reading, not deliberation; planning from scratch keeps the model's default.
+    thinking: source || images.length || mode === 'edit' ? 'low' : 'default',
   });
   try {
-    let text: string;
+    let text: string, degraded = false;
     try { text = await ask(videoUrl); } catch (e: any) {
       // Private / age-gated / too-long videos fail on the model side: fall back to the text we read.
       if (!videoUrl || e?.code !== 'ai_error') throw e;
       text = await ask(null);
+      degraded = true;
       if (source) source.notes.push('the video could not be watched');
     }
     const out = parseDraftReply(text, current);
     await trackUsage(c.env, c.get('user').id, 'ai_draft');
-    return c.json({
+    const result = {
       ...out,
       source: source ? { kind: source.kind, url: source.url, title: source.title, author: source.author, notes: source.notes, watched: !!videoUrl } : null,
-    });
+    };
+    if (cacheKey && !degraded && draftPlaceCount(out.draft) > 0) c.executionCtx.waitUntil(planCachePut(c.env, cacheKey, result).catch(() => {}));
+    return c.json(result);
   } catch (e: any) { return aiFail(c, e); }
 });
 

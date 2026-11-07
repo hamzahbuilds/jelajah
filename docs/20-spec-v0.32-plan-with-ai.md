@@ -128,3 +128,12 @@ Limits: ≤ 14 days, ≤ 20 places/day, ≤ 30 ideas; strings clipped.
 - "Ideas" go to the first trip day when added (activities need a day).
 - Usage tracked as `ai_draft`; the `assistant` per-trip hide flag doesn't apply
   to the home composer (it's not trip-scoped) but does to the Plan "Import" button.
+
+## 8. v0.32.1 — extraction tuning (2026-11-07)
+- **Cut-off replies**: Gemini draft budget 32k (OpenAI-compatible capped 16k); `repairTruncatedJson` keeps every place that arrived complete; raw JSON is never shown in the chat.
+- **Structured output**: Gemini gets `responseSchema` (`draftResponseSchema(mode)`); if a model rejects the schema (400 mentioning "schema") the call is retried once without it.
+- **Thinking**: `thinkingBudget: 1024` (2.5 flash/pro) or `thinkingLevel: "low"` (Gemini 3) for imports, screenshots and edits; planning from scratch keeps the default.
+- **Video cost**: `videoMetadata.fps` 0.5, or 0.25 for videos over 30 min (length from the Data API or watch page), on top of `MEDIA_RESOLUTION_LOW`.
+- **Cache**: `plan_cache` table (created lazily), key = sha256(version, canonical link, ask without the link, lang, model); first turn on an empty draft only; 30 days; not written when the video fell back to text. Response carries `cached: true`.
+- **YouTube Data API v3**: title, channel, full description (chapters) and duration. Key: `YOUTUBE_API_KEY` secret, else the Gemini key (works when the YouTube Data API is enabled on that Google project), else oEmbed + watch page.
+- **Edit ops**: follow-ups on a non-empty draft (no new link/screenshots) return `ops` (`add/remove/update/move/day_title/add_day/remove_day/meta`, day 0 = ideas) applied by `applyDraftOps`; budget 8k. A full `draft` is still accepted when the user wants a different trip.

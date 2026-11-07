@@ -26,6 +26,12 @@ export interface Env {
   TRANSIT_PLAN_URL?: string;
   TRANSIT_CONTACT?: string;
   TRANSIT_DAILY_LIMIT?: string;
+  /**
+   * Optional YouTube Data API v3 key (secret) for video descriptions/chapters in
+   * Plan with AI. Unset: the Gemini key is tried (works when that Google project
+   * has the YouTube Data API enabled), then the watch page.
+   */
+  YOUTUBE_API_KEY?: string;
 }
 
 // No SESSION_SECRET binding: sessions are opaque 256-bit random tokens stored

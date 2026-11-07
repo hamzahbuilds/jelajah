@@ -5,9 +5,9 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import app from '../server/app';
 import { SCHEMA } from '../server/lib/schema';
-import { cleanDraft, parseDraftReply, emptyDraft, defaultDayMapping, draftPlaceCount, DRAFT_LIMITS } from '../shared/draft';
+import { cleanDraft, parseDraftReply, repairTruncatedJson, applyDraftOps, draftResponseSchema, emptyDraft, defaultDayMapping, draftPlaceCount, DRAFT_LIMITS } from '../shared/draft';
 import {
-  findUrl, safeUrl, classify, youtubeId, htmlToText, extractAssignedJson, json3ToText, vttToText, readSource, sourceBlock,
+  findUrl, safeUrl, classify, youtubeId, canonicalSource, isoDurationSeconds, htmlToText, extractAssignedJson, json3ToText, vttToText, readSource, sourceBlock,
 } from '../server/lib/sources';
 import type { Env } from '../server/env.d';
 
@@ -112,9 +112,13 @@ const TT_PAGE = `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="applicati
   } } } },
 })}</script>`;
 
-function mockWeb(opts: { captions?: boolean; tiktok?: boolean } = {}) {
+function mockWeb(opts: { captions?: boolean; tiktok?: boolean; api?: boolean } = {}) {
   vi.stubGlobal('fetch', vi.fn(async (input: any) => {
     const u = new URL(String(input));
+    if (u.hostname === 'www.googleapis.com' && opts.api && u.searchParams.get('key') === 'yt-key') return Response.json({ items: [{
+      snippet: { title: '4 Days in Tokyo', channelTitle: 'Through My Lens', description: '0:00 Day 1 Asakusa\n12:30 Day 2 Shibuya' },
+      contentDetails: { duration: 'PT2H5M9S' },
+    }] });
     if (u.hostname === 'www.youtube.com' && u.pathname === '/oembed') return Response.json({ title: '3 Days in Singapore', author_name: 'The Lost Postcards' });
     if (u.hostname === 'www.youtube.com' && u.pathname === '/watch') return new Response(YT_PAGE, { headers: { 'content-type': 'text/html' } });
     if (u.hostname === 'www.youtube.com' && u.pathname === '/api/timedtext') {
@@ -141,7 +145,16 @@ describe('readSource', () => {
   it('YouTube without captions says so', async () => {
     mockWeb({ captions: false });
     const r = (await readSource('https://www.youtube.com/watch?v=MUZnRHX7tOI'))!;
-    expect(r.notes).toContain('captions could not be downloaded');
+    // The description was read, so a missing transcript is not worth a warning.
+    expect(r.notes).toEqual([]);
+  });
+
+  it('YouTube Data API: full description, chapters and length', async () => {
+    mockWeb({ captions: false, api: true });
+    const r = (await readSource('https://youtu.be/MUZnRHX7tOI', { youtubeKey: 'yt-key' }))!;
+    expect(r).toMatchObject({ title: '4 Days in Tokyo', author: 'Through My Lens', duration_s: 2 * 3600 + 5 * 60 + 9 });
+    expect(r.text).toContain('0:00 Day 1 Asakusa');
+    expect(r.notes).toEqual([]);
   });
 
   it('TikTok: caption, location tag and on-screen text from the post page', async () => {
@@ -216,7 +229,7 @@ const DRAFT_JSON = {
 };
 
 /** Gemini + YouTube + Photon in one fetch mock. Records Gemini request bodies. */
-function mockAll(opts: { videoFails?: boolean } = {}) {
+function mockAll(opts: { videoFails?: boolean; schemaFails?: boolean; reply?: unknown } = {}) {
   const gemini: any[] = [];
   vi.stubGlobal('fetch', vi.fn(async (input: any, init?: any) => {
     const u = new URL(String(input));
@@ -225,7 +238,8 @@ function mockAll(opts: { videoFails?: boolean } = {}) {
       gemini.push(body);
       const hasVideo = body.contents.at(-1).parts.some((p: any) => p.fileData);
       if (hasVideo && opts.videoFails) return Response.json({ error: { message: 'video unavailable' } }, { status: 400 });
-      return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(DRAFT_JSON) }] }, finishReason: 'STOP' }] });
+      if (opts.schemaFails && body.generationConfig.responseSchema) return Response.json({ error: { message: 'Invalid JSON payload: response_schema too complex' } }, { status: 400 });
+      return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(opts.reply ?? DRAFT_JSON) }] }, finishReason: 'STOP' }] });
     }
     if (u.hostname.includes('photon')) {
       const q = u.searchParams.get('q') ?? '';
@@ -286,6 +300,53 @@ describe('/plan endpoints', () => {
     expect(r.draft.name).toBe('Singapore weekend');
   });
 
+  it('draft: structured output, low thinking and fewer video frames for an import', async () => {
+    const gemini = mockAll();
+    await req(1, 'POST', '/plan/draft', { messages: [{ role: 'user', content: 'only the food https://youtu.be/MUZnRHX7tOI' }] });
+    const g = gemini[0];
+    expect(g.generationConfig.responseSchema.required).toEqual(['reply', 'suggestions', 'draft']);
+    expect(g.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 1024 });
+    expect(g.contents.at(-1).parts[0].videoMetadata).toEqual({ fps: 0.5 });
+  });
+
+  it('draft: retries without the schema when Gemini rejects it', async () => {
+    const gemini = mockAll({ schemaFails: true });
+    const r = await (await req(1, 'POST', '/plan/draft', { messages: [{ role: 'user', content: 'plan 3 days in Singapore' }] })).json() as any;
+    expect(gemini).toHaveLength(2);
+    expect(gemini[1].generationConfig.responseSchema).toBeUndefined();
+    expect(r.draft.name).toBe('Singapore weekend');
+  });
+
+  it('draft: the same link and ask is served from the cache', async () => {
+    const msg = { messages: [{ role: 'user', content: 'https://www.youtube.com/watch?v=MUZnRHX7tOI&si=abc cached please' }] };
+    const first = mockAll();
+    await req(1, 'POST', '/plan/draft', msg);
+    expect(first).toHaveLength(1);
+    await new Promise(r => setTimeout(r, 10)); // cache write runs after the response
+    const second = mockAll();
+    const r = await (await req(2, 'POST', '/plan/draft', { messages: [{ role: 'user', content: 'https://youtu.be/MUZnRHX7tOI cached please' }] })).json() as any;
+    expect(second).toHaveLength(0);
+    expect(r.cached).toBe(true);
+    expect(r.draft.name).toBe('Singapore weekend');
+  });
+
+  it('draft: a follow-up on an existing draft asks for edit ops, not a rewrite', async () => {
+    const gemini = mockAll({ reply: { reply: 'Added Gardens by the Bay to day 1 and renamed day 2.', suggestions: [], ops: [
+      { op: 'add', day: 1, after: 'p1', place: { title: 'Gardens by the Bay', place: 'Gardens by the Bay, Singapore', category: 'sightseeing' } },
+      { op: 'remove', id: 'p2' },
+      { op: 'day_title', day: 2, title: 'Sentosa beaches' },
+    ] } });
+    const r = await (await req(1, 'POST', '/plan/draft', {
+      draft: DRAFT_JSON.draft,
+      messages: [{ role: 'user', content: 'x' }, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'add Gardens by the Bay after Helix, drop free time' }],
+    })).json() as any;
+    expect(gemini[0].generationConfig.responseSchema.properties.ops).toBeTruthy();
+    expect(gemini[0].generationConfig.maxOutputTokens).toBe(8000);
+    expect(r.draft.days[0].places.map((p: any) => p.title)).toEqual(['Helix Bridge', 'Gardens by the Bay']);
+    expect(r.draft.days[1].title).toBe('Sentosa beaches');
+    expect(r.draft.days[1].places[0].id).toBe('p3');
+  });
+
   it('draft: rejects a conversation that does not end with the user', async () => {
     const res = await req(1, 'POST', '/plan/draft', { messages: [{ role: 'assistant', content: 'hi' }] });
     expect(res.status).toBe(400);
@@ -329,5 +390,76 @@ describe('/plan endpoints', () => {
     expect((await req(1, 'POST', '/plan/commit', { draft: DRAFT_JSON.draft, target: { trip_id: 1 }, picks: [] })).status).toBe(400);
     const noDates = await req(1, 'POST', '/plan/commit', { draft: DRAFT_JSON.draft, target: { new: { name: 'x' } }, picks: [{ id: 'p1', day: '2027-01-03' }] });
     expect(noDates.status).toBe(400);
+  });
+});
+
+describe('truncated replies', () => {
+  const full = JSON.stringify({ reply: 'Found 3 places', suggestions: ['More food'], draft: { name: 'Tokyo', destination: 'Tokyo, Japan', emoji: '🗼', days: [{ title: 'Asakusa', places: [
+    { id: 'a', title: 'Senso-ji', place: 'Senso-ji, Tokyo', category: 'sightseeing' },
+    { id: 'b', title: 'Nakamise', place: 'Nakamise-dori, Tokyo', category: 'shopping' },
+    { id: 'c', title: 'Cafe UZU', place: 'Cafe UZU, Tokyo', category: 'food', notes: 'Vegan matcha donuts and ramen' },
+  ] }], ideas: [] } });
+
+  it('keeps the places read before the output limit', () => {
+    const cut = full.slice(0, full.indexOf('Vegan matcha') + 10);
+    const r = parseDraftReply(cut, emptyDraft());
+    expect(r.reply).toBe('Found 3 places');
+    expect(r.draft.days[0].places.map(p => p.id)).toEqual(['a', 'b']);
+  });
+
+  it('never shows raw JSON when nothing can be saved', () => {
+    const r = parseDraftReply('{"reply":"Found', emptyDraft());
+    expect(r.reply).not.toContain('{');
+    expect(repairTruncatedJson('{"reply":"Found')).toBeNull();
+  });
+
+  it('handles a fenced reply that lost its closing fence', () => {
+    const r = parseDraftReply('```json\n' + full.slice(0, full.indexOf('"id":"c"') - 2), emptyDraft());
+    expect(r.draft.days[0].places).toHaveLength(2);
+  });
+});
+
+describe('edit ops', () => {
+  const base = cleanDraft({ name: 'T', destination: 'Tokyo', emoji: '', days: [
+    { title: 'A', places: [{ id: 'a', title: 'One', place: 'One, Tokyo', category: 'food' }, { id: 'b', title: 'Two', place: null, category: 'other' }] },
+    { title: 'B', places: [{ id: 'c', title: 'Three', place: 'Three, Tokyo', category: 'shopping' }] },
+  ], ideas: [] });
+
+  it('moves, updates, adds days and ignores bad ops', () => {
+    const d = applyDraftOps(base, [
+      { op: 'move', id: 'c', day: 1, after: 'a' },
+      { op: 'update', id: 'a', place: { notes: 'Go early', category: 'sightseeing' } },
+      { op: 'add_day', title: 'C' },
+      { op: 'add', day: 3, place: { id: 'a', title: 'Four', place: 'Four, Tokyo', category: 'food' } },
+      { op: 'remove', id: 'nope' }, { op: 'explode' }, null,
+      { op: 'meta', name: 'Tokyo trip', emoji: '🗼' },
+    ]);
+    expect(d.days[0].places.map(p => p.id)).toEqual(['a', 'c', 'b']);
+    expect(d.days[0].places[0]).toMatchObject({ title: 'One', notes: 'Go early', category: 'sightseeing' });
+    expect(d.days[2].places[0].title).toBe('Four');
+    expect(d.days[2].places[0].id).not.toBe('a');
+    expect(d).toMatchObject({ name: 'Tokyo trip', emoji: '🗼' });
+    expect(base.days[0].places).toHaveLength(2); // input untouched
+  });
+
+  it('day 0 is ideas; remove_day drops a day', () => {
+    const d = applyDraftOps(base, [{ op: 'move', id: 'b', day: 0 }, { op: 'remove_day', day: 2 }]);
+    expect(d.ideas.map(p => p.id)).toEqual(['b']);
+    expect(d.days).toHaveLength(1);
+  });
+
+  it('schema: full needs a draft; edit offers ops', () => {
+    expect((draftResponseSchema('full') as any).required).toContain('draft');
+    expect((draftResponseSchema('edit') as any).properties.ops.items.properties.op.enum).toContain('move');
+  });
+});
+
+describe('link keys', () => {
+  it('canonicalSource: YouTube by id, others without tracking params', () => {
+    expect(canonicalSource('https://youtu.be/MUZnRHX7tOI?si=x')).toBe('youtube:MUZnRHX7tOI');
+    expect(canonicalSource('https://www.youtube.com/watch?v=MUZnRHX7tOI&t=30')).toBe('youtube:MUZnRHX7tOI');
+    expect(canonicalSource('https://blog.example.com/a?utm_source=ig&id=2#top')).toBe('https://blog.example.com/a?id=2');
+    expect(isoDurationSeconds('PT12M')).toBe(720);
+    expect(isoDurationSeconds('bad')).toBeNull();
   });
 });

@@ -13,7 +13,9 @@ export interface SourceResult {
   text: string;            // description / caption / transcript / page text
   notes: string[];         // what could not be read
   youtube_id?: string;     // set for YouTube — Gemini can watch it directly
+  duration_s?: number;     // YouTube length, when the Data API told us
 }
+export interface SourceOptions { fetcher?: typeof fetch; youtubeKey?: string | null }
 
 const MAX_TEXT = 24_000;
 const MAX_BYTES = 2_000_000;
@@ -157,17 +159,41 @@ export function json3ToText(data: any): string {
   return out.join(' ');
 }
 
-async function readYouTube(fetcher: typeof fetch, u: URL, id: string): Promise<SourceResult> {
+/** ISO 8601 duration (PT1H2M3S) → seconds. */
+export function isoDurationSeconds(v: unknown): number | null {
+  const m = typeof v === 'string' ? v.match(/^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/) : null;
+  if (!m) return null;
+  const [, d, h, mi, se] = m.map(x => Number(x ?? 0));
+  const total = d * 86400 + h * 3600 + mi * 60 + se;
+  return total > 0 ? total : null;
+}
+
+/** YouTube Data API v3: title, channel, full description and length. Not blocked like the watch page. */
+async function youtubeApi(fetcher: typeof fetch, id: string, key: string): Promise<{ title: string; author: string; description: string; duration_s: number | null } | null> {
+  const j = await getJson(fetcher, `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${encodeURIComponent(id)}&key=${encodeURIComponent(key)}`);
+  const v = j?.items?.[0];
+  if (!v?.snippet) return null;
+  return {
+    title: String(v.snippet.title ?? ''), author: String(v.snippet.channelTitle ?? ''),
+    description: String(v.snippet.description ?? ''), duration_s: isoDurationSeconds(v.contentDetails?.duration),
+  };
+}
+
+async function readYouTube(fetcher: typeof fetch, u: URL, id: string, key?: string | null): Promise<SourceResult> {
   const watch = `https://www.youtube.com/watch?v=${id}`;
   const r: SourceResult = { kind: 'youtube', url: watch, title: null, author: null, text: '', notes: [], youtube_id: id };
-  const oe = await getJson(fetcher, `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(watch)}`);
-  if (oe) { r.title = oe.title ?? null; r.author = oe.author_name ?? null; }
-
-  const page = await getText(fetcher, `${watch}&hl=en`);
+  // All three in parallel: the API is the reliable path; the watch page is the only caption route.
+  const [api, page, oe] = await Promise.all([
+    key ? youtubeApi(fetcher, id, key) : Promise.resolve(null),
+    getText(fetcher, `${watch}&hl=en`),
+    key ? Promise.resolve(null) : getJson(fetcher, `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(watch)}`),
+  ]);
   const player = page.ok ? extractAssignedJson(page.text, 'ytInitialPlayerResponse') : null;
-  const desc: string = player?.videoDetails?.shortDescription ?? '';
-  if (!r.title && player?.videoDetails?.title) r.title = player.videoDetails.title;
-  if (!r.author && player?.videoDetails?.author) r.author = player.videoDetails.author;
+  r.title = api?.title || oe?.title || player?.videoDetails?.title || null;
+  r.author = api?.author || oe?.author_name || player?.videoDetails?.author || null;
+  if (api?.duration_s) r.duration_s = api.duration_s;
+  else if (Number(player?.videoDetails?.lengthSeconds) > 0) r.duration_s = Number(player.videoDetails.lengthSeconds);
+  const desc: string = api?.description || player?.videoDetails?.shortDescription || '';
   const parts: string[] = [];
   if (desc) parts.push(`DESCRIPTION:\n${desc}`);
   else r.notes.push('video description unavailable');
@@ -182,7 +208,8 @@ async function readYouTube(fetcher: typeof fetch, u: URL, id: string): Promise<S
     transcript = json3ToText(cap);
   }
   if (transcript) parts.push(`TRANSCRIPT (${track.languageCode ?? '?'}${track.kind === 'asr' ? ', auto-generated' : ''}):\n${transcript}`);
-  else r.notes.push(tracks.length ? 'captions could not be downloaded' : 'no captions found');
+  // No-caption note only matters when there is nothing else to read.
+  else if (!desc) r.notes.push(tracks.length ? 'captions could not be downloaded' : 'no captions found');
   r.text = parts.join('\n\n').slice(0, MAX_TEXT);
   return r;
 }
@@ -257,13 +284,26 @@ async function readPage(fetcher: typeof fetch, u: URL, kind: SourceKind): Promis
 }
 
 /** Read whatever a link offers. Null when the URL is not allowed. */
-export async function readSource(raw: string, fetcher: typeof fetch = fetch): Promise<SourceResult | null> {
+export async function readSource(raw: string, opts: SourceOptions | typeof fetch = {}): Promise<SourceResult | null> {
+  const o: SourceOptions = typeof opts === 'function' ? { fetcher: opts } : opts;
+  const fetcher = o.fetcher ?? fetch;
   const u = safeUrl(raw);
   if (!u) return null;
   const kind = classify(u);
-  if (kind === 'youtube') return readYouTube(fetcher, u, youtubeId(u)!);
+  if (kind === 'youtube') return readYouTube(fetcher, u, youtubeId(u)!, o.youtubeKey);
   if (kind === 'tiktok') return readTikTok(fetcher, u);
   return readPage(fetcher, u, kind);
+}
+
+/** Stable key for a link (cache): YouTube by video id, others by URL without hash / tracking params. */
+export function canonicalSource(raw: string): string | null {
+  const u = safeUrl(raw);
+  if (!u) return null;
+  const yt = youtubeId(u);
+  if (yt) return `youtube:${yt}`;
+  u.hash = '';
+  for (const k of [...u.searchParams.keys()]) if (/^(utm_|fbclid|gclid|igsh|si$|is_from_webapp|sender_device)/i.test(k)) u.searchParams.delete(k);
+  return u.toString();
 }
 
 /** The SOURCE block the model sees. */
