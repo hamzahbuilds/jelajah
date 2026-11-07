@@ -6,7 +6,7 @@ import TravelNotes from '../components/TravelNotes';
 import { routeSegments, routeFailureMessage, useJourneyRoutes } from '../hooks/useJourneyRoutes';
 import { directionsUrl } from '../../shared/journey';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import { api, fmtMYR, fmtDate } from '../api';
 import { useT } from '../i18n';
 import { useSession } from '../app/session';
@@ -578,6 +578,7 @@ export default function Plan() {
           )}
           {canEdit && (
             <>
+              <Link className="btn ghost sm" to={`/new?mode=import&trip=${tripId}`} viewTransition><Icon name="link" size={16} /> {t.importToTrip}</Link>
               <button className="btn ghost sm" onClick={() => setSuggestOpen(true)}><Icon name="sparkles" size={16} /> {t.suggestAi}</button>
               <button className="btn" onClick={() => setModal(emptyActivity(selDay || days[0] || today))}><Icon name="plus" size={16} /> {t.addActivity}</button>
             </>

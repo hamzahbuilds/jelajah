@@ -19,6 +19,8 @@ import { singleOccupancyBatch } from '../shared/rooms';
 import { roomShares, RoomSplitError, RoomSplitRoom } from '../shared/roomSplit';
 import { daysBetween } from '../shared/days';
 import { geocode, tripCenter, validLatLng, type Candidate, type LatLng } from './lib/geocode';
+import { cleanDraft, parseDraftReply, draftSystemPrompt, DRAFT_LIMITS } from '../shared/draft';
+import { findUrl, readSource, sourceBlock, type SourceResult } from './lib/sources';
 
 type Vars = { user: SessionUser };
 const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
@@ -416,9 +418,16 @@ app.patch('/users/:id', requireAdmin, async c => {
 /* ---------------- trips ---------------- */
 
 app.post('/trips', async c => {
+  const body = await c.req.json<any>();
+  if (!body.name?.trim()) return bad(c, 'name_required');
+  return c.json({ id: await createTrip(c, body) });
+});
+
+/** Create a trip with the caller as leader (+ fire-and-forget auto cover). Shared by
+ *  POST /trips and the v0.32 plan commit. `name` must already be non-empty. */
+async function createTrip(c: any, body: any): Promise<number> {
   const user: SessionUser = c.get('user');
-  const { name, destination, start_date, end_date, emoji, color, base_currency, watch_currencies } = await c.req.json<any>();
-  if (!name?.trim()) return bad(c, 'name_required');
+  const { name, destination, start_date, end_date, emoji, color, base_currency, watch_currencies } = body;
   const codes = new Set((await currencyList(c.env)).map(x => x.code));
   const base = base_currency && codes.has(String(base_currency).toUpperCase())
     ? String(base_currency).toUpperCase() : 'MYR';
@@ -459,8 +468,8 @@ app.post('/trips', async c => {
     })());
   }
 
-  return c.json({ id: tripId });
-});
+  return Number(tripId);
+}
 
 app.get('/trips/:id', async c => {
   const id = Number(c.req.param('id'));
@@ -3427,6 +3436,199 @@ app.post('/trips/:id/assistant/chat', async c => {
     await trackUsage(c.env, c.get('user').id, 'ai_chat');
     return c.json({ reply });
   } catch (e: any) { return aiFail(c, e); }
+});
+
+/* ================================================================== */
+/* v0.32 — Plan with AI: chat planner + import from links (docs/20)   */
+/* ================================================================== */
+
+interface RichInput {
+  system: string;
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  youtubeUrl?: string | null;
+  images?: Array<{ mime: string; data: string }>;
+  json?: boolean;
+  maxTokens: number;
+}
+
+const isGeminiCfg = (cfg: AiConfig | null) => !!cfg && /generativelanguage\.googleapis\.com/i.test(cfg.base_url);
+
+/** Like callAI, but the last user turn can carry a YouTube video (Gemini only) and images. */
+async function callAIRich(env: Env, input: RichInput): Promise<string> {
+  const cfg = await aiConfig(env);
+  if (!cfg?.base_url || !cfg.api_key || !cfg.model) throw new AiError('ai_not_configured');
+  const images = (input.images ?? []).slice(0, 4);
+  const lastUser = input.messages.map(m => m.role).lastIndexOf('user');
+
+  if (isGeminiCfg(cfg)) {
+    const origin = (() => { try { return new URL(cfg.base_url).origin; } catch { return 'https://generativelanguage.googleapis.com'; } })();
+    const model = cfg.model.replace(/^models\//, '');
+    const contents = input.messages.map((m, i) => {
+      const parts: any[] = [];
+      if (i === lastUser) {
+        // Media first, then the text that refers to it (Gemini's recommended order).
+        if (input.youtubeUrl) parts.push({ fileData: { fileUri: input.youtubeUrl, mimeType: 'video/*' } });
+        for (const img of images) parts.push({ inlineData: { mimeType: img.mime, data: img.data } });
+      }
+      parts.push({ text: m.content });
+      return { role: m.role === 'assistant' ? 'model' : 'user', parts };
+    });
+    const body = {
+      systemInstruction: { parts: [{ text: input.system }] },
+      contents,
+      generationConfig: {
+        temperature: 0.4, maxOutputTokens: input.maxTokens,
+        ...(input.json ? { responseMimeType: 'application/json' } : {}),
+        // Low resolution: ~1/3 the tokens per video second; plenty for reading place names.
+        ...(input.youtubeUrl || images.length ? { mediaResolution: 'MEDIA_RESOLUTION_LOW' } : {}),
+      },
+    };
+    let res: Response;
+    try {
+      res = await fetch(`${origin}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.api_key }, body: JSON.stringify(body),
+      });
+    } catch { throw new AiError('ai_unreachable'); }
+    if (!res.ok) throw await aiHttpError(res);
+    const { text, finishReason } = parseGeminiNativeResponse(await res.json().catch(() => null));
+    if (!text.trim()) throw new AiError('ai_error', finishReason === 'MAX_TOKENS' ? 'The reply ran out of room — ask for fewer days.' : `The provider returned an empty reply${finishReason ? ` (${finishReason})` : ''}.`);
+    return text;
+  }
+
+  // OpenAI-compatible: images as image_url parts; video is not supported (the transcript/description text stands in).
+  const messages: any[] = [{ role: 'system', content: input.system }, ...input.messages.map((m, i) =>
+    i === lastUser && images.length
+      ? { role: 'user', content: [{ type: 'text', text: m.content }, ...images.map(img => ({ type: 'image_url', image_url: { url: `data:${img.mime};base64,${img.data}` } }))] }
+      : m)];
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.base_url.replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.api_key}` },
+      body: JSON.stringify({ model: cfg.model, messages, temperature: 0.4, max_tokens: input.maxTokens }),
+    });
+  } catch { throw new AiError('ai_unreachable'); }
+  if (!res.ok) throw await aiHttpError(res);
+  const data: any = await res.json().catch(() => null);
+  const text = data?.choices?.[0]?.message?.content;
+  if (typeof text !== 'string' || !text.trim()) throw new AiError('ai_error', 'The provider returned an empty reply.');
+  return text;
+}
+
+app.get('/plan/status', async c => {
+  const cfg = await aiConfig(c.env);
+  const ok = !!(cfg?.base_url && cfg.api_key && cfg.model);
+  return c.json({ ai: ok, provider: ok ? (isGeminiCfg(cfg) ? 'gemini' : 'openai') : null, video: ok && isGeminiCfg(cfg) });
+});
+
+const IMAGE_MIME = /^image\/(jpeg|png|webp|heic|heif)$/;
+
+app.post('/plan/draft', async c => {
+  const b = await c.req.json<any>().catch(() => ({}));
+  const lang = b.lang === 'ms' ? 'ms' : 'en';
+  const msgs = (Array.isArray(b.messages) ? b.messages : []).slice(-12)
+    .filter((m: any) => (m?.role === 'user' || m?.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+    .map((m: any) => ({ role: m.role as 'user' | 'assistant', content: String(m.content).slice(0, 4000) }));
+  if (!msgs.length || msgs[msgs.length - 1].role !== 'user') return bad(c, 'messages_required');
+  const images = (Array.isArray(b.images) ? b.images : []).slice(0, 4)
+    .filter((i: any) => IMAGE_MIME.test(String(i?.mime)) && typeof i?.data === 'string' && /^[A-Za-z0-9+/=]+$/.test(i.data.slice(0, 200)) && i.data.length < 3_000_000)
+    .map((i: any) => ({ mime: String(i.mime), data: String(i.data) }));
+  const current = cleanDraft(b.draft);
+  const cfg = await aiConfig(c.env);
+
+  // A link in the newest message is read once, on that turn; later turns edit the draft.
+  const latest = msgs[msgs.length - 1].content;
+  const url = findUrl(latest);
+  let source: SourceResult | null = null;
+  if (url) source = await readSource(url);
+  const videoUrl = source?.youtube_id && isGeminiCfg(cfg) ? `https://www.youtube.com/watch?v=${source.youtube_id}` : null;
+
+  const ctx = [
+    `TODAY: ${new Date().toISOString().slice(0, 10)}`,
+    `CURRENT DRAFT:\n${JSON.stringify(current)}`,
+    source ? sourceBlock(source, !!videoUrl) : url ? `SOURCE: ${url} (this link cannot be opened)` : '',
+    images.length ? `${images.length} screenshot(s) attached — read the places in them.` : '',
+  ].filter(Boolean).join('\n\n');
+  const turns = msgs.map((m: any, i: number) => (i === msgs.length - 1 ? { ...m, content: `${ctx}\n\nUSER: ${m.content}` } : m));
+
+  const ask = (video: string | null) => callAIRich(c.env, {
+    system: draftSystemPrompt(lang), messages: turns, youtubeUrl: video, images, json: true, maxTokens: 12000,
+  });
+  try {
+    let text: string;
+    try { text = await ask(videoUrl); } catch (e: any) {
+      // Private / age-gated / too-long videos fail on the model side: fall back to the text we read.
+      if (!videoUrl || e?.code !== 'ai_error') throw e;
+      text = await ask(null);
+      if (source) source.notes.push('the video could not be watched');
+    }
+    const out = parseDraftReply(text, current);
+    await trackUsage(c.env, c.get('user').id, 'ai_draft');
+    return c.json({
+      ...out,
+      source: source ? { kind: source.kind, url: source.url, title: source.title, author: source.author, notes: source.notes, watched: !!videoUrl } : null,
+    });
+  } catch (e: any) { return aiFail(c, e); }
+});
+
+app.post('/plan/commit', async c => {
+  const b = await c.req.json<any>().catch(() => ({}));
+  const user: SessionUser = c.get('user');
+  const draft = cleanDraft(b.draft);
+  const byId = new Map([...draft.days.flatMap(d => d.places), ...draft.ideas].map(p => [p.id, p]));
+  const picks = (Array.isArray(b.picks) ? b.picks : [])
+    .filter((p: any) => byId.has(String(p?.id)) && validDayStr(p?.day))
+    .slice(0, DRAFT_LIMITS.picks)
+    .map((p: any) => ({ place: byId.get(String(p.id))!, day: String(p.day) }));
+  if (!picks.length) return bad(c, 'nothing_selected');
+
+  let tripId: number;
+  if (b.target?.trip_id != null) {
+    tripId = Number(b.target.trip_id);
+    if (!(await assertTripAccess(c, tripId))) return bad(c, 'forbidden', 403);
+    if ((await hiddenFor(c, tripId)).has('plan')) return bad(c, 'feature_hidden', 403);
+    if (!atLeast(await tripRole(c.env, user, tripId), 'editor')) return bad(c, 'forbidden', 403);
+  } else {
+    const n = b.target?.new ?? {};
+    const name = String(n.name ?? '').trim().slice(0, 80) || draft.name;
+    if (!name) return bad(c, 'name_required');
+    if (!validDayStr(n.start_date) || !validDayStr(n.end_date) || n.end_date < n.start_date) return bad(c, 'dates_required');
+    tripId = await createTrip(c, {
+      name, destination: String(n.destination ?? draft.destination ?? '').trim().slice(0, 120) || null,
+      start_date: n.start_date, end_date: n.end_date, emoji: typeof n.emoji === 'string' && n.emoji ? n.emoji.slice(0, 16) : draft.emoji || '🧳',
+    });
+  }
+
+  // Pins: trip-area biased, two lookups at a time (public geocoder fair use), then one batch insert.
+  const center = await tripCenter(c.env, tripId);
+  const pins: PinOutcome[] = new Array(picks.length);
+  for (let i = 0; i < picks.length; i += 2) {
+    await Promise.all(picks.slice(i, i + 2).map(async (p: any, k: number) => {
+      pins[i + k] = await resolvePin(c.env, p.place.place, null, null, center);
+    }));
+  }
+  const stmts = picks.map((p: any, i: number) => {
+    const pl = p.place;
+    const start = pl.start_time ?? null;
+    const end = start && pl.duration_min ? plusMinutes(start, pl.duration_min) : null;
+    return c.env.DB.prepare(
+      `INSERT INTO activities (trip_id, title, day, start_time, end_time, notes, location_name, lat, lng, category)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    ).bind(tripId, pl.title, p.day, start, end, pl.notes ?? null, pl.place, pins[i].lat, pins[i].lng, pl.category);
+  });
+  // Day titles only where the day has none yet (never overwrite the planner's own theme).
+  const titles = b.day_titles && typeof b.day_titles === 'object' ? Object.entries(b.day_titles) : [];
+  for (const [day, title] of titles.slice(0, DRAFT_LIMITS.days)) {
+    const t = String(title ?? '').trim().slice(0, 80);
+    if (!validDayStr(day) || !t) continue;
+    stmts.push(c.env.DB.prepare(
+      `INSERT INTO day_settings (trip_id, day, title) VALUES (?,?,?)
+       ON CONFLICT(trip_id, day) DO UPDATE SET title = excluded.title WHERE day_settings.title IS NULL OR day_settings.title = ''`,
+    ).bind(tripId, day, t));
+  }
+  await c.env.DB.batch(stmts);
+  const located = pins.filter(p => p.located).length;
+  await audit(c.env, user.id, `plan_import: ${picks.length} activities (${located} pinned)`, 'trip', tripId);
+  return c.json({ trip_id: tripId, added: picks.length, located });
 });
 
 /* ---- personal access tokens (for MCP clients) ---- */

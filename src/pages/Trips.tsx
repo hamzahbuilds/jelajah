@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { useT, Dict } from '../i18n';
 import { useSession, Trip, TripRole } from '../app/session';
@@ -11,6 +11,8 @@ import Modal from '../components/Modal';
 import PageHead from '../components/PageHead';
 import Empty from '../components/Empty';
 import { daysBetween, todayYmd } from '../../shared/days';
+import PlanComposer, { type ComposerMode } from '../components/PlanComposer';
+import type { NewPlanStart } from './NewPlan';
 
 function roleLabel(t: Dict, role?: TripRole) {
   if (role === 'leader') return t.roleLeader;
@@ -59,7 +61,17 @@ export default function Trips() {
   const { t, lang } = useT();
   const { toast } = useToast();
   const { trips, refresh } = useSession();
-  const [open, setOpen] = useState(false);
+  const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const [open, setOpen] = useState(params.get('manual') === '1');
+  const [mode, setMode] = useState<ComposerMode>('plan');
+  const [aiOn, setAiOn] = useState<boolean | null>(null);
+  useEffect(() => { api.get('/plan/status').then(r => setAiOn(!!r.ai)).catch(() => setAiOn(false)); }, []);
+  useEffect(() => {
+    if (params.get('manual') === '1') { params.delete('manual'); setParams(params, { replace: true }); }
+  }, [params, setParams]);
+  // "New trip" opens the chat planner; the form stays one tap away (docs/20 §4.1).
+  const newTrip = () => (aiOn === false ? setOpen(true) : nav('/new', { viewTransition: true }));
   const [form, setForm] = useState({ name: '', destination: '', start_date: '', end_date: '', emoji: '🧳', color: '', base_currency: 'MYR', watch_currencies: [] as string[] });
 
   const create = async (e: React.FormEvent) => {
@@ -73,11 +85,17 @@ export default function Trips() {
   return (
     <div>
       <PageHead crumb={t.home} title={t.myTrips} sub={t.myTripsSub}
-        actions={<button className="btn" onClick={() => setOpen(true)}><Icon name="plus" size={16} /> {t.newTrip}</button>} />
+        actions={<button className="btn" onClick={newTrip}><Icon name="plus" size={16} /> {t.newTrip}</button>} />
+
+      <div className="home-compose">
+        <PlanComposer variant="hero" mode={mode} onModeChange={setMode} disabled={aiOn === false}
+          onManual={() => setOpen(true)}
+          onSubmit={v => nav('/new', { viewTransition: true, state: { start: v satisfies NewPlanStart } })} />
+      </div>
 
       {trips.length === 0 ? (
         <Empty icon="folder" title={t.startFirstTrip} sub={t.startFirstTripSub}
-          action={{ label: t.newTrip, onClick: () => setOpen(true) }} />
+          action={{ label: t.newTrip, onClick: newTrip }} />
       ) : (
         <div className="tripgrid">
           {trips.map(tr => {
@@ -103,7 +121,7 @@ export default function Trips() {
             );
           })}
 
-          <button type="button" className="newcard" onClick={() => setOpen(true)}>
+          <button type="button" className="newcard" onClick={newTrip}>
             <span className="inner"><Icon name="plus" size={24} />{t.newTripCard}</span>
           </button>
         </div>

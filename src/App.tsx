@@ -13,6 +13,7 @@ import { getThemePref, setThemePref } from './theme';
 import Login from './pages/Login';
 const Join = lazy(() => import('./pages/Join'));
 const Trips = lazy(() => import('./pages/Trips'));
+const NewPlan = lazy(() => import('./pages/NewPlan'));
 const TripShell = lazy(() => import('./pages/TripShell'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Plan = lazy(() => import('./pages/JournalPlan'));
@@ -88,6 +89,7 @@ function Shell() {
           <Suspense fallback={<PageSkeleton label={t.loading} />}>
           <Routes>
             <Route path="/" element={<Trips />} />
+            <Route path="/new" element={<NewPlan />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/admin" element={<Admin />} />
             {state.user.role === 'admin' && (
@@ -185,6 +187,7 @@ function RouteEffects() {
     if (seg[0] === 'settings') page = t.settings;
     else if (seg[0] === 'admin') page = t.adminTitle;
     else if (seg[0] === 'dev') page = 'Component gallery';
+    else if (seg[0] === 'new') page = t.newPlanTitle;
     else if (seg[0] === 'trips') {
       const sub = seg[2] === 'money' ? seg[3] : seg[2];
       const map: Record<string, string> = {
