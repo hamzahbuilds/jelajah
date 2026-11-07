@@ -287,4 +287,13 @@ describe('MCP v2 pins', () => {
     expect(a.pinned_from).toBe('coordinates');
     expect(sqlite.prepare('SELECT lat, lng FROM activities WHERE id=?').get(a.id)).toEqual({ lat: 35.7475891, lng: 139.8401453 });
   });
+
+  it('accepts coordinates sent as numeric strings (connectors with a cached schema do this)', async () => {
+    const id = (sqlite.prepare("INSERT INTO activities(trip_id,title,day) VALUES (1,'Strings','2026-12-03') RETURNING id").get() as any).id;
+    const r = await call(TOKENS.leader, 'update_activity', { activity_id: id, place: 'Kyoto Station', lat: '34.985849', lng: '135.758767' });
+    expect(r.result.structuredContent.matched).toBeUndefined(); // pinned from the coordinates, not geocoded
+    expect(sqlite.prepare('SELECT lat, lng FROM activities WHERE id=?').get(id)).toEqual({ lat: 34.985849, lng: 135.758767 });
+    const bad = await call(TOKENS.leader, 'add_activities', { trip_id: 1, activities: [{ day: '2026-12-03', title: 'Junk', lat: '12abc', lng: 'x' }] });
+    expect(bad.result.structuredContent.activities[0].located).toBe(false);
+  });
 });

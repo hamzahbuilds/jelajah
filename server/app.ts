@@ -3650,7 +3650,11 @@ async function mcpCanEditPlan(env: Env, user: SessionUser, tripId: number) {
 interface PinOutcome { lat: number | null; lng: number | null; located: boolean; pinned_from: 'coordinates' | 'place' | null; matched?: { name: string; kind: string | null; address: string }; candidates?: Candidate[]; reason?: string }
 
 /** Resolve a pin for one stop: explicit coordinates win, else trip-biased lookup of `place`. */
-async function resolvePin(env: Env, place: string | null, lat: unknown, lng: unknown, center: LatLng | null): Promise<PinOutcome> {
+/** Clients (e.g. claude.ai connectors with a cached schema) may send coordinates as strings. */
+const coord = (v: unknown): unknown => (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : v);
+
+async function resolvePin(env: Env, place: string | null, latIn: unknown, lngIn: unknown, center: LatLng | null): Promise<PinOutcome> {
+  const lat = coord(latIn), lng = coord(lngIn);
   if (validLatLng(lat, lng)) return { lat: lat as number, lng: lng as number, located: true, pinned_from: 'coordinates' };
   if (!place) return { lat: null, lng: null, located: false, pinned_from: null, reason: 'no place given' };
   const r = await geocode(env, place, center);
