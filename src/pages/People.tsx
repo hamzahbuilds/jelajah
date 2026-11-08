@@ -1,6 +1,6 @@
 import { useConfirm } from '../ui/Confirm';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useOutletContext } from 'react-router-dom';
+import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { useT } from '../i18n';
 import { useSession } from '../app/session';
@@ -365,6 +365,26 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
       .catch(() => { setCanEditPlan(!next); toast(t.tSaveFailed, 'error'); });
   };
 
+  // v0.39: "Show on Discover" — the plan (places, times, day titles) listed publicly.
+  const [discover, setDiscover] = useState<{ on: boolean; takenDown: boolean } | null>(null);
+  useEffect(() => {
+    if (!isSettings || !canLead) return;
+    api.get(`/journey/trips/${tripId}/publishing/discover`).then(setDiscover).catch(() => setDiscover(null));
+  }, [isSettings, canLead, tripId]);
+  const toggleDiscover = async () => {
+    if (!discover) return;
+    const next = !discover.on;
+    setDiscover({ ...discover, on: next });
+    try {
+      await api.put(`/journey/trips/${tripId}/publishing/discover`, { on: next });
+      toast(next ? t.discoverOnToast : t.discoverOffToast);
+    } catch (e) {
+      setDiscover({ ...discover, on: !next });
+      const code = e instanceof ApiError ? e.code : '';
+      toast(code === 'empty_plan' ? t.discoverEmpty : code === 'taken_down' ? t.discoverTakenDown : t.tSaveFailed, 'error');
+    }
+  };
+
   return (
     <div>
       <PageHead title={isSettings ? t.tripSettings : t.people} />
@@ -449,6 +469,19 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
               style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
             <span><Icon name="edit" size={16} /> {t.memberCanEditPlan}</span>
           </label>
+        </div>
+      )}
+
+      {isSettings && canLead && discover && (
+        <div className="card">
+          <div className="cardhead"><h3><Icon name="globe" /> {t.discoverTitle}</h3></div>
+          <label className="discover-switch">
+            {/* Native switch where supported (Safari); elsewhere a checkbox announced as a switch. */}
+            <input type="checkbox" role="switch" {...{ switch: '' }} checked={discover.on} disabled={discover.takenDown} onChange={toggleDiscover} />
+            <span>{t.discoverShow}</span>
+          </label>
+          <p className="hint">{discover.takenDown ? t.discoverTakenDown : t.discoverHint}</p>
+          {discover.on && <p><Link to={`/guides/discover-${tripId}`}>{t.discoverView} <Icon name="arrow-r" size={16} /></Link></p>}
         </div>
       )}
       {!isSettings && <div className="card">

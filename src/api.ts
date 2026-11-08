@@ -14,7 +14,10 @@ export function setOfflineListener(fn: ((offline: boolean) => void) | null): voi
 }
 
 async function handle(res: Response): Promise<any> {
-  if (res.status === 401 && !location.pathname.startsWith('/login')) {
+  // Public pages (v0.39: Discover and guides) check the session too; a 401 there
+  // just means "not signed in", not "send me to the login page".
+  const publicPage = location.pathname === '/discover' || location.pathname.startsWith('/guides/');
+  if (res.status === 401 && !location.pathname.startsWith('/login') && !publicPage) {
     // F1 (v0.22 final review, 2026-09-06): fire-and-forget cache clear on
     // session expiry, so the next user on a shared device doesn't inherit
     // this user's cached API/files data. Not awaited — must not delay the
@@ -23,6 +26,7 @@ async function handle(res: Response): Promise<any> {
     location.href = '/login';
     throw new ApiError('unauthorized', 401);
   }
+  if (res.status === 401) throw new ApiError('unauthorized', 401);
   if (!res.ok) {
     let code = 'error';
     let body: any;

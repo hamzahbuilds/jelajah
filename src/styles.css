@@ -1321,9 +1321,9 @@ label.fld2 { display: block; font-size: 13px; font-weight: 600; color: var(--ink
 .journey-public { max-width:1100px; margin:auto; padding:28px 24px 80px; }
 .discover-search { display:flex; gap:14px; align-items:end; flex-wrap:wrap; margin:24px 0; }
 .discover-search label:first-child { flex:1; min-width:200px; }
-.guide-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:24px; margin:24px 0; }
+.guide-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:24px; margin:24px 0; }
 .guide-card { text-decoration:none; color:var(--ink); background:var(--surface); border:1px solid var(--border); border-radius:20px; overflow:hidden; transition:transform .2s; }
-.guide-card:hover { transform:translateY(-4px); }
+.guide-card:hover { transform:translateY(-2px); }
 .guide-card>div:last-child { padding:22px; }
 .guide-card h2 { margin:8px 0; }
 .guide-art { height:150px; display:grid; place-items:center; font-size:4rem; background:linear-gradient(135deg,#c5dfd4,#f2ddae); }
@@ -1776,3 +1776,5 @@ h1, h2, .ui-pagehead h1, .pagehead h1, .tc-body h3, .dash-hero .big, .big, .pc-h
 h1, .ui-pagehead h1, .pagehead h1, .pc-hero-head h2, .tb-step h2 { font-weight: 700; }
 .today-tag { margin-inline-start: 6px; font-size: 13px; font-weight: 600; color: var(--brand-ink); }
 .new-trip-dates { margin-top: 14px; }
+.discover-switch { display: flex; align-items: center; gap: 10px; padding: 4px 0 8px; font-weight: 600; cursor: pointer; }
+.discover-switch input { width: 18px; height: 18px; accent-color: var(--brand-700); }

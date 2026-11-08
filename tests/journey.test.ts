@@ -592,6 +592,29 @@ describe("public projections and publishing", () => {
     await json(req(`/trips/1/publishing/guides/${guide}`, 1, "DELETE"));
     expect((await json(req("/guides", null))).items).toHaveLength(0);
   });
+  it("v0.39: 'Show on Discover' lists the live plan, leaders only, off and takedown", async () => {
+    expect((await req("/trips/1/publishing/discover", 4)).status).toBe(403);
+    expect(await json(req("/trips/1/publishing/discover", 1))).toEqual({ on: false, takenDown: false });
+    expect((await json(req("/trips/1/publishing/discover", 1, "PUT", { on: true }))).id).toBe("discover-1");
+    const listed = (await json(req("/guides", null))).items;
+    expect(listed.map((g: any) => g.id)).toContain("discover-1");
+    // the listing follows the current plan (no stale snapshot) and stays a strict projection
+    sqlite.exec("UPDATE activities SET title='Shrine walk' WHERE id=1");
+    const live = await json(req("/guides/discover-1", null));
+    const text = JSON.stringify(live);
+    expect(text).toContain("Shrine walk");
+    expect(text).not.toMatch(/SECRET|DO NOT PUBLISH|2026-11-29|participant|expense|booking|Bring water/);
+    // not shown among the trip's hand-made guide drafts
+    expect((await json(req("/trips/1/publishing/guides", 1))).items.map((g: any) => g.id)).not.toContain("discover-1");
+    await json(req("/trips/1/publishing/discover", 1, "PUT", { on: false }));
+    expect((await req("/guides/discover-1", null)).status).toBe(404);
+    // an admin takedown sticks
+    await json(req("/trips/1/publishing/discover", 1, "PUT", { on: true }));
+    await json(req("/admin/guides/discover-1", 1, "PATCH", { takenDown: true }));
+    expect((await req("/guides/discover-1", null)).status).toBe(404);
+    expect((await req("/trips/1/publishing/discover", 1, "PUT", { on: true })).status).toBe(403);
+    expect(await json(req("/trips/1/publishing/discover", 1))).toEqual({ on: false, takenDown: true });
+  });
 });
 describe("routing and recovery", () => {
   it("uses atomic bounded counters across concurrent requests", async () => {

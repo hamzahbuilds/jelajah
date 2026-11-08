@@ -411,12 +411,27 @@ journey.get("/guides", async (c) => {
 });
 journey.get("/guides/:id", async (c) => {
   const row = await c.env.DB.prepare(
-    "SELECT published FROM journey_guides g JOIN trips t ON t.id=g.trip_id WHERE g.id=? AND published IS NOT NULL AND taken_down=0",
+    "SELECT g.published,g.trip_id,t.name,t.destination FROM journey_guides g JOIN trips t ON t.id=g.trip_id WHERE g.id=? AND published IS NOT NULL AND taken_down=0",
   )
     .bind(c.req.param("id"))
     .first<any>();
-  return row ? c.json(JSON.parse(row.published)) : error(c, "not_found", 404);
+  if (!row) return error(c, "not_found", 404);
+  // v0.39: a trip shown on Discover (trip settings switch) is read from its
+  // current plan, so the listing never goes stale. Places, times and day
+  // titles only (publicJourney): no people, money, documents or notes.
+  if (isDiscoverGuide(c.req.param("id"))) {
+    const live = await discoverProjection(c.env, row.trip_id, row.name, row.destination);
+    return c.json(live);
+  }
+  return c.json(JSON.parse(row.published));
 });
+
+/** v0.39: one Discover listing per trip, at a fixed id. */
+const discoverGuideId = (tripId: number) => `discover-${tripId}`;
+const isDiscoverGuide = (id: string) => /^discover-\d+$/.test(id);
+async function discoverProjection(env: Env, tripId: number, name: string, destination: string | null) {
+  return publicJourney(name, destination ?? "", await groupJourney(env, tripId), [], true);
+}
 
 // All routes below require an authenticated session; public routes above expose
 // only explicit projections, never the legacy /plan response.
@@ -909,6 +924,39 @@ journey.use("/trips/:id/publishing/*", async (c, next) => {
     return error(c, "forbidden", 403);
   return next();
 });
+// v0.39 "Show on Discover" (trip settings). Leaders only (guard above).
+journey.get("/trips/:id/publishing/discover", async (c) => {
+  const row = await c.env.DB.prepare(
+    "SELECT published IS NOT NULL AS live,taken_down FROM journey_guides WHERE id=?",
+  )
+    .bind(discoverGuideId(Number(c.req.param("id"))))
+    .first<any>();
+  return c.json({ on: !!row?.live && !row?.taken_down, takenDown: !!row?.taken_down });
+});
+journey.put("/trips/:id/publishing/discover", async (c) => {
+  const id = Number(c.req.param("id"));
+  const b = await c.req.json<any>().catch(() => ({}));
+  const gid = discoverGuideId(id);
+  if (!b.on) {
+    await c.env.DB.prepare("UPDATE journey_guides SET published=NULL WHERE id=?").bind(gid).run();
+    return c.json({ on: false });
+  }
+  const old = await c.env.DB.prepare("SELECT taken_down FROM journey_guides WHERE id=?").bind(gid).first<any>();
+  if (old?.taken_down) return error(c, "taken_down", 403);
+  const trip = await c.env.DB.prepare("SELECT name,destination FROM trips WHERE id=?").bind(id).first<any>();
+  if (!trip) return error(c, "not_found", 404);
+  const pj = await discoverProjection(c.env, id, trip.name, trip.destination);
+  if (!pj.days.some((d) => d.stops.length)) return error(c, "empty_plan", 409);
+  const json = JSON.stringify(pj);
+  await c.env.DB.prepare(
+    `INSERT INTO journey_guides(id,trip_id,draft,published,title,destination,duration) VALUES (?,?,?,?,?,?,?)
+     ON CONFLICT(id) DO UPDATE SET draft=excluded.draft,published=excluded.published,title=excluded.title,
+       destination=excluded.destination,duration=excluded.duration,updated_at=datetime('now')`,
+  )
+    .bind(gid, id, json, json, pj.title, pj.destination, pj.days.length)
+    .run();
+  return c.json({ on: true, id: gid });
+});
 journey.post("/trips/:id/publishing/preview", async (c) => {
   const id = Number(c.req.param("id")),
     b = await c.req.json<any>();
@@ -975,7 +1023,7 @@ journey.get("/trips/:id/publishing/guides", async (c) =>
   c.json({
     items: (
       await c.env.DB.prepare(
-        "SELECT id,draft,published IS NOT NULL AS live,taken_down FROM journey_guides WHERE trip_id=?",
+        "SELECT id,draft,published IS NOT NULL AS live,taken_down FROM journey_guides WHERE trip_id=? AND id NOT LIKE 'discover-%'",
       )
         .bind(Number(c.req.param("id")))
         .all()

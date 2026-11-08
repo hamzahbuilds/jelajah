@@ -9,9 +9,12 @@ import { Icon } from "../components/Icon";
 export default function PublicJourneys({
   guest = false,
   detail = false,
+  embedded = false,
 }: {
   guest?: boolean;
   detail?: boolean;
+  /** Inside the signed-in app: its nav is around us, so no brand bar or sign-in link. */
+  embedded?: boolean;
 }) {
   const { t, lang, setLang } = useT(),
     j = t.j,
@@ -62,8 +65,13 @@ export default function PublicJourneys({
       meta.remove();
     };
   }, [guest]);
+  // Inside the app the shell already provides <main>; the public page is its own.
+  const Wrap = embedded ? "div" : "main";
   return (
-    <main className="journey-public">
+    <Wrap className={embedded ? "journey-public embedded" : "journey-public"}>
+      {embedded ? (detail && (
+        <Link to="/discover" className="np-back no-print"><Icon name="arrow-l" size={16} /> {j.discover}</Link>
+      )) : (
       <nav className="public-nav no-print">
         <Link to="/discover" className="journal-brand">
           <Icon name="pin" size={20} /> Jelajah
@@ -78,6 +86,7 @@ export default function PublicJourneys({
           <Link to="/login">{t.signIn}</Link>
         </div>
       </nav>
+      )}
       {loading ? (
         <p role="status">{t.loading}</p>
       ) : failed ? (
@@ -134,17 +143,12 @@ export default function PublicJourneys({
             <button className="btn">{j.search}</button>
           </form>
           <div className="guide-grid">
-            {items.map((g, i) => (
+            {items.map((g) => (
               <Link className="guide-card" key={g.id} to={`/guides/${g.id}`}>
-                <div className={`guide-art art-${i % 3}`} aria-hidden="true">
-                  {["🗺️", "🌴", "🏔️"][i % 3]}
-                </div>
                 <div>
                   <small>{g.destination}</small>
                   <h2>{g.title}</h2>
-                  <span>
-                    {g.duration} {j.day}
-                  </span>
+                  <span>{t.nDays(g.duration)}</span>
                 </div>
               </Link>
             ))}
@@ -168,6 +172,6 @@ export default function PublicJourneys({
           </div>
         </>
       )}
-    </main>
+    </Wrap>
   );
 }

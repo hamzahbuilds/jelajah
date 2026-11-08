@@ -40,6 +40,7 @@ const DevGallery = lazy(() => import('./pages/DevGallery'));
 
 function Shell() {
   const { t } = useT();
+  const { pathname } = useLocation();
   const [state, setState] = useState<{ user: User; trips: Trip[] } | null | 'loading'>('loading');
   const [tripNav, setTripNav] = useState<TripNavInfo | null>(null);
   const navigate = useNavigate();
@@ -60,7 +61,12 @@ function Shell() {
   useEffect(() => { refresh(); }, []);
 
   if (state === 'loading') return <Loading label={t.loading} />;
-  if (!state) return <Navigate to="/login" replace />;
+  if (!state) {
+    // v0.39: Discover and guides are public; signed in, they open inside the app (below).
+    if (pathname === '/discover') return <I18nProvider><PublicJourneys /></I18nProvider>;
+    if (pathname.startsWith('/guides/')) return <I18nProvider><Routes><Route path="/guides/:id" element={<PublicJourneys detail />} /></Routes></I18nProvider>;
+    return <Navigate to="/login" replace />;
+  }
 
   const logout = async () => {
     // F2 (v0.22 final review, 2026-09-06): the logout POST can fail offline
@@ -93,6 +99,8 @@ function Shell() {
           <Routes>
             <Route path="/" element={<Trips />} />
             <Route path="/new" element={<NewPlan />} />
+            <Route path="/discover" element={<PublicJourneys embedded />} />
+            <Route path="/guides/:id" element={<PublicJourneys detail embedded />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/admin" element={<Admin />} />
             {state.user.role === 'admin' && (
@@ -251,8 +259,6 @@ export default function App() {
     <Routes>
       <Route path="/forgot-password" element={<I18nProvider><Recovery /></I18nProvider>} />
       <Route path="/reset-password" element={<I18nProvider><Recovery reset /></I18nProvider>} />
-      <Route path="/discover" element={<I18nProvider><PublicJourneys /></I18nProvider>} />
-      <Route path="/guides/:id" element={<I18nProvider><PublicJourneys detail /></I18nProvider>} />
       <Route path="/share/:token" element={<I18nProvider><PublicJourneys guest /></I18nProvider>} />
       <Route path="/login" element={<I18nProvider><Login /></I18nProvider>} />
       <Route path="/join/:code" element={<I18nProvider><Join /></I18nProvider>} />
