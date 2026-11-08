@@ -195,11 +195,14 @@ function RangeCalendar(p: DateRangePickerProps & { months: 'pair' | 'scroll'; on
     setDe(d);
   };
 
-  // Keep the focused day rendered (desktop pair view) and focused after a key move.
+  // Keep the focused day rendered (desktop pair view) and focused after a key
+  // move. Runs on focus-day changes only: the month buttons move view and focus
+  // day together, and re-checking on a view change would snap the view back to
+  // a stale focus day (the Next button visibly "jittered").
   useEffect(() => {
     if (p.months === 'pair') {
-      if (compare(focusDay, view) < 0) setView(firstOfMonth(focusDay));
-      else if (compare(focusDay, addMonths(view, 2)) >= 0) setView(addMonths(firstOfMonth(focusDay), -1));
+      setView(v => compare(focusDay, v) < 0 ? firstOfMonth(focusDay)
+        : compare(focusDay, addMonths(v, 2)) >= 0 ? addMonths(firstOfMonth(focusDay), -1) : v);
     }
     if (!moved.current) return;
     moved.current = false;
@@ -208,7 +211,7 @@ function RangeCalendar(p: DateRangePickerProps & { months: 'pair' | 'scroll'; on
       b?.focus();
       b?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     });
-  }, [focusDay, view, p.months]);
+  }, [focusDay, p.months]);
 
   // Phones: start scrolled to the initial month. Wait a frame: this runs before
   // the parent Dialog's layout effect calls showModal(), and a closed <dialog>
@@ -223,6 +226,9 @@ function RangeCalendar(p: DateRangePickerProps & { months: 'pair' | 'scroll'; on
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Month buttons: shift the view and the roving focus day together. */
+  const page = (n: number) => { setView(v => addMonths(v, n)); setFocusDay(f => addMonths(f, n)); };
 
   const onKey = (ev: React.KeyboardEvent) => {
     if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
@@ -276,8 +282,8 @@ function RangeCalendar(p: DateRangePickerProps & { months: 'pair' | 'scroll'; on
         <span className="ui-cal-status-text">{status}</span>
         {p.months === 'pair' && (
           <span className="ui-cal-nav">
-            <button type="button" className="ui-iconbtn" aria-label={t.prevMonth} onClick={() => setView(v => addMonths(v, -1))}><Icon name="chev-l" size={20} /></button>
-            <button type="button" className="ui-iconbtn" aria-label={t.nextMonth} onClick={() => setView(v => addMonths(v, 1))}><Icon name="chev-r" size={20} /></button>
+            <button type="button" className="ui-iconbtn" aria-label={t.prevMonth} onClick={() => page(-1)}><Icon name="chev-l" size={20} /></button>
+            <button type="button" className="ui-iconbtn" aria-label={t.nextMonth} onClick={() => page(1)}><Icon name="chev-r" size={20} /></button>
           </span>
         )}
       </div>
@@ -287,6 +293,10 @@ function RangeCalendar(p: DateRangePickerProps & { months: 'pair' | 'scroll'; on
       <div className="ui-cal-months" ref={gridRef} onKeyDown={onKey} onPointerLeave={() => setHover('')}>
         {monthsShown.map(m => {
           const cells = monthGrid(m);
+          // Desktop pair: always 6 week rows, so the panel keeps its height when
+          // paging months — otherwise a panel opened above the field shifts and
+          // the Next button jumps out from under the pointer.
+          if (p.months === 'pair') while (cells.length < 42) cells.push(null);
           const headId = `m-${m}`;
           return (
             <div className="ui-cal-month" key={m} data-month={m}>
