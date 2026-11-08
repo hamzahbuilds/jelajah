@@ -1,6 +1,6 @@
 // v0.33 account access without email (docs/21): admin sign-in links and
 // Sign in with Google, against real SQLite with Google mocked at fetch.
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import app from '../server/app';
 import { SCHEMA } from '../server/lib/schema';
@@ -36,10 +36,12 @@ const env: Env = { DB: db, FILES: {} as KVNamespace, GOOGLE_CLIENT_ID: CLIENT, G
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {}, props: {} } as unknown as ExecutionContext;
 const BASE = 'https://jelajah.test';
 
+const noGoogle: Env = { ...env, GOOGLE_CLIENT_ID: undefined, GOOGLE_CLIENT_SECRET: undefined };
+let cur: Env = env;
 const call = (path: string, init: RequestInit & { cookie?: string } = {}) => app.request(`${BASE}/api${path}`, {
   ...init, redirect: 'manual',
   headers: { ...(init.cookie ? { Cookie: init.cookie } : {}), ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
-}, env, ctx);
+}, cur, ctx);
 const admin = (path: string, method = 'GET', body?: unknown) =>
   call(path, { method, cookie: 'sid=session-1', body: body ? JSON.stringify(body) : undefined });
 
@@ -105,7 +107,7 @@ describe('google helpers', () => {
 
 describe('Sign in with Google', () => {
   it('providers is public and reports Google', async () => {
-    expect(await (await call('/auth/providers')).json()).toEqual({ google: true });
+    expect(await (await call('/auth/providers')).json()).toEqual({ google: true, password: false });
   });
 
   it('start sends PKCE, nonce and a short-lived state cookie', async () => {
@@ -166,11 +168,25 @@ describe('Sign in with Google', () => {
     const off = { ...env, GOOGLE_CLIENT_ID: undefined };
     const r = await app.request(`${BASE}/api/auth/google/start`, { redirect: 'manual' }, off, ctx);
     expect(r.headers.get('location')).toBe('/login?google=unavailable');
-    expect(await (await app.request(`${BASE}/api/auth/providers`, {}, off, ctx)).json()).toEqual({ google: false });
+    expect(await (await app.request(`${BASE}/api/auth/providers`, {}, off, ctx)).json()).toEqual({ google: false, password: true });
   });
 });
 
-describe('admin sign-in links', () => {
+describe('Google only (v0.34)', () => {
+  it('refuses password login, password sign-up and sign-in links while Google is on', async () => {
+    const login = await call('/auth/login', { method: 'POST', body: JSON.stringify({ email: 'aina@gmail.com', password: 'whatever-pass' }) });
+    expect(login.status).toBe(403);
+    expect(login.headers.get('set-cookie')).toBeNull();
+    const join = await call(`/join/${INVITE}`, { method: 'POST', body: JSON.stringify({ name: 'Eve', email: 'eve@example.test', password: 'long-enough-pass' }) });
+    expect(join.status).toBe(403);
+    expect(sqlite.prepare('SELECT 1 FROM users WHERE email=?').get('eve@example.test')).toBeUndefined();
+    expect((await admin('/users/2/access-link', 'POST')).status).toBe(409);
+  });
+});
+
+describe('admin sign-in links (password fallback, Google off)', () => {
+  beforeAll(() => { cur = noGoogle; });
+  afterAll(() => { cur = env; });
   it('admin creates a user without a password, makes a link, and the link sets the password', async () => {
     const created = await (await admin('/users', 'POST', { name: 'Dina', email: 'dina@example.test' })).json() as any;
     const link = await (await admin(`/users/${created.id}/access-link`, 'POST')).json() as any;

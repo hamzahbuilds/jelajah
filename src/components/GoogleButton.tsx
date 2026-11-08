@@ -5,9 +5,10 @@ import { useT } from '../i18n';
 import './google.css';
 
 let providers: Promise<{ google: boolean }> | null = null;
-/** Is Google sign-in configured? One request per page load. */
-export function useGoogleSignIn(): boolean {
-  const [on, setOn] = useState(false);
+/** Is Google sign-in configured? null while loading. One request per page load.
+ *  v0.34: when it is, Google is the only way in (no password forms). */
+export function useGoogleSignIn(): boolean | null {
+  const [on, setOn] = useState<boolean | null>(null);
   useEffect(() => {
     const p = providers ??= fetch('/api/auth/providers')
       .then(r => (r.ok ? r.json() as Promise<{ google: boolean }> : { google: false }))

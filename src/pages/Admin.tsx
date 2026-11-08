@@ -15,6 +15,7 @@ import { useSession } from '../app/session';
 import { useToast } from '../components/Toast';
 import { Icon } from '../components/Icon';
 import '../components/google.css';
+import { useGoogleSignIn } from '../components/GoogleButton';
 import PageHead from '../components/PageHead';
 import LfLine from '../components/charts/LfLine';
 import LfBars from '../components/charts/LfBars';
@@ -118,6 +119,9 @@ export default function Admin() {
   const [users, setUsers] = useState<any[]>([]);
   const [uform, setUform] = useState({ name: '', email: '', password: '', role: 'member', participant_id: 0 });
   const [access, setAccess] = useState<{ name: string; url: string } | null>(null);
+  // v0.34: with Google on, people sign in with Google using the account's email;
+  // password sign-in links are off.
+  const googleOnly = useGoogleSignIn() === true;
 
   const loadAccounts = async () => {
     setAll(await api.get('/participants'));
@@ -137,7 +141,7 @@ export default function Admin() {
     const name = uform.name;
     setUform({ name: '', email: '', password: '', role: 'member', participant_id: 0 });
     toast(t.tAccountCreated);
-    await makeLink(Number(created.id), name);
+    if (!googleOnly) await makeLink(Number(created.id), name);
     await loadAccounts();
   };
 
@@ -405,7 +409,7 @@ export default function Admin() {
                 <small>{u.email}{u.participant_id ? ` · ${all.find(p => p.id === u.participant_id)?.name ?? ''}` : ''}</small>
               </div>
               <div className="l-end">
-                {!u.disabled && <button className="btn ghost sm" onClick={() => makeLink(u.id, u.name)}><Icon name="link" size={16} /> {t.signInLink}</button>}
+                {!u.disabled && !googleOnly && <button className="btn ghost sm" onClick={() => makeLink(u.id, u.name)}><Icon name="link" size={16} /> {t.signInLink}</button>}
                 <button className="btn ghost sm" onClick={() => toggleDisabled(u)}>
                   {u.disabled ? t.enable : t.disable}
                 </button>
@@ -431,7 +435,7 @@ export default function Admin() {
                 </select></label>
             </div>
             <button className="btn sm">{t.addUser}</button>
-            <span className="tiny" style={{ marginLeft: 8 }}><Icon name="link" size={16} /> {t.addUserNoPwHint}</span>
+            <span className="tiny" style={{ marginLeft: 8 }}><Icon name="link" size={16} /> {googleOnly ? t.addUserGoogleHint : t.addUserNoPwHint}</span>
           </form>
         </div>
 

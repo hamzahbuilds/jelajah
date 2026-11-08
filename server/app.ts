@@ -173,6 +173,10 @@ app.post('/setup', async c => {
 /* ---------------- auth ---------------- */
 
 app.post('/auth/login', async c => {
+  // v0.34: Google only. With Google configured, passwords are not a way in.
+  // Without it (local dev, tests, or break-glass by removing the secrets) the
+  // password form is the fallback.
+  if (googleEnabled(c.env)) return bad(c, 'password_login_disabled', 403);
   const { email, password } = await c.req.json<{ email: string; password: string }>();
   if (!email || !password) return bad(c, 'missing_credentials');
   const u = await c.env.DB.prepare('SELECT * FROM users WHERE email = ? AND disabled = 0')
@@ -202,7 +206,7 @@ const gCookie = (value: string, maxAge: number) =>
   `${G_COOKIE}=${value}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/google; Max-Age=${maxAge}`;
 const googleRedirectUri = (c: any) => `${new URL(c.req.url).origin}/api/auth/google/callback`;
 
-app.get('/auth/providers', c => c.json({ google: googleEnabled(c.env) }));
+app.get('/auth/providers', c => c.json({ google: googleEnabled(c.env), password: !googleEnabled(c.env) }));
 
 app.get('/auth/google/start', async c => {
   if (!googleEnabled(c.env)) return c.redirect('/login?google=unavailable');
@@ -532,6 +536,8 @@ const ensureResetsTable = (env: Env) => (resetsTableReady ??= env.DB.prepare(
 ).run().catch(e => { resetsTableReady = null; throw e; }));
 
 app.post('/users/:id/access-link', requireAdmin, async c => {
+  // These links set a password; pointless while password login is off.
+  if (googleEnabled(c.env)) return bad(c, 'password_login_disabled', 409);
   const id = Number(c.req.param('id'));
   const u = await c.env.DB.prepare('SELECT id, disabled FROM users WHERE id = ?').bind(id).first<any>();
   if (!u) return bad(c, 'not_found', 404);
@@ -3099,6 +3105,8 @@ app.get('/join/:code', async c => {
 app.post('/join/:code', async c => {
   const inv = await loadInvite(c.env, c.req.param('code'));
   if (!inv) return c.json({ valid: false }, 404);
+  // v0.34: Google only — new people join through /api/auth/google/start?invite=.
+  if (googleEnabled(c.env)) return bad(c, 'password_signup_disabled', 403);
   if (await joinRateLimited(c)) return bad(c, 'rate_limited', 429);
 
   const body = await c.req.json<any>().catch(() => ({}));

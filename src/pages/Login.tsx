@@ -48,7 +48,30 @@ export default function Login() {
     }
   };
 
-  if (mode === 'loading') return <div className="login-wrap"><div className="login-card muted">…</div></div>;
+  if (mode === 'loading' || (mode === 'login' && google === null)) return <div className="login-wrap"><div className="login-card muted">…</div></div>;
+
+  // v0.34: Google only. The password form below is the fallback for when Google
+  // isn't configured (local dev, or break-glass) and for first-run setup.
+  if (mode === 'login' && google) {
+    return (
+      <div className="split">
+        <AuthCarousel />
+        <div className="pane">
+          <div className="authcard login-card">
+            <div className="logo"><BrandMark /> {t.appName}</div>
+            <p className="sub">{t.tagline}</p>
+            {googleErr && <p className="callout warn" role="alert"><Icon name="alert" size={16} /> {googleErr}</p>}
+            <div className="google-only">
+              <p>{t.signInWithGoogleOnly}</p>
+              <GoogleButton divider={false} />
+            </div>
+            <p><Link to="/discover">{t.j.discover} <Icon name="external" size={16} /></Link></p>
+            <p className="tiny muted login-foot">{t.loginInviteHint}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="split">

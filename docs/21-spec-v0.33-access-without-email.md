@@ -45,3 +45,19 @@ production, so activation and "forgot password" can't rely on email.
 
 ## Schema
 `users.google_sub TEXT` + unique partial index `idx_users_google` (UPGRADES).
+
+## v0.34 — Google only (owner decision, 2026-11-08)
+- With `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` set, Google is the only way in:
+  `POST /api/auth/login` → 403 `password_login_disabled`, password sign-up
+  `POST /api/join/:code` → 403 `password_signup_disabled`, admin sign-in links
+  → 409. `/api/auth/providers` returns `{google, password}`.
+- Login, invite and forgot-password pages show only "Continue with Google".
+  Sign-up stays invite-only (Google on the invite page).
+- Admin → Create account: use the person's Google email; they sign in with
+  Google and the account links by verified email. No link to send.
+- Fallback / break-glass: without the Google secrets (local dev, tests, or
+  `wrangler secret delete` in an emergency) the password forms come back.
+- First-run setup (empty database) still uses the password form.
+- Production: Google Cloud project `jelajah-514106` (hamzah.builds@gmail.com),
+  consent screen In production, web client "Jelajah web", privacy page
+  `/privacy.html`.

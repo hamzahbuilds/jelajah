@@ -16,3 +16,8 @@
 .access-link { display: grid; gap: var(--s-2); }
 .access-link input { font-family: var(--font-mono, monospace); font-size: var(--fs-sm); inline-size: 100%; }
 .access-link .row { flex-wrap: wrap; }
+
+/* v0.34 Google-only login / join cards */
+.login-foot { margin-block-start: var(--s-4); text-align: center; }
+.google-only { display: grid; gap: var(--s-3); margin-block-start: var(--s-2); }
+.google-only p { margin: 0; }

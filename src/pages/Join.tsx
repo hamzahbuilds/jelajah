@@ -23,6 +23,10 @@ interface JoinInfo {
 // validate/register/accept byte changed for v0.20 — do not wire new logic
 // in here. (v0.33 added only a Google link + its error line: markup that
 // navigates to /api/auth/google/start; no fetch logic changed.)
+// v0.34 (owner decision, Google only): when Google is configured the
+// password register form is not rendered — the server refuses
+// POST /api/join/:code then. The register() code below is unchanged and still
+// serves the fallback when Google isn't configured.
 export default function Join() {
   const { t } = useT();
   const { code } = useParams();
@@ -127,7 +131,7 @@ export default function Join() {
       : info.role.charAt(0).toUpperCase() + info.role.slice(1)
     : null;
 
-  if (loggedIn === null) {
+  if (loggedIn === null || google === null) {
     return <div className="login-wrap"><div className="login-card"><Loading label={t.loading} /></div></div>;
   }
 
@@ -163,6 +167,12 @@ export default function Join() {
             <button className="btn" style={{ width: '100%', justifyContent: 'center', marginTop: 6 }} disabled={busy} onClick={accept}>
               {t.joinAccept}
             </button>
+          ) : google ? (
+            <div className="google-only">
+              {googleErr && <p className="callout warn" role="alert"><Icon name="alert" size={16} /> {googleErr}</p>}
+              <p>{t.joinWithGoogle}</p>
+              <GoogleButton invite={code} divider={false} />
+            </div>
           ) : (
             <form onSubmit={register}>
               {googleErr && <p className="callout warn" role="alert"><Icon name="alert" size={16} /> {googleErr}</p>}

@@ -66,7 +66,8 @@ export default function Recovery({ reset = false }: { reset?: boolean }) {
           <>
             {!reset && available === false ? (
               <>
-                <p role="alert">{j.recoveryUnavailable}</p>
+                {/* v0.34: Google only — no passwords to recover; just sign in. */}
+                <p role="alert">{google ? t.signInWithGoogleOnly : j.recoveryUnavailable}</p>
                 {google && <GoogleButton divider={false} />}
               </>
             ) : (
