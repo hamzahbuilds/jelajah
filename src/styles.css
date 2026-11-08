@@ -1775,3 +1775,4 @@ h1, h2, .ui-pagehead h1, .pagehead h1, .tc-body h3, .dash-hero .big, .big, .pc-h
 }
 h1, .ui-pagehead h1, .pagehead h1, .pc-hero-head h2, .tb-step h2 { font-weight: 700; }
 .today-tag { margin-inline-start: 6px; font-size: 13px; font-weight: 600; color: var(--brand-ink); }
+.new-trip-dates { margin-top: 14px; }

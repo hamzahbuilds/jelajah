@@ -15,6 +15,7 @@ import PlanComposer, { type ComposerMode } from '../components/PlanComposer';
 import { HomeBriefStart } from '../components/TripBrief';
 import type { NewPlanStart } from './NewPlan';
 import { backfillSmallCover } from '../lib/coverThumb';
+import { DateRangePicker } from '../ui/DateRangePicker';
 
 function roleLabel(t: Dict, role?: TripRole) {
   if (role === 'leader') return t.roleLeader;
@@ -154,15 +155,10 @@ export default function Trips() {
             <label>{t.destination}</label>
             <input value={form.destination} onChange={e => setForm({ ...form, destination: e.target.value })} />
           </div>
-          <div className="mrow" style={{ marginTop: 14 }}>
-            <div className="fld">
-              <label>{t.startDate}</label>
-              <input type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} />
-            </div>
-            <div className="fld">
-              <label>{t.endDate}</label>
-              <input type="date" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} />
-            </div>
+          {/* One picker for both ends (v0.38): tap the start, then the end. */}
+          <div className="new-trip-dates">
+            <DateRangePicker label={t.tripDates} mode="trip" start={form.start_date} end={form.end_date}
+              onChange={(start_date, end_date) => setForm(f => ({ ...f, start_date, end_date }))} />
           </div>
           <CurrencyFields base={form.base_currency} watch={form.watch_currencies}
             onBase={c => setForm({ ...form, base_currency: c, watch_currencies: form.watch_currencies.filter(w => w !== c) })}

@@ -525,7 +525,7 @@ export function BriefWizard({ initial, startAt = 'where', editing, onDone, onCan
             // Separate keys: reusing one <button> and flipping it to type="submit"
             // mid-click would submit the form from the step before Ready.
             ? <button key="go" type="submit" className="btn tb-go"><Icon name="sparkles" size={16} /> {doneLabel ?? (editing ? t.briefSave : t.briefStart)}</button>
-            : <button key="next" type="button" className="btn" disabled={!canNext} onClick={() => go(i + 1)}>{t.briefNext} <Icon name="arrow-r" size={16} /></button>}
+            : <button key="next" type="button" className="btn" disabled={!canNext} onClick={() => go(i + 1)}>{step === 'where' ? t.briefNextWhen : t.briefNext} <Icon name="arrow-r" size={16} /></button>}
         </span>
       </div>
     </form>
