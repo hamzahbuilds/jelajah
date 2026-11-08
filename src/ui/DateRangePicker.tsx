@@ -210,10 +210,17 @@ function RangeCalendar(p: DateRangePickerProps & { months: 'pair' | 'scroll'; on
     });
   }, [focusDay, view, p.months]);
 
-  // Phones: start scrolled to the initial month.
+  // Phones: start scrolled to the initial month. Wait a frame: this runs before
+  // the parent Dialog's layout effect calls showModal(), and a closed <dialog>
+  // has no layout to scroll. Set scrollTop directly so only the month list moves.
   useLayoutEffect(() => {
     if (p.months !== 'scroll') return;
-    gridRef.current?.querySelector(`[data-month="${firstOfMonth(initial)}"]`)?.scrollIntoView({ block: 'start' });
+    const raf = requestAnimationFrame(() => {
+      const list = gridRef.current;
+      const m = list?.querySelector<HTMLElement>(`[data-month="${firstOfMonth(initial)}"]`);
+      if (list && m) list.scrollTop = m.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+    });
+    return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -289,7 +296,7 @@ function RangeCalendar(p: DateRangePickerProps & { months: 'pair' | 'scroll'; on
                 {Array.from({ length: cells.length / 7 }, (_, r) => (
                   <div role="row" key={r} className="ui-cal-row">
                     {cells.slice(r * 7, r * 7 + 7).map((d, c) => {
-                      if (!d) return <div role="gridcell" key={c} className="ui-cal-cell empty" />;
+                      if (!d) return <div role="gridcell" key={c} className="ui-cal-cell ui-cal-blank" />;
                       const isS = d === ds, isE = d === de;
                       const inR = !!(ds && rangeEnd && compare(d, ds) > 0 && compare(d, rangeEnd) < 0);
                       const inHl = !!(hl && compare(d, hl.start) >= 0 && compare(d, hl.end) <= 0);
