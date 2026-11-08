@@ -330,6 +330,35 @@ describe('/plan endpoints', () => {
     expect(r.draft.name).toBe('Singapore weekend');
   });
 
+  it('draft: a trip brief goes into the prompt and the cache key (v0.36)', async () => {
+    const brief = { places: [{ country: 'JP', areas: ['Tokyo'] }], when: { kind: 'month', month: '2026-12', days: 5 }, pace: 'relaxed' };
+    const gemini = mockAll({ reply: { ...DRAFT_JSON, found: { countries: ['jp'], areas: ['Tokyo'] } } });
+    const r = await (await req(1, 'POST', '/plan/draft', { brief, messages: [{ role: 'user', content: 'Plan my trip' }] })).json() as any;
+    const text = gemini[0].contents.at(-1).parts.map((p: any) => p.text ?? '').join('\n');
+    expect(text).toContain('TRIP BRIEF (the user filled this in');
+    expect(text).toContain('Japan (JP) — areas: Tokyo');
+    expect(text).toContain('Make exactly 5 days');
+    expect(r.found).toEqual({ countries: ['JP'], areas: ['Tokyo'] });
+
+    // Same link + ask but a different brief must not hit the other brief's cache entry.
+    const link = 'https://youtu.be/MUZnRHX7tOI brief cache';
+    mockAll();
+    await req(1, 'POST', '/plan/draft', { brief, messages: [{ role: 'user', content: link }] });
+    await new Promise(r => setTimeout(r, 10));
+    const again = mockAll();
+    const other = await (await req(1, 'POST', '/plan/draft', { brief: { ...brief, pace: 'packed' }, messages: [{ role: 'user', content: link }] })).json() as any;
+    expect(again).toHaveLength(1);
+    expect(other.cached).toBeUndefined();
+  });
+
+  it('draft: without a brief the model is asked to report the countries it found', async () => {
+    const gemini = mockAll();
+    await req(1, 'POST', '/plan/draft', { messages: [{ role: 'user', content: '3 days somewhere warm' }] });
+    const text = gemini[0].contents.at(-1).parts.map((p: any) => p.text ?? '').join('\n');
+    expect(text).toContain('TRIP BRIEF: none');
+    expect(gemini[0].generationConfig.responseSchema.properties.found).toBeTruthy();
+  });
+
   it('draft: a follow-up on an existing draft asks for edit ops, not a rewrite', async () => {
     const gemini = mockAll({ reply: { reply: 'Added Gardens by the Bay to day 1 and renamed day 2.', suggestions: [], ops: [
       { op: 'add', day: 1, after: 'p1', place: { title: 'Gardens by the Bay', place: 'Gardens by the Bay, Singapore', category: 'sightseeing' } },

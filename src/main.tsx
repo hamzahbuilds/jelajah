@@ -5,13 +5,19 @@ import App from './App';
 import './styles.css';
 import { initTheme } from './theme';
 import { registerSW } from './lib/pwa';
+import { ReducedMotionConfig } from '@animate-ui/react/utils/motion';
+// v0.38: heading font (self-hosted, variable weight, latin only loads for latin text; font-display: swap).
+import '@fontsource-variable/bricolage-grotesque/wght.css';
 
 initTheme();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
-      <App />
+      {/* v0.37 motion: every Motion animation follows the OS "reduce motion" setting (fades stay, movement goes). */}
+      <ReducedMotionConfig>
+        <App />
+      </ReducedMotionConfig>
     </BrowserRouter>
   </React.StrictMode>,
 );

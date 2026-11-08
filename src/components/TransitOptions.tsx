@@ -5,7 +5,7 @@ import { api } from '../api';
 import Modal from './Modal';
 import RailDirections from './RailDirections';
 import type { RouteResult } from '../hooks/useJourneyRoutes';
-import LeafletMap from './LeafletMap';
+import LeafletMap from './LazyMap';
 import type { geoapifyTransit } from '../../server/lib/geoapify-transit';
 
 export default function TransitOptions({ tripId, from, to, railRoute }: {

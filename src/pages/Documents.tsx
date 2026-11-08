@@ -4,7 +4,8 @@ import { useNavigate, useOutletContext, Link } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { useT } from '../i18n';
 import { TripCtx } from '../app/tripContext';
-import { extractPdfText, renderPdfPages } from '../pdf';
+// v0.38 perf: the PDF reader (pdfjs, ~800 KB of source) loads only when a PDF is read.
+const loadPdf = () => import('../pdf');
 import { parseDocument } from '../../shared/parsers';
 import { OCR_LANGS, savedLangs, saveLangs, looksScanned, ocrImages, OcrProgress } from '../ocr';
 import { useToast } from '../components/Toast';
@@ -119,7 +120,7 @@ export default function Documents() {
             await uploadOne(file, {}, false);
           } else if (isPdf) {
             let text = '';
-            try { text = await extractPdfText(file); } catch { /* treat as scan */ }
+            try { text = await (await loadPdf()).extractPdfText(file); } catch { /* treat as scan */ }
             if (looksScanned(text)) { needOcr.push(file); continue; } // scanned PDF → OCR prompt
             await uploadOne(file, parseDocument(text), all.length === 1);
             if (all.length === 1) return;
@@ -196,7 +197,7 @@ export default function Documents() {
               {busy && <div className="tiny" style={{ marginTop: 2 }}>{prog.current}</div>}
               {prog.errors.length > 0 && !busy && (
                 <div className="callout warn" style={{ marginTop: 6 }}>
-                  {prog.errors.map((er, i) => <div key={i} className="tiny"><Icon name="alert" size={16} /> {er.name} — {er.reason}</div>)}
+                  {prog.errors.map((er, i) => <div key={i} className="tiny"><Icon name="alert" size={16} /> {er.name}: {er.reason}</div>)}
                   <button type="button" className="btn ghost sm" style={{ marginTop: 4 }} onClick={() => setProg(null)}><Icon name="x" size={16} /> {t.close}</button>
                 </div>
               )}
@@ -316,7 +317,7 @@ function OcrModal({ files, single, upload, onClose }: {
     setProg({ page: 0, pages: 1, pct: 0, status: 'render' });
     try {
       const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-      const images: Blob[] = isPdf ? await renderPdfPages(file, 8, 2.2, current.signal) : [file];
+      const images: Blob[] = isPdf ? await (await loadPdf()).renderPdfPages(file, 8, 2.2, current.signal) : [file];
       const text = await ocrImages(images, langs, setProg, current.signal);
       current.signal.throwIfAborted();
       const parsed = parseDocument(text);

@@ -11,6 +11,7 @@ import PageHead from '../components/PageHead';
 import Empty from '../components/Empty';
 import { Icon } from '../components/Icon';
 import Dialog from '../components/Dialog';
+import { AnimatePresence } from 'motion/react';
 
 // initials for the `.avatar` chip — mirrors the People.tsx helper.
 const initials = (name: string) => {
@@ -184,7 +185,7 @@ export default function Payments() {
         </div>
       </div>
 
-      {open && (
+      <AnimatePresence>{open && (
         <Dialog className="overlay-dlg modal" onClose={() => setOpen(null)} label={t.statement}>
             <div className="row-between">
               <h2>{t.statement}: {open.b.participant.name} → {pname(open.bp.to_participant_id)}</h2>
@@ -224,7 +225,7 @@ export default function Payments() {
               </table>
             </div>
         </Dialog>
-      )}
+      )}</AnimatePresence>
     </div>
     </div>
   );

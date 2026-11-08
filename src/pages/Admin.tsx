@@ -296,7 +296,7 @@ export default function Admin() {
               <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.7 }}>
                 {freeTierLimits(t).map(l => <li key={l}>{l}</li>)}
               </ul>
-              <div className="lfsrc">{t.sourcePrefix} · {t.mSourceQuota} — {t.mQuotaNote}</div>
+              <div className="lfsrc">{t.sourcePrefix} · {t.mSourceQuota}. {t.mQuotaNote}</div>
             </div>
 
             <div className="grid grid-2" style={{ alignItems: 'start' }}>
@@ -372,7 +372,7 @@ export default function Admin() {
                   placeholder="https://…/v1" required /></label>
               <label className="fld"><span>{t.modelName}</span>
                 <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} required /></label>
-              <label className="fld"><span>{t.apiKey} {keyHint && <em className="tiny">({keyHint} — {t.keepKey})</em>}</span>
+              <label className="fld"><span>{t.apiKey} {keyHint && <em className="tiny">({keyHint}, {t.keepKey})</em>}</span>
                 <input type="password" value={form.api_key} onChange={e => setForm({ ...form, api_key: e.target.value })}
                   placeholder={keyHint ? '••••••••' : 'sk-…'} autoComplete="off" /></label>
             </div>

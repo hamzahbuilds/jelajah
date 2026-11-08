@@ -3,6 +3,7 @@
 // Native modal <dialog> underneath (see Dialog.tsx). Focus lands on the sheet
 // itself rather than its first row, so opening it never looks like a selection.
 import Dialog from './Dialog';
+import { AnimatePresence } from 'motion/react';
 
 export interface SheetProps {
   open: boolean;
@@ -12,13 +13,15 @@ export interface SheetProps {
 }
 
 export default function Sheet({ open, onClose, title, children }: SheetProps) {
-  if (!open) return null;
-
   return (
+    <AnimatePresence>
+      {open && (
     <Dialog onClose={onClose} className="sheet" label={title} initialFocus="self">
       <div className="grab" />
       {title && <h4>{title}</h4>}
       {children}
     </Dialog>
+      )}
+    </AnimatePresence>
   );
 }

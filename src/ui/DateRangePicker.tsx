@@ -17,6 +17,8 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 're
 import { Icon } from '../components/Icon';
 import Dialog from '../components/Dialog';
 import { useT } from '../i18n';
+import { AnimatePresence, animate, usePresence } from 'motion/react';
+import { scale, spring, useShouldReduceMotion, useTempoTransition } from '@animate-ui/react/utils/motion';
 import {
   addDays, addMonths, compare, firstOfMonth, formatYmd, isYmd, monthGrid, nightsBetween,
   todayYmd, tripDays, weekdayMon0, type Ymd,
@@ -91,11 +93,13 @@ export function DateRangePicker(p: DateRangePickerProps) {
         <input type="hidden" name={p.names[1]} value={e} />
       </>}
       {p.error && <span className="ui-field-error" id={errId}><Icon name="alert" size={16} /> {p.error}</span>}
+      <AnimatePresence>
       {open && (desktop
         ? <DesktopPanel {...p} anchor={triggerRef.current} onDone={(a, b) => { p.onChange(a, b); setOpen(false); }} onCancel={() => setOpen(false)} />
         : <Dialog onClose={() => setOpen(false)} className="ui-sheet ui-drp-sheet" label={p.label} initialFocus="self">
             <RangeCalendar {...p} months="scroll" onDone={(a, b) => { p.onChange(a, b); setOpen(false); }} onCancel={() => setOpen(false)} />
           </Dialog>)}
+      </AnimatePresence>
     </div>
   );
 }
@@ -106,6 +110,39 @@ function DesktopPanel(p: DateRangePickerProps & { anchor: HTMLElement | null; on
   cancelRef.current = p.onCancel;
   const anchored = hasPopover() && hasAnchorPos();
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  // v0.37 motion: an anchored overlay grows from its trigger (scale.popover)
+  // on spring.pop and leaves the same way (Animate UI overlay recipe).
+  const [isPresent, safeToRemove] = usePresence();
+  const reduce = useShouldReduceMotion();
+  const pop = useTempoTransition(spring.pop);
+  const motionRef = useRef({ reduce, pop });
+  motionRef.current = { reduce, pop };
+  const hiddenFrom = () => ({ opacity: 0, scale: motionRef.current.reduce ? 1 : scale.popover });
+  const setOrigin = (el: HTMLElement) => {
+    const a = p.anchor?.getBoundingClientRect(), r = el.getBoundingClientRect();
+    if (!a) return;
+    el.style.transformOrigin = `${a.left + a.width / 2 - r.left}px ${r.top >= a.bottom - 1 ? '0px' : `${r.height}px`}`;
+  };
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // After positioning (anchor positioning or the measured fallback) has laid it out.
+    const raf = requestAnimationFrame(() => {
+      setOrigin(el);
+      const h = hiddenFrom();
+      animate(el, { opacity: [h.opacity, 1], scale: [h.scale, 1] }, motionRef.current.pop);
+    });
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (isPresent || !el) return;
+    el.style.pointerEvents = 'none';
+    animate(el, hiddenFrom(), motionRef.current.pop).then(() => safeToRemove?.());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPresent]);
 
   useLayoutEffect(() => {
     const el = ref.current;

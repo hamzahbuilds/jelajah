@@ -20,6 +20,7 @@ import { roomShares, RoomSplitError, RoomSplitRoom } from '../shared/roomSplit';
 import { daysBetween } from '../shared/days';
 import { geocode, tripCenter, validLatLng, type Candidate, type LatLng } from './lib/geocode';
 import { cleanDraft, parseDraftReply, draftSystemPrompt, draftResponseSchema, draftPlaceCount, DRAFT_LIMITS, type DraftMode } from '../shared/draft';
+import { cleanBrief, briefPromptBlock } from '../shared/brief';
 import { findUrl, readSource, sourceBlock, canonicalSource, type SourceResult } from './lib/sources';
 import { authUrl, checkIdToken, decodeState, encodeState, jwtPayload, pkceChallenge, randomUrlToken, safeInvite, safeNext, GOOGLE_TOKEN } from './lib/google';
 import { JOURNEY_SCHEMA } from './lib/journey-schema';
@@ -265,8 +266,8 @@ app.get('/auth/google/callback', async c => {
     // Google-only account: an unguessable password nobody knows. An admin sign-in link can set one later.
     const { hash, salt } = await hashPassword(randomToken());
     const r = await c.env.DB.prepare(
-      `INSERT INTO users (email, name, password_hash, salt, lang, referred_by, referral_invite_id, must_change_password, google_sub)
-       VALUES (?,?,?,?,?,?,?,0,?)`,
+      `INSERT INTO users (email, name, password_hash, salt, lang, referred_by, referral_invite_id, must_change_password, google_sub, welcome_pending)
+       VALUES (?,?,?,?,?,?,?,0,?,1)`,
     ).bind(identity.email, identity.name, hash, salt, 'en', inv.created_by, inv.id, identity.sub).run();
     user = { id: Number(r.meta.last_row_id), disabled: 0 };
     if (inv.kind === 'trip') tripId = await joinTripByInvite(c.env, inv, user.id, identity.name, false) ?? undefined;
@@ -376,7 +377,12 @@ app.get('/me', async c => {
         `SELECT t.*, tm.role AS my_role FROM trips t JOIN trip_members tm ON tm.trip_id = t.id
          WHERE tm.participant_id = ? ORDER BY t.start_date DESC`,
       ).bind(user.participant_id).all();
-  const userPayload = user.role === 'admin' ? { ...user, platform_admin: true } : user;
+  // v0.35 onboarding flags. Read separately (not in the session query) and
+  // tolerant of a database the UPGRADES haven't reached yet.
+  const ob = await c.env.DB.prepare('SELECT welcome_pending, skip_plan_intro FROM users WHERE id = ?')
+    .bind(user.id).first<{ welcome_pending: number; skip_plan_intro: number }>().catch(() => null);
+  const onboarding = { welcome: !!ob?.welcome_pending, skip_plan_intro: !!ob?.skip_plan_intro };
+  const userPayload = user.role === 'admin' ? { ...user, platform_admin: true, onboarding } : { ...user, onboarding };
   return c.json({ user: userPayload, trips: trips.results });
 });
 
@@ -385,6 +391,12 @@ app.patch('/me', async c => {
   const body = await c.req.json<any>();
   if (body.lang === 'en' || body.lang === 'ms') {
     await c.env.DB.prepare('UPDATE users SET lang = ? WHERE id = ?').bind(body.lang, user.id).run();
+  }
+  if (body.welcome_done === true) {
+    await c.env.DB.prepare('UPDATE users SET welcome_pending = 0 WHERE id = ?').bind(user.id).run();
+  }
+  if (typeof body.skip_plan_intro === 'boolean') {
+    await c.env.DB.prepare('UPDATE users SET skip_plan_intro = ? WHERE id = ?').bind(body.skip_plan_intro ? 1 : 0, user.id).run();
   }
   if (body.theme === '' || body.theme === 'dark' || body.theme === 'system') {
     await c.env.DB.prepare('UPDATE users SET theme = ? WHERE id = ?').bind(body.theme, user.id).run();
@@ -501,9 +513,10 @@ app.post('/users', requireAdmin, async c => {
   const { hash, salt } = await hashPassword(typeof password === 'string' && password ? password : randomToken());
   try {
     const r = await c.env.DB.prepare(
-      `INSERT INTO users (email, name, password_hash, salt, role, participant_id, must_change_password)
-       VALUES (?,?,?,?,?,?,1)`,
-    ).bind(email.trim().toLowerCase(), name.trim(), hash, salt, role === 'admin' ? 'admin' : 'member', participant_id ?? null).run();
+      `INSERT INTO users (email, name, password_hash, salt, role, participant_id, must_change_password, welcome_pending)
+       VALUES (?,?,?,?,?,?,?,1)`,
+      // Google only: no password to change, so no "set your password" nudge.
+    ).bind(email.trim().toLowerCase(), name.trim(), hash, salt, role === 'admin' ? 'admin' : 'member', participant_id ?? null, googleEnabled(c.env) ? 0 : 1).run();
     return c.json({ id: r.meta.last_row_id });
   } catch {
     return bad(c, 'email_exists', 409);
@@ -1032,15 +1045,22 @@ const ALLOWED_COVER_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'i
 /** Shared versioned-cover-write pipeline (PUT /cover and /cover/auto predate
  *  this extraction and stay as-is; the Unsplash routes below — added after —
  *  reuse this instead of a third copy). */
+/** v0.38 perf: each cover may have a small copy at `<key>-sm` for trip cards: 800px wide,
+ *  cropped to the card's 2:1 band, webp. */
+const coverSmallKey = (key: string) => `${key}-sm`;
+async function deleteCover(env: Env, key: string | null) {
+  if (!key) return;
+  try { await filesDelete(env, key); } catch { /* best-effort */ }
+  try { await filesDelete(env, coverSmallKey(key)); } catch { /* best-effort */ }
+}
+
 async function storeCover(
   env: Env, tripId: number, oldKey: string | null, buf: ArrayBuffer, contentType: string, credit: string | null,
 ): Promise<string> {
   const key = `cover/${tripId}/${Date.now()}`;
   await filesPut(env, key, buf, contentType);
   await env.DB.prepare('UPDATE trips SET cover_key = ?, cover_credit = ? WHERE id = ?').bind(key, credit, tripId).run();
-  if (oldKey) {
-    try { await filesDelete(env, oldKey); } catch { /* best-effort */ }
-  }
+  await deleteCover(env, oldKey);
   return key;
 }
 
@@ -1050,13 +1070,17 @@ app.get('/trips/:id/cover', async c => {
   if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
   const trip = await c.env.DB.prepare('SELECT cover_key FROM trips WHERE id = ?').bind(id).first<any>();
   if (!trip?.cover_key) return bad(c, 'not_found', 404);
-  const file = await filesGetWithType(c.env, trip.cover_key);
+  // ?size=sm: the small copy when there is one, else the full cover marked so a
+  // leader's browser can make the small copy once (PUT /cover/small).
+  const small = c.req.query('size') === 'sm' ? await filesGetWithType(c.env, coverSmallKey(trip.cover_key)) : null;
+  const file = small ?? await filesGetWithType(c.env, trip.cover_key);
   if (!file) return bad(c, 'not_found', 404);
   return new Response(file.body as any, {
     headers: {
       'Content-Type': file.contentType,
       'Cache-Control': 'private, max-age=86400',
       'X-Content-Type-Options': 'nosniff',
+      ...(c.req.query('size') === 'sm' && !small ? { 'X-Cover-Small': 'missing' } : {}),
     },
   });
 });
@@ -1080,9 +1104,7 @@ app.put('/trips/:id/cover', requireLeader, async c => {
   const key = `cover/${id}/${Date.now()}`;
   await filesPut(c.env, key, buf, contentType);
   await c.env.DB.prepare('UPDATE trips SET cover_key = ?, cover_credit = NULL WHERE id = ?').bind(key, id).run();
-  if (trip.cover_key) {
-    try { await filesDelete(c.env, trip.cover_key); } catch { /* best-effort */ }
-  }
+  await deleteCover(c.env, trip.cover_key);
   await audit(c.env, c.get('user').id, 'cover_set', 'trip', id);
   await trackUsage(c.env, c.get('user').id, 'cover_set');
   return c.json({ ok: true, cover_key: key });
@@ -1144,12 +1166,27 @@ app.post('/trips/:id/cover/auto', requireLeader, async c => {
   await filesPut(c.env, key, buf, imgType);
   const credit = `${json.title} · Wikipedia · ${json.content_urls?.desktop?.page ?? ''}`;
   await c.env.DB.prepare('UPDATE trips SET cover_key = ?, cover_credit = ? WHERE id = ?').bind(key, credit, id).run();
-  if (trip.cover_key) {
-    try { await filesDelete(c.env, trip.cover_key); } catch { /* best-effort */ }
-  }
+  await deleteCover(c.env, trip.cover_key);
   await audit(c.env, c.get('user').id, 'cover_set', 'trip', id);
   await trackUsage(c.env, c.get('user').id, 'cover_set');
   return c.json({ ok: true, credit, cover_key: key });
+});
+
+// The small copy of the current cover (made in the browser: an 800px webp). Only
+// for the cover that's set now, and small enough to be a thumbnail.
+app.put('/trips/:id/cover/small', requireLeader, async c => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return bad(c, 'not_found', 404);
+  const trip = await c.env.DB.prepare('SELECT cover_key FROM trips WHERE id = ?').bind(id).first<any>();
+  if (!trip?.cover_key) return bad(c, 'not_found', 404);
+  if (c.req.query('v') !== trip.cover_key) return bad(c, 'stale_cover', 409);
+  const contentType = (c.req.header('content-type') || '').split(';')[0].trim();
+  if (contentType !== 'image/webp' && contentType !== 'image/jpeg') return bad(c, 'invalid_content_type', 415);
+  if (Number(c.req.header('content-length') || 0) > 250_000) return bad(c, 'file_too_large', 413);
+  const buf = await c.req.arrayBuffer();
+  if (buf.byteLength > 250_000) return bad(c, 'file_too_large', 413);
+  await filesPut(c.env, coverSmallKey(trip.cover_key), buf, contentType);
+  return c.json({ ok: true });
 });
 
 app.delete('/trips/:id/cover', requireLeader, async c => {
@@ -1157,9 +1194,7 @@ app.delete('/trips/:id/cover', requireLeader, async c => {
   if (!Number.isInteger(id) || id <= 0) return bad(c, 'not_found', 404);
   const trip = await c.env.DB.prepare('SELECT cover_key FROM trips WHERE id = ?').bind(id).first<any>();
   if (!trip) return bad(c, 'not_found', 404);
-  if (trip?.cover_key) {
-    try { await filesDelete(c.env, trip.cover_key); } catch { /* best-effort */ }
-  }
+  await deleteCover(c.env, trip.cover_key);
   await c.env.DB.prepare('UPDATE trips SET cover_key = NULL, cover_credit = NULL WHERE id = ?').bind(id).run();
   await audit(c.env, c.get('user').id, 'cover_delete', 'trip', id);
   return c.json({ ok: true });
@@ -1388,6 +1423,15 @@ app.post('/trips/:id/cover/unsplash', requireLeader, async c => {
 
   const credit = `${author_name} · Unsplash · ${safeAuthorLink}`;
   const coverKey = await storeCover(c.env, id, trip.cover_key, buf, imgType, credit);
+  // Small copy for trip cards, straight from Unsplash's resizer (same pinned host).
+  try {
+    const sm = await fetch(withUnsplashParams(regularUrl.toString(), { w: '800', h: '400', fit: 'crop', crop: 'entropy', q: '78', fm: 'webp' }), { redirect: 'manual' });
+    const smType = (sm.headers.get('content-type') || '').split(';')[0].trim();
+    if (sm.ok && ALLOWED_COVER_TYPES.has(smType)) {
+      const smBuf = await sm.arrayBuffer();
+      if (smBuf.byteLength <= 250_000) await filesPut(c.env, coverSmallKey(coverKey), smBuf, smType);
+    }
+  } catch { /* cards fall back to the full cover */ }
   await audit(c.env, c.get('user').id, 'cover_set', 'trip', id);
   await trackUsage(c.env, c.get('user').id, 'cover_set');
   return c.json({ ok: true, credit, cover_key: coverKey });
@@ -3127,8 +3171,8 @@ app.post('/join/:code', async c => {
   const lang = body.lang === 'ms' ? 'ms' : 'en';
   const { hash, salt } = await hashPassword(password);
   const r = await c.env.DB.prepare(
-    `INSERT INTO users (email, name, password_hash, salt, lang, referred_by, referral_invite_id, must_change_password)
-     VALUES (?,?,?,?,?,?,?,0)`,
+    `INSERT INTO users (email, name, password_hash, salt, lang, referred_by, referral_invite_id, must_change_password, welcome_pending)
+     VALUES (?,?,?,?,?,?,?,0,1)`,
   ).bind(email, name, hash, salt, lang, inv.created_by, inv.id).run();
   const userId = Number(r.meta.last_row_id);
 
@@ -3688,18 +3732,18 @@ app.get('/plan/status', async c => {
 const IMAGE_MIME = /^image\/(jpeg|png|webp|heic|heif)$/;
 
 /* Extraction cache: one row per (link, ask, language, model). Bump PLAN_CACHE_V when the prompt or schema changes. */
-const PLAN_CACHE_V = 'v2';
+const PLAN_CACHE_V = 'v3'; // v3: trip brief + found countries (v0.36)
 const PLAN_CACHE_TTL_MS = 30 * 24 * 3600 * 1000;
 let planCacheReady: Promise<unknown> | null = null;
 const planCacheTable = (env: Env) => (planCacheReady ??= env.DB.prepare(
   'CREATE TABLE IF NOT EXISTS plan_cache (key TEXT PRIMARY KEY, content TEXT NOT NULL, expires_at INTEGER NOT NULL)',
 ).run().catch(e => { planCacheReady = null; throw e; }));
 
-async function planCacheKey(url: string, message: string, lang: string, model: string): Promise<string | null> {
+async function planCacheKey(url: string, message: string, lang: string, model: string, brief = ''): Promise<string | null> {
   const link = canonicalSource(url);
   if (!link) return null;
   const ask = message.replace(url, ' ').toLowerCase().replace(/\s+/g, ' ').trim();
-  const raw = JSON.stringify([PLAN_CACHE_V, link, ask, lang, model]);
+  const raw = JSON.stringify([PLAN_CACHE_V, link, ask, lang, model, brief]);
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
   return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -3729,6 +3773,8 @@ app.post('/plan/draft', async c => {
     .filter((i: any) => IMAGE_MIME.test(String(i?.mime)) && typeof i?.data === 'string' && /^[A-Za-z0-9+/=]+$/.test(i.data.slice(0, 200)) && i.data.length < 3_000_000)
     .map((i: any) => ({ mime: String(i.mime), data: String(i.data) }));
   const current = cleanDraft(b.draft);
+  // v0.36: where / when / who the user picked before chatting (docs/23).
+  const brief = cleanBrief(b.brief);
   const cfg = await aiConfig(c.env);
 
   // A link in the newest message is read once, on that turn; later turns edit the draft.
@@ -3739,7 +3785,7 @@ app.post('/plan/draft', async c => {
 
   // Same link + same ask on an empty draft → same extraction. Shared across users for 30 days.
   const cacheKey = url && !images.length && draftPlaceCount(current) === 0 && cfg
-    ? await planCacheKey(url, latest, lang, cfg.model) : null;
+    ? await planCacheKey(url, latest, lang, cfg.model, brief ? JSON.stringify(brief) : '') : null;
   if (cacheKey) {
     const hit = await planCacheGet(c.env, cacheKey);
     if (hit) return c.json({ ...hit, cached: true });
@@ -3757,6 +3803,7 @@ app.post('/plan/draft', async c => {
 
   const ctx = [
     `TODAY: ${new Date().toISOString().slice(0, 10)}`,
+    brief ? briefPromptBlock(brief, briefCountryName) : 'TRIP BRIEF: none — work out the country/areas from the user or the source, and report them in "found".',
     `CURRENT DRAFT:\n${JSON.stringify(current)}`,
     source ? sourceBlock(source, !!videoUrl) : url ? `SOURCE: ${url} (this link cannot be opened)` : '',
     images.length ? `${images.length} screenshot(s) attached — read the places in them.` : '',
@@ -3788,6 +3835,9 @@ app.post('/plan/draft', async c => {
     return c.json(result);
   } catch (e: any) { return aiFail(c, e); }
 });
+
+const countryNamesEn = (() => { try { return new Intl.DisplayNames(['en'], { type: 'region' }); } catch { return null; } })();
+const briefCountryName = (code: string) => { try { return countryNamesEn?.of(code) ?? code; } catch { return code; } };
 
 app.post('/plan/commit', async c => {
   const b = await c.req.json<any>().catch(() => ({}));

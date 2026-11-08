@@ -1,6 +1,7 @@
 // v0.32 Plan with AI (docs/20) — the draft itinerary the chat planner builds.
 // Pure and unit-tested: the model's JSON goes through parseDraftReply before
 // anything trusts it.
+import { isCountry, BRIEF_LIMITS } from './brief';
 
 export const DRAFT_CATEGORIES = ['sightseeing', 'food', 'transport', 'lodging', 'shopping', 'other'] as const;
 export type DraftCategory = typeof DRAFT_CATEGORIES[number];
@@ -22,7 +23,9 @@ export interface Draft {
   days: DraftDay[];
   ideas: DraftPlace[];       // places not tied to a day
 }
-export interface DraftReply { reply: string; suggestions: string[]; draft: Draft }
+/** v0.36: where the plan is, as the model read it (ISO alpha-2 codes + areas) — fills the trip brief after a link import. */
+export interface DraftFound { countries: string[]; areas: string[] }
+export interface DraftReply { reply: string; suggestions: string[]; draft: Draft; found?: DraftFound }
 
 export const DRAFT_LIMITS = { days: 14, perDay: 20, ideas: 30, picks: 80 };
 
@@ -141,7 +144,14 @@ export function parseDraftReply(text: string, previous: Draft): DraftReply {
     : Array.isArray(obj.ops) ? applyDraftOps(previous, obj.ops) : previous;
   const suggestions = (Array.isArray(obj.suggestions) ? obj.suggestions : [])
     .map((s: unknown) => clip(s, 60)).filter(Boolean).slice(0, 4);
-  return { reply: typeof obj.reply === 'string' ? obj.reply.trim().slice(0, 2000) : '', suggestions, draft };
+  const reply: DraftReply = { reply: typeof obj.reply === 'string' ? obj.reply.trim().slice(0, 2000) : '', suggestions, draft };
+  const f = obj.found;
+  if (f && typeof f === 'object') {
+    const countries = [...new Set((Array.isArray(f.countries) ? f.countries : []).map((c: unknown) => String(c).toUpperCase()).filter(isCountry))].slice(0, BRIEF_LIMITS.countries) as string[];
+    const areas = [...new Set((Array.isArray(f.areas) ? f.areas : []).map((a: unknown) => clip(a, 60)).filter(Boolean))].slice(0, BRIEF_LIMITS.areas * 2) as string[];
+    if (countries.length) reply.found = { countries, areas };
+  }
+  return reply;
 }
 
 /**
@@ -172,7 +182,7 @@ export function draftSystemPrompt(lang: 'en' | 'ms', mode: DraftMode = 'full'): 
     ]
     : [
       'You build a DRAFT itinerary together with the user. Reply ONLY with one JSON object, no markdown fences:',
-      `{"reply":"short message to the user","suggestions":["up to 3 short follow-up requests the user might tap"],"draft":{"name":"trip name","destination":"City, Country","emoji":"one emoji","days":[{"title":"short day theme","places":[${PLACE_SHAPE}]}],"ideas":[same place shape, for places not tied to a day]}}`,
+      `{"reply":"short message to the user","suggestions":["up to 3 short follow-up requests the user might tap"],"found":{"countries":["ISO 3166 alpha-2 codes of the countries in the plan, e.g. JP"],"areas":["states / cities / regions the plan covers, e.g. Tokyo"]},"draft":{"name":"trip name","destination":"City, Country","emoji":"one emoji","days":[{"title":"short day theme","places":[${PLACE_SHAPE}]}],"ideas":[same place shape, for places not tied to a day]}}`,
       '- Return the WHOLE draft (start from the CURRENT DRAFT you are given; keep ids of places you keep).',
     ];
   return [
@@ -304,12 +314,18 @@ const OP_SCHEMA = {
   propertyOrdering: ['op', 'id', 'day', 'after', 'title', 'place', 'name', 'destination', 'emoji'],
 };
 
+const FOUND_SCHEMA = {
+  type: 'OBJECT',
+  properties: { countries: { type: 'ARRAY', items: { type: 'STRING' } }, areas: { type: 'ARRAY', items: { type: 'STRING' } } },
+  propertyOrdering: ['countries', 'areas'],
+};
+
 /** Gemini `responseSchema` (OpenAPI subset): the reply can't come back malformed or off-shape. */
 export function draftResponseSchema(mode: DraftMode): object {
   const base = { reply: { type: 'STRING' }, suggestions: { type: 'ARRAY', items: { type: 'STRING' } } };
   return mode === 'edit'
     ? { type: 'OBJECT', properties: { ...base, ops: { type: 'ARRAY', items: OP_SCHEMA }, draft: DRAFT_SCHEMA }, required: ['reply', 'suggestions'], propertyOrdering: ['reply', 'suggestions', 'ops', 'draft'] }
-    : { type: 'OBJECT', properties: { ...base, draft: DRAFT_SCHEMA }, required: ['reply', 'suggestions', 'draft'], propertyOrdering: ['reply', 'suggestions', 'draft'] };
+    : { type: 'OBJECT', properties: { ...base, found: FOUND_SCHEMA, draft: DRAFT_SCHEMA }, required: ['reply', 'suggestions', 'draft'], propertyOrdering: ['reply', 'suggestions', 'found', 'draft'] };
 }
 
 /** Map each extracted day to a trip date. Day N → trip day N, clamped to the trip. */

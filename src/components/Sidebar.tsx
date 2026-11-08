@@ -9,6 +9,8 @@ import { useSession, useTripNav, TripRole } from '../app/session';
 import { Icon } from './Icon';
 import Sheet from './Sheet';
 import { navModel } from './navModel';
+import { motion } from 'motion/react';
+import { spring, useTempoTransition } from '@animate-ui/react/utils/motion';
 
 const SIDE_KEY = 'jl-side';
 
@@ -75,6 +77,7 @@ export default function Sidebar() {
               <Icon name="chev-d" size={16} className="tsw-chev" />
             </button>
             <Link key={item.key} to={item.to} viewTransition className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
+              {item.on && <NavHighlight />}
               <span className="ic"><Icon name={item.icon} size={20} /></span>
               <span className="lbl">{t[item.label] as string}</span>
               {item.pill && <span className="pill badge warning">{item.pill}</span>}
@@ -82,6 +85,7 @@ export default function Sidebar() {
           </div>
         ) : (
           <Link key={item.key} to={item.to} viewTransition className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
+              {item.on && <NavHighlight />}
             <span className="ic"><Icon name={item.icon} size={20} /></span>
             <span className="lbl">{t[item.label] as string}</span>
             {item.pill && <span className="pill badge warning">{item.pill}</span>}
@@ -92,6 +96,7 @@ export default function Sidebar() {
       <div className="side-foot">
         {model.foot.map(item => (
           <Link key={item.key} to={item.to} viewTransition className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
+              {item.on && <NavHighlight />}
             <span className="ic"><Icon name={item.icon} size={20} /></span>
             <span className="lbl">{t[item.label] as string}</span>
           </Link>
@@ -123,4 +128,10 @@ export default function Sidebar() {
       </Sheet>
     </aside>
   );
+}
+
+/** v0.37: one highlight glides to the active item on spring.selection (Animate UI indicator). */
+function NavHighlight() {
+  const slide = useTempoTransition(spring.selection);
+  return <motion.span className="nav-hl" layoutId="sidebar-highlight" transition={slide} aria-hidden="true" />;
 }

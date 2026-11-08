@@ -8,6 +8,8 @@ import { useState } from 'react';
 import { useSession, useTripNav, TripRole } from '../app/session';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
+import { motion } from 'motion/react';
+import { spring, useTempoTransition } from '@animate-ui/react/utils/motion';
 import Sheet from './Sheet';
 import { useLongPress } from '../hooks/useLongPress';
 import { navModel } from './navModel';
@@ -103,7 +105,7 @@ export default function TabBar() {
       <>
         <span className="ic"><Icon name={icon} size={20} /></span>
         {label}
-        {on && <span className="dot" />}
+        {on && <TabDot />}
       </>
     );
     if (!to) {
@@ -137,7 +139,7 @@ export default function TabBar() {
         <Link to="/" viewTransition className={'tab' + (homeOn ? ' on' : '')}>
           <span className="ic"><Icon name="folder" size={20} /></span>
           {t.home}
-          {homeOn && <span className="dot" />}
+          {homeOn && <TabDot />}
         </Link>
         {tripTab('plan', planTo, 'calendar', t.plan, planOn, planLP)}
         {tripTab('money', moneyTo, 'wallet', t.money, moneyOn, moneyLP)}
@@ -145,7 +147,7 @@ export default function TabBar() {
         <button type="button" className={'tab' + (moreOn ? ' on' : '')} onClick={() => setMoreOpen(true)}>
           <span className="ic"><Icon name="more" size={20} /></span>
           {t.more}
-          {moreOn && <span className="dot" />}
+          {moreOn && <TabDot />}
         </button>
       </nav>
 
@@ -213,4 +215,10 @@ export default function TabBar() {
       </Sheet>
     </>
   );
+}
+
+/** v0.37: the active tab's dot slides to the next tab on spring.selection (Animate UI indicator). */
+function TabDot() {
+  const slide = useTempoTransition(spring.selection);
+  return <motion.span className="dot" layoutId="tabbar-dot" transition={slide} />;
 }

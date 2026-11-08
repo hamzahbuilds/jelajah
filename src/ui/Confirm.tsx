@@ -12,6 +12,7 @@ import { createContext, useCallback, useContext, useId, useRef, useState, type R
 import Dialog from '../components/Dialog';
 import { Icon } from '../components/Icon';
 import { useT } from '../i18n';
+import { AnimatePresence } from 'motion/react';
 
 export interface ConfirmOptions {
   title: string;
@@ -48,7 +49,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   return (
     <ConfirmCtx.Provider value={confirm}>
       {children}
-      {opts && (
+      <AnimatePresence>{opts && (
         <Dialog onClose={() => finish(false)} className="modalwrap modal ui-confirm" labelledBy={titleId}>
           <div className="ui-confirm-head">
             <span className={'ui-confirm-icon' + (danger ? ' danger' : '')}><Icon name={danger ? 'alert' : 'info'} size={20} /></span>
@@ -63,7 +64,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             </button>
           </div>
         </Dialog>
-      )}
+      )}</AnimatePresence>
     </ConfirmCtx.Provider>
   );
 }

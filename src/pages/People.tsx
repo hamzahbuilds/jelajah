@@ -11,6 +11,7 @@ import { Icon } from '../components/Icon';
 import Modal from '../components/Modal';
 import { resizeImageFile } from '../lib/image';
 import RoomsCard from '../components/RoomsCard';
+import { smallCover, uploadSmallCover } from '../lib/coverThumb';
 
 type UnsplashPhoto = {
   id: string; thumb: string; regular: string; author_name: string; author_link: string; download_location: string;
@@ -221,6 +222,12 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
       });
       if (res.status === 401) { location.href = '/login'; return; }
       if (!res.ok) throw new Error('upload_failed');
+      // v0.38: the small copy for trip cards, from the same photo.
+      try {
+        const { cover_key } = (await res.json()) as { cover_key?: string };
+        const sm = cover_key ? await smallCover(await createImageBitmap(blob)) : null;
+        if (sm && cover_key) await uploadSmallCover(Number(tripId), cover_key, sm);
+      } catch { /* cards fall back to the full cover */ }
       toast(t.coverSet);
       await reload();
       await refresh();

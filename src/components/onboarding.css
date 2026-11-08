@@ -1,0 +1,25 @@
+/* v0.35 onboarding dialogs — tokens only. */
+dialog.ob { max-inline-size: min(440px, calc(100vw - 32px)); margin: auto; text-align: center; }
+.ob-art {
+  inline-size: 56px; block-size: 56px; margin: var(--s-2) auto var(--s-3); border-radius: var(--r-lg);
+  display: grid; place-items: center; background: var(--tile); color: var(--brand-ink);
+}
+.ob-body { min-block-size: 9.5em; }
+.ob-count { margin: 0 0 var(--s-1); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); letter-spacing: .04em; text-transform: uppercase; }
+.ob-body h2 { margin: 0 0 var(--s-2); font-size: var(--fs-lg); text-wrap: balance; }
+.ob-body p:last-child { margin: 0; color: var(--ink-2); font-size: var(--fs-md); text-wrap: pretty; }
+.ob-dots { display: flex; justify-content: center; gap: var(--s-2); list-style: none; margin: var(--s-4) 0 0; padding: 0; }
+.ob-dots li { inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--border); }
+.ob-dots li { position: relative; }
+.ob-dots li.on { inline-size: 20px; border-radius: var(--r-pill); }
+/* the active dot slides between steps (Motion layoutId, spring.selection) */
+.ob-dot-pill { position: absolute; inset: 0; border-radius: var(--r-pill); background: var(--brand); }
+.ob-art { position: relative; }
+.ob-art-icon { display: grid; place-items: center; }
+.ob-dontshow {
+  display: flex; align-items: center; justify-content: center; gap: var(--s-2);
+  margin-block-start: var(--s-4); font-size: var(--fs-sm); color: var(--ink-2); cursor: pointer;
+}
+.ob-dontshow input { inline-size: 18px; block-size: 18px; accent-color: var(--brand); }
+.ob-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-2); margin-block-start: var(--s-4); }
+.ob-foot .btn.ghost { margin-inline-end: auto; }

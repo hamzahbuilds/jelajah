@@ -12,7 +12,9 @@ import PageHead from '../components/PageHead';
 import Empty from '../components/Empty';
 import { daysBetween, todayYmd } from '../../shared/days';
 import PlanComposer, { type ComposerMode } from '../components/PlanComposer';
+import { HomeBriefStart } from '../components/TripBrief';
 import type { NewPlanStart } from './NewPlan';
+import { backfillSmallCover } from '../lib/coverThumb';
 
 function roleLabel(t: Dict, role?: TripRole) {
   if (role === 'leader') return t.roleLeader;
@@ -48,8 +50,10 @@ function TripCardCover({ trip: tr, chip }: { trip: Trip; chip: string | null }) 
   return (
     <div className={`tc-cover${hasPhoto ? ' has-photo' : ''}`}>
       {hasPhoto && (
-        <img className="tc-photo" src={`/api/trips/${tr.id}/cover?v=${encodeURIComponent(tr.cover_key ?? '')}`} alt={tr.name}
-          loading="lazy" onError={() => setErrored(true)} />
+        // v0.38: the small (640px) copy; a leader's browser makes it if it's missing.
+        <img className="tc-photo" src={`/api/trips/${tr.id}/cover?size=sm&v=${encodeURIComponent(tr.cover_key ?? '')}`} alt={tr.name}
+          loading="lazy" decoding="async" onError={() => setErrored(true)}
+          onLoad={e => backfillSmallCover(e.currentTarget, tr.id, tr.cover_key ?? '', tr.my_role === 'leader')} />
       )}
       <span className={`em${hasPhoto ? ' has-photo' : ''}`}>{tr.emoji}</span>
       {chip && <span className="tc-chip">{chip}</span>}
@@ -85,12 +89,13 @@ export default function Trips() {
   return (
     <div>
       <PageHead crumb={t.home} title={t.myTrips} sub={t.myTripsSub}
-        actions={<button className="btn" onClick={newTrip}><Icon name="plus" size={16} /> {t.newTrip}</button>} />
+ />
 
       <div className="home-compose">
         <PlanComposer variant="hero" mode={mode} onModeChange={setMode} disabled={aiOn === false}
           onManual={() => setOpen(true)}
-          onSubmit={v => nav('/new', { viewTransition: true, state: { start: v satisfies NewPlanStart } })} />
+          onSubmit={v => nav('/new', { viewTransition: true, state: { start: v satisfies NewPlanStart } })}
+          planSlot={<HomeBriefStart onNext={places => nav('/new', { viewTransition: true, state: { brief: { places, when: null }, briefStep: 'when' } })} />} />
       </div>
 
       {trips.length === 0 ? (
@@ -103,7 +108,7 @@ export default function Trips() {
             const chip = tripChip(t, lang, tr);
             return (
               <Link key={tr.id} to={`/trips/${tr.id}`} className="tripcard"
-                style={color ? ({ ['--cov' as any]: color, borderTop: `4px solid ${color}` }) : undefined}>
+                style={color ? ({ ['--cov' as any]: color }) : undefined}>
                 <TripCardCover trip={tr} chip={chip} />
                 <div className="tc-body">
                   <h3>{tr.name}</h3>
@@ -112,9 +117,7 @@ export default function Trips() {
                   </div>
                   <div className="tc-meta">
                     <span />
-                    <span className={`badge ${tr.my_role === 'leader' ? 'brand' : 'gray'}`}>
-                      <span className="d" />{roleLabel(t, tr.my_role)}
-                    </span>
+                    <span className="tc-role">{roleLabel(t, tr.my_role)}</span>
                   </div>
                 </div>
               </Link>

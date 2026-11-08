@@ -4,7 +4,7 @@ import { api, fmtMYR, fmtDate } from '../api';
 import { useT, Dict } from '../i18n';
 import { useSession } from '../app/session';
 import { TripCtx } from '../app/tripContext';
-import LeafletMap, { Pin, Arc, pinIcon } from '../components/LeafletMap';
+import LeafletMap, { type Pin, type Arc, pinIcon } from '../components/LazyMap';
 import FxWidget from '../components/FxWidget';
 import PageHead from '../components/PageHead';
 import { Icon, type IconName } from '../components/Icon';
@@ -197,7 +197,7 @@ export default function Dashboard() {
         <FxWidget tripId={tripId} trip={trip} isAdmin={canLead} onChanged={reload} />
 
         {upcoming.length > 0 ? (
-          <div className="card" style={{ borderLeft: '4px solid var(--brand-600)' }}>
+          <div className="card">
             <div className="cardhead"><h3><Icon name="clock" /> {t.upNext}</h3></div>
             {upcoming.slice(0, canLead ? 3 : 1).map((u2, i) => (
               <div className="row-between" key={i} style={{ padding: '4px 0' }}>
@@ -307,7 +307,7 @@ export default function Dashboard() {
             <div className="row-between" key={d.id} style={{ padding: '5px 0' }}>
               <Link style={{ color: 'inherit', display: 'block' }}
                 to={`/trips/${tripId}/money/payments?expense=${d.expense_id}${d.participant_id ? `&participant=${d.participant_id}` : ''}`}>
-                <div>{d.description} {d.participant_id != null && <span className="badge gray"><Icon name="user" size={16} /> {d.participant_name}</span>} <span className="tiny">→</span></div>
+                <div>{d.description} {d.participant_id != null && <span className="tiny muted">· {d.participant_name}</span>} <span className="tiny">→</span></div>
                 <div className="tiny">{fmtDate(d.due_date, lang)}{d.vendor ? ` · ${d.vendor}` : ''}</div>
               </Link>
               <div className="row">

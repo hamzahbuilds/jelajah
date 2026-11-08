@@ -6,6 +6,7 @@ import { Icon } from './Icon';
 import Dialog from './Dialog';
 
 import { FX_WINDOWS, FxWindow } from '../../shared/fxband';
+import { AnimatePresence } from 'motion/react';
 
 const WINDOWS = Object.keys(FX_WINDOWS) as FxWindow[];
 type Win = FxWindow;
@@ -61,7 +62,7 @@ export function CurrencyFields({ base, watch, onBase, onWatch }: {
     <>
       <label className="fld"><span>{t.fxRefCurrency}</span>
         <select value={base} onChange={e => { onBase(e.target.value); onWatch(watch.filter(w => w !== e.target.value)); }}>
-          {all.map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
+          {all.map(c => <option key={c.code} value={c.code}>{c.code} · {c.name}</option>)}
           {!all.some(c => c.code === base) && <option value={base}>{base}</option>}
         </select></label>
       <div className="fld full"><span>{t.fxWatchCurrencies} <span className="tiny">({t.fxMax6})</span></span>
@@ -178,7 +179,7 @@ export default function FxWidget({ tripId, trip, isAdmin, onChanged }: {
           </div>
         );
       })}
-      {editor && (
+      <AnimatePresence>{editor && (
         <Dialog className="overlay-dlg modal" onClose={() => setEditor(null)} label={t.fxEditCurrencies}>
             <h2><Icon name="swap" size={16} /> {t.fxEditCurrencies}</h2>
             <div className="form-grid">
@@ -191,7 +192,7 @@ export default function FxWidget({ tripId, trip, isAdmin, onChanged }: {
               <button className="btn" disabled={busy} onClick={save}>{t.save}</button>
             </div>
         </Dialog>
-      )}
+      )}</AnimatePresence>
     </div>
   );
 }

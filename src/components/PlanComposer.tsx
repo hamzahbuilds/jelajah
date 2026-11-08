@@ -2,7 +2,7 @@
 // `hero` (home page — mode switch, examples, "create manually") and `chat`
 // (bottom of the chat planner). Enter sends, Shift+Enter is a newline, and the
 // IME check keeps Japanese/Chinese/Korean input from sending mid-conversion.
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
 import { Segmented } from '../ui';
@@ -13,7 +13,7 @@ import './planAi.css';
 export type ComposerMode = 'plan' | 'import';
 export interface ComposerSubmit { mode: ComposerMode; text: string; images: ImageData64[] }
 
-export default function PlanComposer({ variant, mode, onModeChange, onSubmit, busy, disabled, onManual, autoFocus, refine }: {
+export default function PlanComposer({ variant, mode, onModeChange, onSubmit, busy, disabled, onManual, autoFocus, refine, planSlot }: {
   variant: 'hero' | 'chat';
   mode: ComposerMode;
   onModeChange?: (m: ComposerMode) => void;
@@ -24,6 +24,8 @@ export default function PlanComposer({ variant, mode, onModeChange, onSubmit, bu
   autoFocus?: boolean;
   /** A draft exists: the box is for asking changes (or another link). */
   refine?: boolean;
+  /** v0.36: hero in plan mode shows this (the trip brief's country step) instead of the text box. */
+  planSlot?: ReactNode;
 }) {
   const { t } = useT();
   const { toast } = useToast();
@@ -73,9 +75,16 @@ export default function PlanComposer({ variant, mode, onModeChange, onSubmit, bu
         </div>
       )}
       {variant === 'hero' && onModeChange && !disabled && (
-        <Segmented<ComposerMode> className="pc-modes" label={t.composerMode} value={mode} onChange={onModeChange}
-          options={[{ value: 'plan', label: t.planWithAi, icon: 'sparkles' }, { value: 'import', label: t.importFromLink, icon: 'link' }]} />
+        // Three ways to start (v0.38): plan with AI, import a link, or the manual form (opens a sheet, not a mode).
+        <Segmented<ComposerMode | 'manual'> className="pc-modes" label={t.composerMode} value={mode}
+          onChange={v => (v === 'manual' ? onManual?.() : onModeChange(v))}
+          options={[
+            { value: 'plan', label: t.planWithAi, icon: 'sparkles' },
+            { value: 'import', label: t.importFromLink, icon: 'link' },
+            ...(onManual ? [{ value: 'manual' as const, label: t.createManually, icon: 'edit' as const }] : []),
+          ]} />
       )}
+      {variant === 'hero' && mode === 'plan' && planSlot && !disabled ? planSlot : <>
       <div className="pc-box">
         <label htmlFor={`${id}-ta`} className="sr-only">{t.composerLabel}</label>
         <textarea id={`${id}-ta`} className="pc-input" value={text} rows={variant === 'hero' ? 3 : 1}
@@ -114,12 +123,8 @@ export default function PlanComposer({ variant, mode, onModeChange, onSubmit, bu
           ))}
         </div>
       )}
-      {variant === 'hero' && onManual && (
-        <p className="pc-manual">
-          {t.startFromScratch}{' '}
-          <button type="button" className="pc-linkbtn" onClick={onManual}>{t.createManually} <Icon name="arrow-r" size={16} /></button>
-        </p>
-      )}
+      </>}
+
     </form>
   );
 }

@@ -10,6 +10,8 @@ import { fmtMYR, fmtMoney } from '../api';
 import Dialog from '../components/Dialog';
 import Menu, { type MenuItem } from '../components/Menu';
 import './ui.css';
+import { AnimatePresence, motion } from 'motion/react';
+import { spring, useTempoTransition } from '@animate-ui/react/utils/motion';
 
 const cx = (...c: unknown[]) => c.filter(x => typeof x === 'string' && x).join(' ');
 
@@ -208,12 +210,17 @@ export interface SegOption<V extends string> { value: V; label: ReactNode; icon?
 export function Segmented<V extends string>({ options, value, onChange, label, className }: {
   options: SegOption<V>[]; value?: V; onChange?: (v: V) => void; label: string; className?: string;
 }) {
+  // v0.37 motion (Animate UI indicator recipe): one surface slides to the
+  // selected item on spring.selection (shared layoutId); labels stay above it.
+  const pillId = useId();
+  const slide = useTempoTransition(spring.selection);
+  const pill = <motion.span className="ui-seg-pill" layoutId={pillId} transition={slide} aria-hidden="true" />;
   if (options.every(o => o.to)) {
     return (
       <nav className={cx('ui-seg', className)} aria-label={label}>
         {options.map(o => (
           <NavLink key={o.value} to={o.to!} end viewTransition className={({ isActive }) => cx('ui-seg-item', isActive && 'on')}>
-            {o.icon && <Icon name={o.icon} size={16} />}{o.label}
+            {({ isActive }) => <>{isActive && pill}<span className="ui-seg-label">{o.icon && <Icon name={o.icon} size={16} />}{o.label}</span></>}
           </NavLink>
         ))}
       </nav>
@@ -233,7 +240,8 @@ export function Segmented<V extends string>({ options, value, onChange, label, c
         <button key={o.value} type="button" role="radio" aria-checked={o.value === value}
           tabIndex={o.value === value ? 0 : -1} className={cx('ui-seg-item', o.value === value && 'on')}
           onClick={() => onChange?.(o.value)} onKeyDown={e => onKey(e, i)}>
-          {o.icon && <Icon name={o.icon} size={16} />}{o.label}
+          {o.value === value && pill}
+          <span className="ui-seg-label">{o.icon && <Icon name={o.icon} size={16} />}{o.label}</span>
         </button>
       ))}
     </div>
@@ -281,7 +289,6 @@ export function FormSheet({ open, onClose, title, icon, sub, children, footer, o
   closeLabel?: string; dismissible?: boolean; wide?: boolean;
 }) {
   const titleId = useId();
-  if (!open) return null;
   const inner = (
     <>
       <header className="ui-sheet-head">
@@ -294,11 +301,15 @@ export function FormSheet({ open, onClose, title, icon, sub, children, footer, o
     </>
   );
   return (
+    <AnimatePresence>
+      {open && (
     <Dialog onClose={onClose} dismissible={dismissible} className={cx('ui-sheet', wide && 'wide')} labelledBy={titleId}>
       {onSubmit
         ? <form className="ui-sheet-form" noValidate={false} onSubmit={e => { e.preventDefault(); onSubmit(e); }}>{inner}</form>
         : <div className="ui-sheet-form">{inner}</div>}
     </Dialog>
+      )}
+    </AnimatePresence>
   );
 }
 

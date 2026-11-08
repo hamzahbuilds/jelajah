@@ -21,6 +21,8 @@ export const SCHEMA: string[] = [
     referred_by INTEGER REFERENCES users(id),
     referral_invite_id INTEGER REFERENCES invites(id),
     google_sub TEXT,
+    welcome_pending INTEGER NOT NULL DEFAULT 0,
+    skip_plan_intro INTEGER NOT NULL DEFAULT 0,
     disabled INTEGER NOT NULL DEFAULT 0,
     must_change_password INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -330,6 +332,9 @@ export const UPGRADES: string[] = [
   `ALTER TABLE room_occupants ADD COLUMN nights INTEGER`,
   `ALTER TABLE users ADD COLUMN google_sub TEXT`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_sub) WHERE google_sub IS NOT NULL`,
+  // v0.35 onboarding: existing rows get 0 (no welcome tour); new sign-ups set 1.
+  `ALTER TABLE users ADD COLUMN welcome_pending INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN skip_plan_intro INTEGER NOT NULL DEFAULT 0`,
   ...SCHEMA.filter(s =>
     /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily|rooms|room_occupants)\b/.test(s)
     || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code|idx_rooms_trip/.test(s)),

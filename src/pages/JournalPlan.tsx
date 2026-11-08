@@ -12,7 +12,7 @@ import type { TripCtx } from "../app/tripContext";
 import Plan from "./Plan";
 import Publishing from "./Publishing";
 import TravelNotes from "../components/TravelNotes";
-import LeafletMap from "../components/LeafletMap";
+import LeafletMap from "../components/LazyMap";
 import ExpandedMap from '../components/ExpandedMap';
 import TransitOptions from '../components/TransitOptions';
 import RailDirections from '../components/RailDirections';
@@ -66,7 +66,7 @@ export default function JournalPlan() {
   return (
     <div className="journal-workspace">
       <div className="journal-intro">
-        <div><span className="journal-eyebrow">{trip.destination || trip.name}</span><h1>{lang === "ms" ? "Rancang pengembaraan anda" : "Your next adventure"}</h1><p>{j.journeyIntro}</p></div>
+        <div><span className="journal-eyebrow">{trip.destination || trip.name}</span><h1>{lang === "ms" ? "Rancang hari-hari" : "Plan the days"}</h1><p>{j.journeyIntro}</p></div>
         <Link to="/discover">{j.discover} <Icon name="external" size={16} /></Link>
       </div>
       <nav className="journal-tabs" aria-label={t.plan}>

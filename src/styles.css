@@ -154,7 +154,7 @@ p { margin: .3rem 0; }
 
 /* hero countdown */
 .hero {
-  background: linear-gradient(120deg, var(--brand-700) 0%, var(--brand-800) 100%);
+  background: var(--brand-700);
   color: #fff; border-radius: var(--r-lg); padding: 20px; margin-bottom: 16px;
 }
 .hero .big { font-size: 1.9rem; font-weight: 800; }
@@ -979,10 +979,9 @@ label.fld { margin-bottom: 10px; }
 .modalwrap.modal {
   background: var(--surface); color: var(--ink); border: 0; border-radius: 16px;
   width: calc(100% - 32px); max-width: 440px; margin: auto;
-  box-shadow: 0 20px 48px rgba(16,24,40,.25); padding: 24px; animation: mup .16s ease;
+  box-shadow: 0 20px 48px rgba(16,24,40,.25); padding: 24px; /* entrance/exit: Dialog.tsx (Motion) */
   max-height: calc(100dvh - 64px); overflow: auto;
 }
-@keyframes mup { from { transform: translateY(10px) scale(.98); opacity: 0; } }
 .modalwrap.modal .mhead { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
 .modalwrap.modal .mhead .tile { flex: 0 0 auto; }
 .modalwrap.modal .mhead h3 { margin: 0; font-size: 16px; }
@@ -1011,7 +1010,7 @@ label.fld { margin-bottom: 10px; }
 /* menu (ported from prototype .jmenu) */
 .menu {
   position: fixed; z-index: 80; min-width: 230px; margin: 0; inset: auto; color: var(--ink); overflow: visible; background: var(--surface); border: 1px solid var(--border);
-  border-radius: 12px; box-shadow: 0 12px 32px rgba(16,24,40,.16); padding: 6px; animation: mup .12s ease;
+  border-radius: 12px; box-shadow: 0 12px 32px rgba(16,24,40,.16); padding: 6px;
 }
 .menu .mi {
   display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 9px 10px; border: none; background: none;
@@ -1045,12 +1044,11 @@ label.fld { margin-bottom: 10px; }
 .toast {
   pointer-events: auto; cursor: pointer; background: var(--gray-900); color: #fff; font-size: 13.5px; font-weight: 500;
   padding: 10px 16px; border-radius: 99px; box-shadow: 0 8px 24px rgba(16,24,40,.3);
-  display: flex; align-items: center; gap: 8px; animation: mup .18s ease; max-width: min(92vw, 480px);
+  display: flex; align-items: center; gap: 8px; max-width: min(92vw, 480px); transform-origin: 50% 100%; /* motion: Toast.tsx */
 }
 .toast .i { color: #75E0A7; }
 .toast.error { background: #7f1d1d; }
 .toast.error .i { color: #fecaca; }
-.toast.leaving { opacity: 0; transition: opacity .25s; }
 
 /* sheetwrap / sheet (ported from prototype — bottom sheet <1024px, centered dialog >=1024px) */
 /* native <dialog class="sheet">: pinned to the bottom edge on mobile */
@@ -1058,10 +1056,9 @@ dialog.sheet {
   inset: auto 0 0 0; margin: 0 auto; width: 100%; max-width: 480px; max-height: 85dvh;
   border: 0; color: var(--ink); background: var(--surface);
   border-radius: 16px 16px 0 0; padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
-  box-shadow: 0 -8px 24px rgba(16,24,40,.18); animation: sheetup .18s ease;
+  box-shadow: 0 -8px 24px rgba(16,24,40,.18); /* entrance/exit: Dialog.tsx (Motion) */
 }
 dialog.sheet:focus-visible { outline: none; }
-@keyframes sheetup { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 .sheet .grab { width: 36px; height: 4px; border-radius: 2px; background: var(--gray-300); margin: 4px auto 10px; }
 [data-theme="dark"] .sheet .grab { background: var(--gray-700); }
 .sheet h4 { margin: 0 0 4px; font-size: 14px; color: var(--ink-3); font-weight: 600; }
@@ -1135,7 +1132,11 @@ html.side-min .side-collapse .icon { transform: none; }
 button.nav-item { width: 100%; border: none; background: none; font-family: inherit; text-align: left; }
 .nav-item:hover { background: var(--gray-100); color: var(--ink); }
 [data-theme="dark"] .nav-item:hover { background: var(--gray-800); }
-.nav-item.on { background: var(--tile); color: var(--brand-ink); font-weight: 600; }
+.nav-item { position: relative; }
+.nav-item.on { color: var(--brand-ink); font-weight: 600; }
+/* the active item's surface glides between items (Sidebar.tsx, Motion layoutId); content sits above it */
+.nav-hl { position: absolute; inset: 0; border-radius: inherit; background: var(--tile); z-index: 0; }
+.nav-item > :not(.nav-hl) { position: relative; z-index: 1; }
 [data-theme="dark"] .nav-item.on { color: var(--brand-300); }
 .nav-item .ic { width: 20px; text-align: center; display: grid; place-items: center; }
 .nav-item .pill { margin-left: auto; }
@@ -1277,8 +1278,8 @@ label.fld2 { display: block; font-size: 13px; font-weight: 600; color: var(--ink
 .journal-tabs { display:flex; gap:6px; border-bottom:1px solid var(--border); overflow-x:auto; padding:4px 0 12px; }
 .journal-tabs button { flex-shrink:0; border:0; border-radius:24px; padding:12px 20px; color:var(--ink); background:var(--surface); font:inherit; cursor:pointer; }
 .journal-tabs button.active { color: var(--on-brand); background:var(--brand); box-shadow:0 4px 12px #0e938422; }
-.journal-hero { padding:40px; margin:20px 0; border:1px solid var(--border); border-radius:24px; background:linear-gradient(125deg,#f8edda,#e4f3eb); color:#173e36; }
-.journal-hero h1 { font-size:clamp(2rem,5vw,3.6rem); line-height:1.12; max-width:800px; margin:12px 0; letter-spacing:-.04em; }
+.journal-hero { padding:24px 28px; margin:16px 0; border:1px solid var(--border); border-radius:var(--r-xl); background:var(--surface); color:var(--ink); }
+.journal-hero h1 { font-size:clamp(1.6rem,3.5vw,2.2rem); line-height:1.15; max-width:800px; margin:6px 0; letter-spacing:-.02em; }
 .journal-hero h2 { font-size:1.8rem; margin:10px 0; }
 .journal-hero p { max-width:650px; line-height:1.65; }
 .journal-hero.compact { padding:28px; margin:0 0 20px; }
@@ -1345,7 +1346,7 @@ label.fld2 { display: block; font-size: 13px; font-weight: 600; color: var(--ink
 .recovery-page { max-width:650px; }
 .journal-recovery { margin-top:30px; padding:32px; display:grid; gap:20px; }
 .journal-recovery h1 { margin:0; }
-[data-theme="dark"] .journal-hero { background:linear-gradient(125deg,#25362e,#173d39); color:#e3f1e8; }
+[data-theme="dark"] .journal-hero { background:var(--surface); color:var(--ink); }
 [data-theme="dark"] .guide-art { filter:brightness(.7); }
 .journal-workspace button:focus-visible,.journey-public a:focus-visible { outline:3px solid var(--brand-600); outline-offset:3px; }
 @media(max-width:760px) {
@@ -1458,9 +1459,8 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 /* Connected planning workspace. Shared by group, personal and read-only plans. */
 .journal-workspace { gap:16px; }
 .journal-workspace { --planner-canvas:#f5f6f1; --planner-soft:#edf3e9; --planner-peach:#f6e7d8; }
-.journal-intro { position:relative; overflow:hidden; isolation:isolate; padding:32px; margin:8px 0 4px; border-radius:28px; background:linear-gradient(115deg,var(--brand-50),var(--planner-soft)); border:1px solid var(--brand-100); }
-.journal-intro::after { content:''; position:absolute; z-index:-1; width:230px; height:230px; right:-50px; top:-70px; border:38px solid var(--planner-peach); border-radius:50%; opacity:.65; transform:rotate(-18deg); }
-.journal-intro h1 { max-width:800px; font-size:clamp(28px,3vw,42px); letter-spacing:-1.4px; margin:10px 0; overflow-wrap:anywhere; }
+.journal-intro { position:relative; padding:24px 28px; margin:8px 0 4px; border-radius:var(--r-xl); background:var(--surface); border:1px solid var(--border); }
+.journal-intro h1 { max-width:800px; font-size:clamp(26px,2.6vw,34px); letter-spacing:-0.5px; margin:6px 0; overflow-wrap:anywhere; }
 .journal-intro > a { align-self:flex-end; padding:10px 16px; border-radius:12px; background:var(--surface); color: var(--brand-ink); font-size:14px; font-weight:600; white-space:nowrap; }
 .journal-tabs { margin-bottom:8px; border-radius:14px; scrollbar-width:thin; scrollbar-color:var(--brand-100) transparent; }
 .journal-workspace .daypills { scrollbar-width:thin; scrollbar-color:var(--brand-100) transparent; }
@@ -1470,8 +1470,8 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 .day-overview h2 { font-size:24px; line-height:1.3; margin:8px 0; letter-spacing:-.5px; overflow-wrap:anywhere; }
 .day-overview p { margin:0; font-size:14px; color:var(--ink-2); line-height:1.6; }
 .day-overview-stats { flex:0 0 240px; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-.day-overview-stats > span { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:12px; background:var(--brand-50); border-radius:12px; font-size:12px; color:var(--ink-2); }
-.day-overview-stats strong { font-size:22px; line-height:1; color: var(--brand-ink); }
+.day-overview-stats > span { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:12px; background:none; border:1px solid var(--border); border-radius:12px; font-size:12px; color:var(--ink-2); }
+.day-overview-stats strong { font-size:22px; line-height:1; color: var(--ink); font-family: var(--font-display); }
 .day-progress { grid-column:1/-1; color:var(--ink-2); font-size:12px; display:flex; align-items:center; gap:12px; }
 .day-progress progress { width:100%; height:6px; accent-color:var(--brand-700); border:0; border-radius:8px; overflow:hidden; }
 .day-progress progress::-webkit-progress-bar { background:var(--brand-100); }
@@ -1519,7 +1519,6 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 @media(max-width:760px) {
   .journal-intro { padding:22px; border-radius:22px; flex-direction:column; align-items:flex-start; gap:16px; }
   .journal-intro > a { align-self:flex-start; }
-  .journal-intro::after { right:-130px; }
   .journal-workspace .journal-group-columns,.journal-columns { grid-template-columns:minmax(0,1fr); }
   .day-overview { flex-direction:column; align-items:stretch; padding:20px; gap:16px; }
   .day-overview h2 { font-size:21px; }
@@ -1551,7 +1550,7 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 
 /* Trip settings: details first, bounded member lists. */
 .trip-settings > .card { min-width: 0; }
-.settings-details { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 0 32px; border-top: 3px solid var(--brand-700); }
+.settings-details { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 0 32px; }
 .settings-details > .cardhead { grid-column: 1 / -1; }
 .settings-details .cover-block { margin-top: 0; padding: 0 0 0 28px; border-top: 0; border-left: 1px solid var(--border); }
 .settings-member-toolbar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
@@ -1642,12 +1641,10 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 /* Modal <dialog> backdrop (replaces the old .scrim divs) — fades in via @starting-style. */
 dialog::backdrop {
   background-color: rgb(16 24 40 / .5);
-  transition: background-color .16s ease;
   /* ::backdrop isn't a scroll container by default; overflow:hidden makes overscroll-behavior apply,
      so wheel/touch scrolls over the backdrop don't reach the page underneath. */
   overflow: hidden; overscroll-behavior: contain;
 }
-@starting-style { dialog[open]::backdrop { background-color: rgb(16 24 40 / 0); } }
 /* Scroll gestures inside the dialog don't chain to the page (replaces the body overflow lock). */
 dialog:modal { overscroll-behavior: contain; }
 
@@ -1666,13 +1663,18 @@ input:user-invalid:focus, select:user-invalid:focus, textarea:user-invalid:focus
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-/* Route changes: quick cross-fade. The nav chrome gets its own names so it stays put
-   instead of fading with the page. */
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: .16s; }
+/* Route changes (v0.37, Animate UI route "slide", subtle): the old page fades
+   out quickly on ease.leave, the new one fades in and rises 8px on ease.out.
+   The nav chrome gets its own names so it stays put. Reduced motion: crossfade. */
 .tabbar { view-transition-name: tabbar; }
 .sidebar { view-transition-name: sidebar; }
+::view-transition-old(root) { animation: .2s cubic-bezier(0, 0, 0.58, 1) both jl-page-out; }
+::view-transition-new(root) { animation: .35s cubic-bezier(0.23, 1, 0.32, 1) both jl-page-in; }
+@keyframes jl-page-out { to { opacity: 0; } }
+@keyframes jl-page-in { from { opacity: 0; translate: 0 8px; } }
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+  ::view-transition-new(root) { animation-name: jl-page-fade; }
+  @keyframes jl-page-fade { from { opacity: 0; } }
 }
 
 /* ===== v0.29 per-trip accent (TripShell sets --accent + .trip-accent) =====
@@ -1720,3 +1722,56 @@ main#main:focus { outline: none; }
   .barlist .barrow .val { grid-column: 2; grid-row: 1; }
   .barlist .barrow .track { grid-column: 1 / -1; grid-row: 2; }
 }
+
+/* v0.37 motion (Animate UI tokens, docs/24). Menus open on transition.menu
+   (220ms, ease.soft) from scale.menu (0.9); press feedback on spring.press
+   (CSS linear() from toCssTiming); colour changes on transition.color. */
+@media (prefers-reduced-motion: no-preference) {
+  .menu:popover-open {
+    transition: opacity .22s cubic-bezier(0.215, 0.61, 0.355, 1), scale .22s cubic-bezier(0.215, 0.61, 0.355, 1);
+    @starting-style { opacity: 0; scale: .9; }
+  }
+  .btn, .chip, .ui-iconbtn, .tb-step-btn, .tb-card, .tb-month, .tb-pill, .tb-tag, .pc-send, .pc-tool {
+    transition: scale 400ms var(--spring-press), background-color .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease;
+  }
+  .btn:active:not(:disabled), .chip:active, .ui-iconbtn:active:not(:disabled), .tb-step-btn:active:not(:disabled),
+  .tb-month:active, .tb-tag:active, .tb-pill:active, .pc-send:active:not(:disabled), .pc-tool:active:not(:disabled) { scale: .97; }
+  /* a whole card or tile presses lighter (scale.choice) */
+  .tb-card:active, .tripcard:active { scale: .985; }
+}
+:root {
+  /* spring.press (stiffness 550, damping 30) as CSS: node .claude/skills/animate-ui/scripts/css-timing.mjs spring.press */
+  --spring-press: linear(0, 0.0261, 0.0935, 0.188, 0.2977, 0.4132, 0.5271, 0.6343, 0.7313, 0.8159, 0.8872, 0.9452, 0.9906, 1.0244, 1.048, 1.063, 1.0709, 1.0732, 1.0713, 1.0663, 1.0594, 1.0514, 1.0429, 1.0346, 1.0267, 1.0196, 1.0134, 1.0082, 1.004, 1.0007, 0.9982, 0.9965, 1, 0.9948, 0.9946, 0.9948, 1, 1, 1, 1);
+}
+/* animated icons (Icon.tsx): pivots set in grid units */
+.jl-icon-pivot-center { transform-box: view-box; transform-origin: 12px 12px; }
+.avatar-ph { display: inline-block; border-radius: 50%; background: var(--tile); flex: none; }
+.map-ph { inline-size: 100%; border-radius: var(--r-lg); background: var(--subtle); }
+
+/* ---------- v0.38 taste pass (docs/25): flat surfaces, plain icons, fewer pills ---------- */
+/* icons stand on their own: no tinted swatch behind them */
+.tile, .tile.sm { background: none; box-shadow: none; width: auto; height: auto; color: var(--ink-3); }
+[data-theme="dark"] .tile { color: var(--ink-3); }
+.empty .etile { background: none; box-shadow: none; }
+.ui-confirm-icon:not(.danger), .tb-home, .ob-art { background: none; }
+/* trip cards: photo-led, plain text instead of pills, a 2px lift on hover */
+.tc-cover { height: 148px; }
+.tc-cover .em.has-photo { display: none; }
+.tc-cover.has-photo::after { background: linear-gradient(0deg, rgba(0,0,0,.5), transparent 55%); opacity: 1; }
+.tc-chip { background: none; padding: 0; font-size: 13px; font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,.4); }
+.tc-role { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+@media (prefers-reduced-motion: no-preference) {
+  .tripcard { transition: translate .2s ease, box-shadow .2s ease; }
+  .tripcard:hover { translate: 0 -2px; }
+  .tc-photo { transition: scale .4s cubic-bezier(0.23, 1, 0.32, 1); }
+  .tripcard:hover .tc-photo { scale: 1.03; }
+}
+
+/* heading font: Bricolage Grotesque (character for headings; body stays on the system font) */
+:root { --font-display: 'Bricolage Grotesque Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+h1, h2, .ui-pagehead h1, .pagehead h1, .tc-body h3, .dash-hero .big, .big, .pc-hero-head h2, .tb-step h2, .ob-body h2,
+.login-card .logo, .authcard h2, .np-head h1, .tb-iata, .tb-days {
+  font-family: var(--font-display); letter-spacing: -0.015em;
+}
+h1, .ui-pagehead h1, .pagehead h1, .pc-hero-head h2, .tb-step h2 { font-weight: 700; }
+.today-tag { margin-inline-start: 6px; font-size: 13px; font-weight: 600; color: var(--brand-ink); }

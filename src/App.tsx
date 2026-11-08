@@ -1,5 +1,7 @@
 import Loading from './components/Loading';
 import BrandMark from './components/BrandMark';
+import { WelcomeTour } from './components/Onboarding';
+import { useGoogleSignIn } from './components/GoogleButton';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { SessionCtx, TripNavCtx, TripNavSetCtx, useSession, useTripNav, type TripNavInfo, type User, type Trip } from './app/session';
 export type { TripRole, User, Trip, TripNavInfo } from './app/session';
@@ -32,6 +34,7 @@ import { IconDefs } from './components/Icon';
 import Sidebar from './components/Sidebar';
 import TabBar from './components/TabBar';
 import { AppBanner } from './components/AppBanner';
+import { AnimatePresence } from 'motion/react';
 
 const DevGallery = lazy(() => import('./pages/DevGallery'));
 
@@ -126,6 +129,15 @@ function Shell() {
 function Chrome({ children }: { children: React.ReactNode }) {
   const { t } = useT();
   const { user } = useSession();
+  const navigate = useNavigate();
+  const googleOnly = useGoogleSignIn() === true;
+  // v0.35: first sign-up tour. Hidden locally at once; the server flag is
+  // cleared in the background (Skip, Esc and finishing all count as seen).
+  const [welcome, setWelcome] = useState(!!user.onboarding?.welcome);
+  const endWelcome = () => {
+    setWelcome(false);
+    api.patch('/me', { welcome_done: true }).catch(() => {});
+  };
   const [offline, setOffline] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
@@ -153,12 +165,19 @@ function Chrome({ children }: { children: React.ReactNode }) {
       <div className="main">
         <AppBanner offline={offline} updateAvailable={updateAvailable} onRefresh={applyUpdate} />
         <main id="main" className="container" tabIndex={-1}>
-          {user.must_change_password ? <PasswordNudge /> : null}
+          {/* Google only: there is no password to change, so no nudge. */}
+          {user.must_change_password && !googleOnly ? <PasswordNudge /> : null}
           {children}
         </main>
       </div>
       {/* mobile-only bottom tab bar (T7) — CSS-hidden at >=1024px; always mounted */}
       <TabBar />
+      <AnimatePresence>
+        {welcome && (
+          <WelcomeTour name={user.name} onClose={endWelcome}
+            onPlan={() => { endWelcome(); navigate('/new'); }} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

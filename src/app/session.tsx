@@ -10,6 +10,8 @@ export interface User {
   id: number; email: string; name: string; role: 'admin' | 'member';
   lang: Lang; theme?: string; participant_id: number | null; must_change_password: number;
   platform_admin?: boolean;
+  /** v0.35: welcome = show the first-sign-up tour; skip_plan_intro = user ticked "Don't show again". */
+  onboarding?: { welcome: boolean; skip_plan_intro: boolean };
 }
 export interface Trip {
   id: number; name: string; destination: string | null;

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import LeafletMap, { type Pin, type Route } from './LeafletMap';
+import LeafletMap, { type Pin, type Route } from './LazyMap';
 import Modal from './Modal';
 import { useT } from '../i18n';
 

@@ -112,7 +112,11 @@ a.ui-row-hit:hover, button.ui-row-hit:hover { background: color-mix(in srgb, var
   background: none; color: var(--ink-2); font: inherit; font-size: var(--fs-md); font-weight: 600;
   white-space: nowrap; cursor: pointer; text-decoration: none;
 }
-.ui-seg-item.on { background: var(--surface); color: var(--ink); box-shadow: var(--e-1); }
+.ui-seg-item { position: relative; transition: color .2s ease; }
+.ui-seg-item.on { color: var(--ink); }
+/* the sliding surface (Segmented, Motion layoutId); labels sit above it */
+.ui-seg-pill { position: absolute; inset: 0; border-radius: inherit; background: var(--surface); box-shadow: var(--e-1); }
+.ui-seg-label { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: var(--s-1); }
 @media (max-width: 1023px) { .ui-seg-item { min-block-size: var(--hit); } }
 
 /* ---------- EmptyState ---------- */
@@ -175,10 +179,7 @@ dialog.ui-sheet {
   dialog.ui-sheet.wide { inline-size: min(760px, calc(100vw - 48px)); }
   .ui-sheet-form { block-size: auto; max-block-size: min(88dvh, 820px); }
 }
-@media (prefers-reduced-motion: no-preference) {
-  dialog.ui-sheet[open] { animation: ui-sheet-in .2s ease-out; }
-}
-@keyframes ui-sheet-in { from { translate: 0 16px; opacity: 0; } }
+/* dialog.ui-sheet entrance/exit: Dialog.tsx (Motion) */
 
 /* ---------- PageHeader ---------- */
 .ui-pagehead { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-3) var(--s-4); margin-block-end: var(--s-6); }

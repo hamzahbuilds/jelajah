@@ -6,10 +6,7 @@
   padding: var(--s-6) var(--s-5) var(--s-5);
   border-radius: var(--r-xl);
   border: 1px solid var(--border);
-  background:
-    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--brand-300) 38%, transparent), transparent 60%),
-    radial-gradient(90% 80% at 100% 0%, color-mix(in srgb, var(--peach) 45%, transparent), transparent 65%),
-    var(--surface);
+  background: var(--surface);
   box-shadow: var(--e-2);
 }
 .pc-hero-head h2 { margin: 0; font-size: var(--fs-xl); line-height: var(--lh-tight); letter-spacing: -.01em; }
@@ -158,3 +155,11 @@
 /* home: composer above the trips grid */
 .home-compose { margin-bottom: var(--s-6); }
 .pc-hero[data-off] .pc-box { display: none; }
+
+/* v0.36: back to the trip brief from the chat */
+.np-back {
+  display: inline-flex; align-items: center; gap: var(--s-1); margin-block-end: var(--s-1);
+  border: 0; background: none; padding: var(--s-1) 0; color: var(--brand-ink);
+  font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+}
+.np-back:hover { text-decoration: underline; }

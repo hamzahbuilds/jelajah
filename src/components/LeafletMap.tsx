@@ -9,15 +9,11 @@ import { useT } from '../i18n';
 import 'leaflet/dist/leaflet.css';
 setWorkerUrl(workerUrl);
 
-export interface Pin { lat: number; lng: number; label?: string; icon?: string }
-
-/** Marker HTML for a sprite icon (the <IconDefs> sprite is in the DOM, so <use> resolves inside Leaflet divIcons). */
-export const pinIcon = (name: string, size = 14) =>
-  `<svg viewBox="0 0 24 24" width="${size}" height="${size}" class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-
-export interface Arc { from: Pin; to: Pin; label?: string }
-
-export interface Route { points: [number, number][]; mode: string; color?: string; label?: string }
+// Types and pinIcon live in ./mapTypes so pages can use them without
+// pulling the map engine into their chunk (v0.38, see LazyMap.tsx).
+import { pinIcon, type Pin, type Arc, type Route } from './mapTypes';
+export type { Pin, Arc, Route } from './mapTypes';
+export { pinIcon } from './mapTypes';
 
 // v0.19 per-mode route-line styling (ported from design/ui-refresh/ui.css
 // .leg-train/.leg-walk/.leg-taxi). Colours are literal hex, not CSS vars —

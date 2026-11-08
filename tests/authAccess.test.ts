@@ -208,3 +208,29 @@ describe('admin sign-in links (password fallback, Google off)', () => {
     expect((await admin('/users/999/access-link', 'POST')).status).toBe(404);
   });
 });
+
+describe('onboarding flags (v0.35)', () => {
+  const me = async (cookie: string) => ((await (await call('/me', { cookie })).json()) as any).user.onboarding;
+
+  it('existing accounts get no welcome tour; new Google sign-ups do', async () => {
+    expect(await me('sid=session-2')).toEqual({ welcome: false, skip_plan_intro: false });
+    expect(sqlite.prepare("SELECT welcome_pending FROM users WHERE email='ben@gmail.com'").get()).toEqual({ welcome_pending: 1 });
+  });
+
+  it('admin-created accounts get the tour and, with Google on, no password nudge', async () => {
+    const created = await (await admin('/users', 'POST', { name: 'Fara', email: 'fara@gmail.com' })).json() as any;
+    expect(sqlite.prepare('SELECT welcome_pending, must_change_password FROM users WHERE id=?').get(created.id))
+      .toEqual({ welcome_pending: 1, must_change_password: 0 });
+  });
+
+  it('PATCH /me clears the tour and saves "don\'t show the plan intro again"', async () => {
+    sqlite.prepare('UPDATE users SET welcome_pending=1 WHERE id=2').run();
+    expect((await me('sid=session-2')).welcome).toBe(true);
+    const patch = (body: unknown) => call('/me', { method: 'PATCH', cookie: 'sid=session-2', body: JSON.stringify(body) });
+    expect((await patch({ welcome_done: true })).status).toBe(200);
+    expect((await patch({ skip_plan_intro: true })).status).toBe(200);
+    expect(await me('sid=session-2')).toEqual({ welcome: false, skip_plan_intro: true });
+    await patch({ skip_plan_intro: false });
+    expect((await me('sid=session-2')).skip_plan_intro).toBe(false);
+  });
+});

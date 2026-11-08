@@ -11,7 +11,7 @@ import { api, fmtMYR, fmtDate } from '../api';
 import { useT } from '../i18n';
 import { useSession } from '../app/session';
 import { TripCtx } from '../app/tripContext';
-import LeafletMap, { Pin } from '../components/LeafletMap';
+import LeafletMap, { type Pin } from '../components/LazyMap';
 import ExpandedMap from '../components/ExpandedMap';
 import TransitOptions from '../components/TransitOptions';
 import RailDirections from '../components/RailDirections';
@@ -29,6 +29,7 @@ import { useToast } from '../components/Toast';
 import { Icon, type IconName } from '../components/Icon';
 import Menu from '../components/Menu';
 import Modal from '../components/Modal';
+import { AnimatePresence, motion, useListItem } from '../lib/motionKit';
 
 const normName = (s: string) => s.toUpperCase().replace(/[^A-Z]/g, '');
 
@@ -104,6 +105,7 @@ const emptyActivity = (day: string) => ({
 });
 
 export default function Plan() {
+  const listItem = useListItem();
   const ask = useConfirm();
   const { t, lang } = useT();
   const { user } = useSession();
@@ -643,7 +645,7 @@ export default function Plan() {
             <div className="card">
               <div className="row-between">
                 <h3 style={{ minWidth: 0 }}>
-                  {fmtDate(selDay, lang)} {selDay === today && <span className="badge brand">{t.today}</span>}
+                  {fmtDate(selDay, lang)} {selDay === today && <span className="today-tag">{t.today}</span>}
                   {titleEdit === null ? (
                     <span className="daytitle">
                       {dayTitleOf(selDay) && <span className="daytitle-text">{dayTitleOf(selDay)}</span>}
@@ -709,6 +711,8 @@ export default function Plan() {
               {items.length === 0 && <p className="muted">{t.noEvents}</p>}
               <div className="rail">
                 {legs.filter(leg => !inlineLegs.has(leg.key) && items.length && leg.to.ref === refOf(items[0])).map(renderTransport)}
+                {/* rows rise in / leave and the others close the gap (Animate UI list recipe) */}
+                <AnimatePresence initial={false} key={selDay}>
                 {items.map((i, idx) => {
                   // display-only transit chip between this row and the next, sourced
                   // from the same `legs` the transport card below renders — only shown
@@ -731,7 +735,7 @@ export default function Plan() {
                     api.del(`/activities/${aid}`).catch(() => { toast(t.tSaveFailed, 'error'); load(); });
                   };
                   return (
-                    <div key={i.key}>
+                    <motion.div key={i.key} {...listItem}>
                       <div className={`plan-item stop ${i.activity && focusPin === (pinNos.get(actRef(i.activity.id)) ?? 0) - 1 ? "map-selected" : ""} ${i.activity?.done ? 'done' : ''} ${dragId === i.activity?.id ? 'dragging' : ''} ${i.activity && selIds.has(i.activity.id) ? 'selected' : ''}`}
                         draggable={canEdit && editMode && !!i.activity}
                         onDragStart={() => i.activity && setDragId(i.activity.id)}
@@ -833,9 +837,10 @@ export default function Plan() {
                           ]} />
                       )}
                       {chip && renderTransport(chip)}
-                    </div>
+                    </motion.div>
                   );
                 })}
+                </AnimatePresence>
                 {legs.filter(leg => !inlineLegs.has(leg.key) && (!items.length || leg.to.ref !== refOf(items[0]))).map(renderTransport)}
               </div>
             </div>

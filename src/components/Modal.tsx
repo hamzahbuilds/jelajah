@@ -5,6 +5,7 @@
 import { useId } from 'react';
 import { Icon, type IconName } from './Icon';
 import Dialog from './Dialog';
+import { AnimatePresence } from 'motion/react';
 
 export interface ModalProps {
   /** Extra class on the dialog box (e.g. "expanded-map-dialog"). */
@@ -22,9 +23,9 @@ export interface ModalProps {
 
 export default function Modal({ open, onClose, icon, title, sub, children, footer, closeLabel = 'Close', className = '' }: ModalProps) {
   const titleId = useId();
-  if (!open) return null;
-
   return (
+    <AnimatePresence>
+      {open && (
     <Dialog onClose={onClose} className={`modalwrap modal ${className}`.trim()} labelledBy={titleId}>
       <div className="mhead">
         {icon && <span className="tile sm"><Icon name={icon} /></span>}
@@ -36,5 +37,7 @@ export default function Modal({ open, onClose, icon, title, sub, children, foote
       {children}
       {footer && <div className="mfoot">{footer}</div>}
     </Dialog>
+      )}
+    </AnimatePresence>
   );
 }
