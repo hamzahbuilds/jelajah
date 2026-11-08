@@ -6,6 +6,7 @@ import { clearApiCaches } from '../lib/pwa';
 import { useT } from '../i18n';
 import AuthCarousel from '../components/AuthCarousel';
 import { Icon } from '../components/Icon';
+import GoogleButton, { googleErrorFromUrl, useGoogleSignIn } from '../components/GoogleButton';
 
 export default function Login() {
   const { t } = useT();
@@ -17,6 +18,8 @@ export default function Login() {
   const [seed, setSeed] = useState(true);
   const [err, setErr] = useState(false);
   const [busy, setBusy] = useState(false);
+  const google = useGoogleSignIn();
+  const [googleErr] = useState(() => googleErrorFromUrl(t));
 
   useEffect(() => {
     api.get('/setup/status')
@@ -63,7 +66,11 @@ export default function Login() {
               </label>
             </>
           ) : (
-            <p className="sub">{t.tagline}</p>
+            <>
+              <p className="sub">{t.tagline}</p>
+              {googleErr && <p className="callout warn" role="alert"><Icon name="alert" size={16} /> {googleErr}</p>}
+              {google && <GoogleButton />}
+            </>
           )}
           <label className="fld2">
             {t.email}

@@ -32,6 +32,9 @@ export interface Env {
    * has the YouTube Data API enabled), then the watch page.
    */
   YOUTUBE_API_KEY?: string;
+  /** Sign in with Google (v0.33): OAuth client id ([vars] is fine) + secret (`wrangler secret put`). Both unset = off. */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
 }
 
 // No SESSION_SECRET binding: sessions are opaque 256-bit random tokens stored

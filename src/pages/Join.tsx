@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { useT } from '../i18n';
 import AuthCarousel from '../components/AuthCarousel';
 import { Icon } from '../components/Icon';
+import GoogleButton, { googleErrorFromUrl, useGoogleSignIn } from '../components/GoogleButton';
 
 interface JoinInfo {
   valid: boolean;
@@ -20,7 +21,8 @@ interface JoinInfo {
 // (split/carousel layout, .fld2 fields, .joinbadge invite context card;
 // v0.20 T4 converted the last EN-hardcoded strings to t() keys). No fetch/
 // validate/register/accept byte changed for v0.20 — do not wire new logic
-// in here.
+// in here. (v0.33 added only a Google link + its error line: markup that
+// navigates to /api/auth/google/start; no fetch logic changed.)
 export default function Join() {
   const { t } = useT();
   const { code } = useParams();
@@ -32,6 +34,8 @@ export default function Join() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const google = useGoogleSignIn();
+  const [googleErr] = useState(() => googleErrorFromUrl(t));
 
   useEffect(() => {
     fetch(`/api/join/${code}`)
@@ -161,6 +165,8 @@ export default function Join() {
             </button>
           ) : (
             <form onSubmit={register}>
+              {googleErr && <p className="callout warn" role="alert"><Icon name="alert" size={16} /> {googleErr}</p>}
+              {google && <GoogleButton invite={code} />}
               <label className="fld2">
                 {t.joinName}
                 <input value={name} onChange={e => setName(e.target.value)} required />

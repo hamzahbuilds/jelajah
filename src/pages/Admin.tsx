@@ -14,6 +14,7 @@ import { useT, Dict } from '../i18n';
 import { useSession } from '../app/session';
 import { useToast } from '../components/Toast';
 import { Icon } from '../components/Icon';
+import '../components/google.css';
 import PageHead from '../components/PageHead';
 import LfLine from '../components/charts/LfLine';
 import LfBars from '../components/charts/LfBars';
@@ -116,30 +117,34 @@ export default function Admin() {
   const [all, setAll] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [uform, setUform] = useState({ name: '', email: '', password: '', role: 'member', participant_id: 0 });
-  const [showTemp, setShowTemp] = useState<string | null>(null);
+  const [access, setAccess] = useState<{ name: string; url: string } | null>(null);
 
   const loadAccounts = async () => {
     setAll(await api.get('/participants'));
     setUsers(await api.get('/users'));
   };
 
-  const genPassword = () => Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6);
+  // v0.33: no email service — new accounts and forgotten passwords get a one-time
+  // sign-in link the admin sends by hand (WhatsApp, Telegram…).
+  const makeLink = async (id: number, name: string) => {
+    const r = await api.post(`/users/${id}/access-link`, {});
+    setAccess({ name, url: location.origin + r.url });
+  };
 
   const addUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    const password = uform.password || genPassword();
-    await api.post('/users', { ...uform, password, participant_id: uform.participant_id || null });
-    setShowTemp(password);
+    const created = await api.post('/users', { ...uform, password: uform.password || undefined, participant_id: uform.participant_id || null });
+    const name = uform.name;
     setUform({ name: '', email: '', password: '', role: 'member', participant_id: 0 });
     toast(t.tAccountCreated);
+    await makeLink(Number(created.id), name);
     await loadAccounts();
   };
 
-  const resetPw = async (u: any) => {
-    const pw = genPassword();
-    await api.patch(`/users/${u.id}`, { resetPassword: pw });
-    setShowTemp(pw);
-    toast(t.tPasswordReset);
+  const copyAccess = async () => {
+    if (!access) return;
+    await navigator.clipboard.writeText(access.url);
+    toast(t.linkCopiedTo);
   };
 
   const toggleDisabled = async (u: any) => {
@@ -379,11 +384,18 @@ export default function Admin() {
 
         <div className="card">
           <div className="cardhead"><h3>{t.accountsTitle}</h3></div>
-          {showTemp && (
-            <p className="callout info">
-              {t.tempPassword}: <strong style={{ fontFamily: 'monospace' }}>{showTemp}</strong>
-              <button className="btn ghost sm" onClick={() => setShowTemp(null)} aria-label={t.close}><Icon name="x" size={16} /></button>
-            </p>
+          {access && (
+            <div className="callout info access-link" role="status">
+              <b>{t.signInLinkTitle(access.name)}</b>
+              <input readOnly value={access.url} aria-label={t.signInLink} onFocus={e => e.currentTarget.select()} />
+              <small>{t.signInLinkHint}</small>
+              <div className="row">
+                <button className="btn sm" type="button" onClick={copyAccess}><Icon name="copy" size={16} /> {t.copyLbl}</button>
+                <a className="btn ghost sm" target="_blank" rel="noopener noreferrer"
+                  href={`https://wa.me/?text=${encodeURIComponent(t.signInLinkMsg(access.name, access.url))}`}>{t.shareWhatsApp}</a>
+                <button className="btn ghost sm" type="button" onClick={() => setAccess(null)} aria-label={t.close}><Icon name="x" size={16} /></button>
+              </div>
+            </div>
           )}
           {users.map(u => (
             <div className="lrow" key={u.id}>
@@ -393,7 +405,7 @@ export default function Admin() {
                 <small>{u.email}{u.participant_id ? ` · ${all.find(p => p.id === u.participant_id)?.name ?? ''}` : ''}</small>
               </div>
               <div className="l-end">
-                <button className="btn ghost sm" onClick={() => resetPw(u)}>{t.resetPassword}</button>
+                {!u.disabled && <button className="btn ghost sm" onClick={() => makeLink(u.id, u.name)}><Icon name="link" size={16} /> {t.signInLink}</button>}
                 <button className="btn ghost sm" onClick={() => toggleDisabled(u)}>
                   {u.disabled ? t.enable : t.disable}
                 </button>
@@ -419,7 +431,7 @@ export default function Admin() {
                 </select></label>
             </div>
             <button className="btn sm">{t.addUser}</button>
-            <span className="tiny" style={{ marginLeft: 8 }}><Icon name="key" size={16} /> {t.tempPassword}</span>
+            <span className="tiny" style={{ marginLeft: 8 }}><Icon name="link" size={16} /> {t.addUserNoPwHint}</span>
           </form>
         </div>
 

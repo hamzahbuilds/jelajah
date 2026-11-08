@@ -21,6 +21,8 @@ import { daysBetween } from '../shared/days';
 import { geocode, tripCenter, validLatLng, type Candidate, type LatLng } from './lib/geocode';
 import { cleanDraft, parseDraftReply, draftSystemPrompt, draftResponseSchema, draftPlaceCount, DRAFT_LIMITS, type DraftMode } from '../shared/draft';
 import { findUrl, readSource, sourceBlock, canonicalSource, type SourceResult } from './lib/sources';
+import { authUrl, checkIdToken, decodeState, encodeState, jwtPayload, pkceChallenge, randomUrlToken, safeInvite, safeNext, GOOGLE_TOKEN } from './lib/google';
+import { JOURNEY_SCHEMA } from './lib/journey-schema';
 
 type Vars = { user: SessionUser };
 const app = new Hono<{ Bindings: Env; Variables: Vars }>().basePath('/api');
@@ -192,12 +194,117 @@ app.post('/auth/logout', async c => {
   return c.json({ ok: true });
 });
 
+/* ---------- v0.33 Sign in with Google (docs/21) ---------- */
+
+const googleEnabled = (env: Env) => !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+const G_COOKIE = 'g_oauth';
+const gCookie = (value: string, maxAge: number) =>
+  `${G_COOKIE}=${value}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/google; Max-Age=${maxAge}`;
+const googleRedirectUri = (c: any) => `${new URL(c.req.url).origin}/api/auth/google/callback`;
+
+app.get('/auth/providers', c => c.json({ google: googleEnabled(c.env) }));
+
+app.get('/auth/google/start', async c => {
+  if (!googleEnabled(c.env)) return c.redirect('/login?google=unavailable');
+  const s = {
+    state: randomUrlToken(), verifier: randomUrlToken(48), nonce: randomUrlToken(),
+    next: safeNext(c.req.query('next')), invite: safeInvite(c.req.query('invite')),
+  };
+  c.header('Set-Cookie', gCookie(encodeState(s), 600));
+  return c.redirect(authUrl({
+    clientId: c.env.GOOGLE_CLIENT_ID!, redirectUri: googleRedirectUri(c),
+    state: s.state, nonce: s.nonce, challenge: await pkceChallenge(s.verifier),
+  }));
+});
+
+app.get('/auth/google/callback', async c => {
+  const s = decodeState(getCookie(c, G_COOKIE));
+  c.header('Set-Cookie', gCookie('', 0), { append: true });
+  const back = (code: string) => c.redirect(s?.invite ? `/join/${s.invite}?google=${code}` : `/login?google=${code}`);
+  if (!googleEnabled(c.env)) return back('unavailable');
+  if (c.req.query('error')) return back('cancelled');
+  const code = c.req.query('code');
+  if (!s || !code || c.req.query('state') !== s.state) return back('failed');
+
+  let identity;
+  try {
+    const res = await fetch(GOOGLE_TOKEN, {
+      method: 'POST', signal: AbortSignal.timeout(10_000),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code, client_id: c.env.GOOGLE_CLIENT_ID!, client_secret: c.env.GOOGLE_CLIENT_SECRET!,
+        redirect_uri: googleRedirectUri(c), grant_type: 'authorization_code', code_verifier: s.verifier,
+      }),
+    });
+    const body: any = await res.json().catch(() => null);
+    if (!res.ok || typeof body?.id_token !== 'string') return back('failed');
+    identity = checkIdToken(jwtPayload(body.id_token), { clientId: c.env.GOOGLE_CLIENT_ID!, nonce: s.nonce });
+  } catch { return back('failed'); }
+  if ('error' in identity) return back(identity.error === 'email_unverified' ? 'unverified' : 'failed');
+
+  // 1) Already linked. 2) Same verified email: link it. 3) New person with an invite: sign up.
+  let user = await c.env.DB.prepare('SELECT id, disabled FROM users WHERE google_sub = ?').bind(identity.sub).first<any>()
+    ?? await c.env.DB.prepare('SELECT id, disabled FROM users WHERE email = ?').bind(identity.email).first<any>();
+  const inv = s.invite ? await loadInvite(c.env, s.invite) : null;
+  let tripId: number | undefined;
+  let action = 'login_google';
+
+  if (user) {
+    if (user.disabled) return back('disabled');
+    await c.env.DB.prepare('UPDATE users SET google_sub = ? WHERE id = ? AND google_sub IS NULL').bind(identity.sub, user.id).run();
+    if (inv?.kind === 'trip') tripId = await joinTripByInvite(c.env, inv, user.id, identity.name) ?? undefined;
+  } else {
+    if (!inv) return back('no_account');
+    if (await joinRateLimited(c)) return back('failed');
+    const inc = await c.env.DB.prepare('UPDATE invites SET used_count = used_count + 1 WHERE id = ? AND used_count < max_uses').bind(inv.id).run();
+    if (!inc.meta.changes) return back('failed');
+    // Google-only account: an unguessable password nobody knows. An admin sign-in link can set one later.
+    const { hash, salt } = await hashPassword(randomToken());
+    const r = await c.env.DB.prepare(
+      `INSERT INTO users (email, name, password_hash, salt, lang, referred_by, referral_invite_id, must_change_password, google_sub)
+       VALUES (?,?,?,?,?,?,?,0,?)`,
+    ).bind(identity.email, identity.name, hash, salt, 'en', inv.created_by, inv.id, identity.sub).run();
+    user = { id: Number(r.meta.last_row_id), disabled: 0 };
+    if (inv.kind === 'trip') tripId = await joinTripByInvite(c.env, inv, user.id, identity.name, false) ?? undefined;
+    action = 'join_register_google';
+    await trackUsage(c.env, user.id, 'join_register');
+  }
+
+  const token = await createSession(c.env, user.id);
+  await audit(c.env, user.id, action, inv ? 'invite' : undefined, inv?.id);
+  await trackUsage(c.env, user.id, 'login');
+  c.header('Set-Cookie', sessionCookie(token), { append: true });
+  return c.redirect(tripId != null ? `/trips/${tripId}` : s.next);
+});
+
+/** Put a user on an invited trip (creating their traveller row if needed). Returns the trip id. */
+async function joinTripByInvite(env: Env, inv: any, userId: number, name: string, countUse = true): Promise<number | null> {
+  const u = await env.DB.prepare('SELECT participant_id FROM users WHERE id = ?').bind(userId).first<any>();
+  let pid: number | null = u?.participant_id ?? null;
+  if (pid) {
+    const member = await env.DB.prepare('SELECT 1 FROM trip_members WHERE trip_id = ? AND participant_id = ?').bind(inv.trip_id, pid).first();
+    if (member) return inv.trip_id;
+  }
+  if (countUse) {
+    const inc = await env.DB.prepare('UPDATE invites SET used_count = used_count + 1 WHERE id = ? AND used_count < max_uses').bind(inv.id).run();
+    if (!inc.meta.changes) return null;
+  }
+  if (!pid) {
+    const p = await env.DB.prepare('INSERT INTO participants (name) VALUES (?)').bind(name).run();
+    pid = Number(p.meta.last_row_id);
+    await env.DB.prepare('UPDATE users SET participant_id = ? WHERE id = ?').bind(pid, userId).run();
+  }
+  await env.DB.prepare('INSERT OR IGNORE INTO trip_members (trip_id, participant_id, role) VALUES (?,?,?)').bind(inv.trip_id, pid, inv.role).run();
+  return inv.trip_id;
+}
+
 /* ------------- auth middleware ------------- */
 
 app.route('/journey', journey);
 
 app.use('*', async (c, next) => {
   if (c.req.path === '/api/auth/login' || c.req.path === '/api/health'
+    || c.req.path === '/api/auth/providers' || c.req.path.startsWith('/api/auth/google/')
     || c.req.path.startsWith('/api/setup')
     || (c.req.path.startsWith('/api/join/') && c.req.method === 'GET')
     || (c.req.path.startsWith('/api/join/') && c.req.method === 'POST' && !c.req.path.endsWith('/accept'))
@@ -385,8 +492,9 @@ app.get('/users', requireAdmin, async c => {
 
 app.post('/users', requireAdmin, async c => {
   const { name, email, password, role, participant_id } = await c.req.json<any>();
-  if (!name || !email || !password) return bad(c, 'missing_fields');
-  const { hash, salt } = await hashPassword(password);
+  if (!name || !email) return bad(c, 'missing_fields');
+  // No password: the admin sends a sign-in link (POST /users/:id/access-link) instead.
+  const { hash, salt } = await hashPassword(typeof password === 'string' && password ? password : randomToken());
   try {
     const r = await c.env.DB.prepare(
       `INSERT INTO users (email, name, password_hash, salt, role, participant_id, must_change_password)
@@ -413,6 +521,28 @@ app.patch('/users/:id', requireAdmin, async c => {
     await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id).run();
   }
   return c.json({ ok: true });
+});
+
+/* v0.33 — sign-in links an admin shares by hand (no email service needed). Reuses the
+   password-reset table and /reset-password page; using one signs the person out everywhere. */
+const ACCESS_LINK_HOURS = 72;
+let resetsTableReady: Promise<unknown> | null = null;
+const ensureResetsTable = (env: Env) => (resetsTableReady ??= env.DB.prepare(
+  JOURNEY_SCHEMA.find(s => /CREATE TABLE IF NOT EXISTS password_resets/.test(s))!,
+).run().catch(e => { resetsTableReady = null; throw e; }));
+
+app.post('/users/:id/access-link', requireAdmin, async c => {
+  const id = Number(c.req.param('id'));
+  const u = await c.env.DB.prepare('SELECT id, disabled FROM users WHERE id = ?').bind(id).first<any>();
+  if (!u) return bad(c, 'not_found', 404);
+  if (u.disabled) return bad(c, 'user_disabled', 409);
+  await ensureResetsTable(c.env);
+  const token = randomToken(), now = Math.floor(Date.now() / 1000), expires = now + ACCESS_LINK_HOURS * 3600;
+  await c.env.DB.prepare('INSERT INTO password_resets(token_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)')
+    .bind(await hashToken(token), id, expires, now).run();
+  await audit(c.env, c.get('user').id, 'access_link_create', 'user', id);
+  // Token in the fragment: it never reaches server logs or Referer headers.
+  return c.json({ url: `/reset-password#${token}`, expires_at: new Date(expires * 1000).toISOString() });
 });
 
 /* ---------------- trips ---------------- */

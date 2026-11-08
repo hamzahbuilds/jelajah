@@ -1,0 +1,18 @@
+/* v0.33 Sign in with Google — tokens only. */
+.btn.google-btn {
+  inline-size: 100%; justify-content: center; gap: var(--s-2);
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line-strong);
+}
+.btn.google-btn:hover { background: var(--subtle); }
+.google-btn svg { flex: none; }
+.google-or {
+  display: flex; align-items: center; gap: var(--s-3);
+  margin: var(--s-3) 0; color: var(--ink-2); font-size: var(--fs-sm);
+}
+.google-or::before, .google-or::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+
+/* Admin: sign-in link panel */
+.access-link { display: grid; gap: var(--s-2); }
+.access-link input { font-family: var(--font-mono, monospace); font-size: var(--fs-sm); inline-size: 100%; }
+.access-link .row { flex-wrap: wrap; }

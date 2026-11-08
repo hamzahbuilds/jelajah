@@ -17,7 +17,7 @@ const rel = (f: string) => f.slice(ROOT.length + 1);
 const BASELINE = {
   rawHexOutsideTokens: 94, // v0.30 palette pass (was 111 after merging upstream d6d945e)
   rawRgbaOutsideTokens: 42,
-  inlineStyles: 263,
+  inlineStyles: 257, // v0.33 (was 263)
 };
 
 // Emoji are allowed only as user content / illustration (docs/18 §0).

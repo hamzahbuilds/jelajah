@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useT } from "../i18n";
 import { clearApiCaches } from "../lib/pwa";
 import { Icon } from "../components/Icon";
+import GoogleButton, { useGoogleSignIn } from "../components/GoogleButton";
 
 export default function Recovery({ reset = false }: { reset?: boolean }) {
   const { t, lang, setLang } = useT(),
@@ -15,6 +16,7 @@ export default function Recovery({ reset = false }: { reset?: boolean }) {
   const [busy, setBusy] = useState(false),
     [done, setDone] = useState(false),
     [err, setErr] = useState("");
+  const google = useGoogleSignIn();
   useEffect(() => {
     if (reset) history.replaceState(null, "", location.pathname);
     else
@@ -63,7 +65,10 @@ export default function Recovery({ reset = false }: { reset?: boolean }) {
         ) : (
           <>
             {!reset && available === false ? (
-              <p role="alert">{j.recoveryUnavailable}</p>
+              <>
+                <p role="alert">{j.recoveryUnavailable}</p>
+                {google && <GoogleButton divider={false} />}
+              </>
             ) : (
               <>
                 <label>

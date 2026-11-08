@@ -20,6 +20,7 @@ export const SCHEMA: string[] = [
     participant_id INTEGER REFERENCES participants(id),
     referred_by INTEGER REFERENCES users(id),
     referral_invite_id INTEGER REFERENCES invites(id),
+    google_sub TEXT,
     disabled INTEGER NOT NULL DEFAULT 0,
     must_change_password INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -298,6 +299,7 @@ export const SCHEMA: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id)`,
   `CREATE INDEX IF NOT EXISTS idx_payments_trip ON payments(trip_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_sub) WHERE google_sub IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_checklist ON checklist_items(trip_id, user_id)`,
 ];
 
@@ -326,6 +328,8 @@ export const UPGRADES: string[] = [
   `ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE expenses ADD COLUMN split_json TEXT`,
   `ALTER TABLE room_occupants ADD COLUMN nights INTEGER`,
+  `ALTER TABLE users ADD COLUMN google_sub TEXT`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_sub) WHERE google_sub IS NOT NULL`,
   ...SCHEMA.filter(s =>
     /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily|rooms|room_occupants)\b/.test(s)
     || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code|idx_rooms_trip/.test(s)),
