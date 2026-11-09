@@ -1,5 +1,6 @@
 import { getFeatureFlags } from './lib/feature-flags';
 import { tokyoRailRoute } from "./lib/tokyo-rail";
+import { transitRoute } from "./lib/transit";
 import { geoapifyTransit, googleTransitEmbed } from './lib/geoapify-transit';
 import { normalizeTransitOptions } from './lib/transit-provider';
 import { Hono } from "hono";
@@ -801,7 +802,14 @@ journey.post("/trips/:id/routes", async (c) => {
   if (["train", "metro", "transit", "intercity"].includes(b.mode)) {
     if (!(await consumeLimit(c.env, `rail-user:${c.get("user").id}`, 60, 60)))
       return c.json({ available: false, reason: "quota" });
-    return c.json(tokyoRailRoute(b.points[0], b.points[1]));
+    // v0.40: Malaysia + Singapore first (docs/26): rail, then rail + bus where
+    // rail can't connect the two points (e.g. Ipoh, Kuching); Tokyo otherwise.
+    const [p0, p1] = b.points as [[number, number], [number, number]];
+    const rail = await transitRoute(p0, p1, true);
+    if (rail.available) return c.json(rail);
+    const anyTransit = await transitRoute(p0, p1, false);
+    if (anyTransit.available) return c.json(anyTransit);
+    return c.json(tokyoRailRoute(p0, p1));
   }
   if (!["walk", "drive", "taxi", "car"].includes(b.mode))
     return c.json({ available: false, reason: "unsupported" });

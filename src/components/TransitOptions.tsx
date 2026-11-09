@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { api } from '../api';
 import Modal from './Modal';
-import RailDirections from './RailDirections';
+import RailDirections, { isNetworkRoute } from './RailDirections';
 import type { RouteResult } from '../hooks/useJourneyRoutes';
 import LeafletMap from './LazyMap';
 import type { geoapifyTransit } from '../../server/lib/geoapify-transit';
@@ -54,7 +54,7 @@ export default function TransitOptions({ tripId, from, to, railRoute }: {
     {open && <Modal open title={label} onClose={() => {request.current++;setOpen(false);}} closeLabel={t.close} className="expanded-map-dialog">
       <p>{from.name || from.title} → {to.name || to.title}</p>
       <RailDirections route={railRoute} />
-      {railRoute?.available && railRoute.source === 'tokyo-gtfs' && <LeafletMap pins={[{...from,label:from.name || from.title},{...to,label:to.name || to.title}]} routes={railRoute.segments || []} height={300} />}
+      {isNetworkRoute(railRoute) && <LeafletMap pins={[{...from,label:from.name || from.title},{...to,label:to.name || to.title}]} routes={railRoute?.segments || []} height={300} />}
       {(flags.transitGeoapify || flags.transitGoogleEmbed || flags.transitGoogleLink) && <p className="hint">{ms ? 'Semak alternatif Geoapify atau Google Maps jika diperlukan. Pratonton tidak mengubah jadual atau perbelanjaan.' : 'Check Geoapify or Google Maps for alternatives if needed. Previews do not change your itinerary or expenses.'}</p>}
       <div className="map-itinerary">
         {flags.transitGeoapify && <button className="btn" disabled={busy} onClick={() => search('geoapify')}>{ms ? 'Cuba Geoapify' : 'Try Geoapify'}</button>}

@@ -1,0 +1,325 @@
+{
+ "built": "2026-11-09",
+ "networks": [
+  {
+   "id": "my-klang-valley-rail",
+   "name": "Klang Valley rail (LRT, MRT, Monorail, BRT)",
+   "country": "MY",
+   "kind": "rail",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    2.9313,
+    101.4406,
+    3.2318,
+    101.7903
+   ],
+   "key": "transit/my-klang-valley-rail@d9e2d31550b1",
+   "bytes": 25992,
+   "stops": 187,
+   "lines": 8,
+   "edges": 358
+  },
+  {
+   "id": "my-ktmb",
+   "name": "KTMB (Komuter, ETS, intercity)",
+   "country": "MY",
+   "kind": "rail",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    1.4437,
+    100.2571,
+    7.004,
+    103.9215
+   ],
+   "key": "transit/my-ktmb@0f49cbea495c",
+   "bytes": 13719,
+   "stops": 156,
+   "lines": 9,
+   "edges": 526
+  },
+  {
+   "id": "my-klang-valley-bus",
+   "name": "Rapid KL buses and MRT feeders",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    2.7453,
+    101.409,
+    3.3373,
+    101.9093
+   ],
+   "key": "transit/my-klang-valley-bus@ca3c3b58cdc9",
+   "bytes": 446143,
+   "stops": 6225,
+   "lines": 230,
+   "edges": 8802
+  },
+  {
+   "id": "my-penang-bus",
+   "name": "Rapid Penang buses",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    5.1182,
+    100.1902,
+    5.6441,
+    100.5537
+   ],
+   "key": "transit/my-penang-bus@cc28c0ab29c1",
+   "bytes": 144256,
+   "stops": 1933,
+   "lines": 47,
+   "edges": 4094
+  },
+  {
+   "id": "my-alor-setar-bus",
+   "name": "BAS.MY Alor Setar",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    5.5742,
+    100.2863,
+    6.2736,
+    100.6103
+   ],
+   "key": "transit/my-alor-setar-bus@e6f6634cc8f6",
+   "bytes": 33262,
+   "stops": 394,
+   "lines": 14,
+   "edges": 1122
+  },
+  {
+   "id": "my-ipoh-bus",
+   "name": "BAS.MY Ipoh",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    4.316,
+    100.9395,
+    4.8407,
+    101.1677
+   ],
+   "key": "transit/my-ipoh-bus@3263ec101469",
+   "bytes": 80110,
+   "stops": 1510,
+   "lines": 17,
+   "edges": 1482
+  },
+  {
+   "id": "my-johor-bus",
+   "name": "BAS.MY Johor",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    1.3512,
+    103.3883,
+    1.7296,
+    103.9557
+   ],
+   "key": "transit/my-johor-bus@3b2d87b2cbef",
+   "bytes": 68121,
+   "stops": 988,
+   "lines": 21,
+   "edges": 1661
+  },
+  {
+   "id": "my-kangar-bus",
+   "name": "BAS.MY Kangar",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    6.1173,
+    100.131,
+    6.6637,
+    100.5086
+   ],
+   "key": "transit/my-kangar-bus@4a472b297ced",
+   "bytes": 32360,
+   "stops": 455,
+   "lines": 9,
+   "edges": 932
+  },
+  {
+   "id": "my-kota-bharu-bus",
+   "name": "BAS.MY Kota Bharu",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    4.8266,
+    101.8445,
+    6.2328,
+    102.5989
+   ],
+   "key": "transit/my-kota-bharu-bus@efe2bb246d48",
+   "bytes": 64515,
+   "stops": 755,
+   "lines": 16,
+   "edges": 2232
+  },
+  {
+   "id": "my-kuala-terengganu-bus",
+   "name": "BAS.MY Kuala Terengganu",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    5.0707,
+    102.9486,
+    5.533,
+    103.2077
+   ],
+   "key": "transit/my-kuala-terengganu-bus@5f784ddffe6d",
+   "bytes": 29581,
+   "stops": 358,
+   "lines": 9,
+   "edges": 922
+  },
+  {
+   "id": "my-kuching-bus",
+   "name": "BAS.MY Kuching",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    1.1646,
+    110.1548,
+    1.6679,
+    110.567
+   ],
+   "key": "transit/my-kuching-bus@7715dabf9228",
+   "bytes": 24914,
+   "stops": 406,
+   "lines": 13,
+   "edges": 573
+  },
+  {
+   "id": "my-melaka-bus",
+   "name": "BAS.MY Melaka",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    2.1852,
+    102.1102,
+    2.4741,
+    102.564
+   ],
+   "key": "transit/my-melaka-bus@7245688ad381",
+   "bytes": 60006,
+   "stops": 725,
+   "lines": 22,
+   "edges": 1789
+  },
+  {
+   "id": "my-seremban-a-bus",
+   "name": "BAS.MY Seremban A",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    2.4649,
+    101.685,
+    2.8639,
+    102.2318
+   ],
+   "key": "transit/my-seremban-a-bus@0364628da5e9",
+   "bytes": 38585,
+   "stops": 673,
+   "lines": 11,
+   "edges": 834
+  },
+  {
+   "id": "my-seremban-b-bus",
+   "name": "BAS.MY Seremban B",
+   "country": "MY",
+   "kind": "bus",
+   "attribution": "Transit data: data.gov.my (Prasarana, KTMB, BAS.MY), CC BY 4.0",
+   "license": "CC BY 4.0",
+   "built": "2026-11-09",
+   "bbox": [
+    2.4064,
+    101.7922,
+    3.0918,
+    102.4044
+   ],
+   "key": "transit/my-seremban-b-bus@477ca9a37455",
+   "bytes": 61973,
+   "stops": 1055,
+   "lines": 11,
+   "edges": 1345
+  },
+  {
+   "id": "sg-rail",
+   "name": "Singapore MRT and LRT",
+   "country": "SG",
+   "kind": "rail",
+   "attribution": "Transit data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-09",
+   "bbox": [
+    1.2513,
+    103.6367,
+    1.4492,
+    103.9919
+   ],
+   "key": "transit/sg-rail@52d3a3d569d8",
+   "bytes": 26573,
+   "stops": 508,
+   "lines": 45,
+   "edges": 552
+  },
+  {
+   "id": "sg-bus",
+   "name": "Singapore buses",
+   "country": "SG",
+   "kind": "bus",
+   "attribution": "Transit data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-09",
+   "bbox": [
+    1.2361,
+    103.3882,
+    1.5279,
+    104.03
+   ],
+   "key": "transit/sg-bus@765681dcab02",
+   "bytes": 770434,
+   "stops": 5601,
+   "lines": 867,
+   "edges": 26979
+  }
+ ]
+}

@@ -17,7 +17,10 @@ export interface RouteResult {
   railSeconds?: number;
   railDistance?: number;
   source?: string;
-  steps?: {line: string; fromStation: string; toStation: string; duration: number}[];
+  steps?: {line: string; fromStation: string; toStation: string; duration: number; mode?: 'train' | 'bus'}[];
+  /** Data credit for the network(s) used (v0.40: data.gov.my CC BY 4.0, OpenStreetMap ODbL). */
+  attribution?: string;
+  networks?: string[];
   stations?: string[];
   lines?: string[];
   walkingUnavailable?: boolean;
