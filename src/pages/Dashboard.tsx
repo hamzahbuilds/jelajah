@@ -268,8 +268,8 @@ export default function Dashboard() {
                 const openItems = b.byPayee.flatMap((bp: any) => bp.items.filter((it: any) => it.remaining > 0.004));
                 const key = `o${b.participant.id}`;
                 return (
-                  <div className={`row-between tip-wrap ${tipOpen === key ? 'open' : ''}`} key={key}
-                    style={{ padding: '5px 0' }} onClick={() => setTipOpen(tipOpen === key ? null : key)}>
+                  <div className={`row-between row-pad tip-wrap ${tipOpen === key ? 'open' : ''}`} key={key}
+                    onClick={() => setTipOpen(tipOpen === key ? null : key)}>
                     <span>{b.participant.name}</span>
                     <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtMYR(b.outstanding)}</strong>
                     <div className="tip">
@@ -291,7 +291,7 @@ export default function Dashboard() {
             {!mine || mine.outstanding <= 0.004
               ? <p className="muted">{t.allSettled}</p>
               : mine.byPayee.map((bp: any) => (
-                <div key={bp.to_participant_id} className="row-between" style={{ padding: '5px 0' }}>
+                <div key={bp.to_participant_id} className="row-between row-pad">
                   <span className="muted">{t.remaining}</span>
                   <strong>{fmtMYR(bp.remaining)}</strong>
                 </div>
@@ -304,7 +304,7 @@ export default function Dashboard() {
           <div className="cardhead"><h3>{t.upcomingDues}</h3></div>
           {openDues.length === 0 && <p className="muted">{t.none}</p>}
           {openDues.map(d => (
-            <div className="row-between" key={d.id} style={{ padding: '5px 0' }}>
+            <div className="row-between row-pad" key={d.id}>
               <Link style={{ color: 'inherit', display: 'block' }}
                 to={`/trips/${tripId}/money/payments?expense=${d.expense_id}${d.participant_id ? `&participant=${d.participant_id}` : ''}`}>
                 <div>{d.description} {d.participant_id != null && <span className="tiny muted">· {d.participant_name}</span>} <span className="tiny">→</span></div>

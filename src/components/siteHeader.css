@@ -1,0 +1,74 @@
+/* v0.42 public site header — tokens only. Collapsed (popover) layout is the default; .is-wide is set by SiteHeader.tsx when the row fits. */
+.site-header {
+  position: sticky; inset-block-start: 0; z-index: 50;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: saturate(1.4) blur(12px);
+  border-block-end: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding-block-start: env(safe-area-inset-top);
+}
+.site-header-inner {
+  display: flex; align-items: center; gap: var(--s-2);
+  max-inline-size: 1200px; margin-inline: auto; padding: var(--s-3) var(--s-4);
+}
+/* keep the row's natural width measurable */
+.site-header-inner > * { flex-shrink: 0; white-space: nowrap; }
+.site-logo {
+  display: inline-flex; align-items: center; gap: var(--s-2); margin-inline-end: auto;
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); color: var(--ink); text-decoration: none;
+}
+.site-nav { display: flex; align-items: center; }
+.site-menu-button { gap: var(--s-2); anchor-name: --site-menu-button; }
+.site-cta { justify-content: center; }
+
+/* collapsed: the list is a popover under the Menu button */
+.site-menu {
+  position: fixed; inset: auto;
+  inset-block-start: 4.5rem; /* browsers without anchor() keep this */
+  inset-block-start: anchor(--site-menu-button bottom);
+  inset-inline-end: var(--s-4);
+  inline-size: min(80dvw, 20rem); max-inline-size: calc(100dvw - 2rem);
+  block-size: fit-content; max-block-size: calc(100dvh - 6rem); overflow: auto;
+  margin: var(--s-2) 0 0; padding: var(--s-2); list-style: none;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--border);
+  border-radius: var(--r-xl); box-shadow: var(--shadow-lg, 0 12px 32px rgb(0 0 0 / .14));
+}
+.site-menu a, .site-menu .site-lang {
+  display: flex; align-items: center; gap: var(--s-2); inline-size: 100%;
+  min-block-size: 44px; padding: 0 var(--s-3); border-radius: var(--r-md);
+  color: var(--ink); text-decoration: none; font: inherit; font-weight: 600; font-size: var(--fs-md);
+  background: none; border: 0; cursor: pointer;
+}
+.site-menu a:hover, .site-menu .site-lang:hover { background: var(--tile); }
+.site-menu a[aria-current="page"] { color: var(--brand-ink); background: var(--tile); }
+.site-menu-sep { block-size: 1px; margin: var(--s-2) var(--s-1); background: var(--border); }
+.site-menu :focus-visible, .site-menu-button:focus-visible, .site-logo:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+.site-menu {
+  @media (prefers-reduced-motion: no-preference) {
+    transition: opacity .16s ease-out, translate .16s ease-out, display .16s, overlay .16s;
+    transition-behavior: allow-discrete;
+  }
+}
+.site-menu:is(:popover-open, .\:popover-open) { opacity: 1; translate: 0 0; }
+@starting-style { .site-menu:is(:popover-open, .\:popover-open) { opacity: 0; translate: 0 -4px; } }
+
+/* wide: the same list sits inline in the header */
+.site-header.is-wide .site-menu-button { display: none; }
+.site-header.is-wide .site-menu {
+  position: static; display: flex; align-items: center; gap: var(--s-1);
+  inline-size: auto; max-inline-size: none; block-size: auto; max-block-size: none;
+  overflow: visible; margin: 0 var(--s-2) 0 0; padding: 0; border: 0; background: transparent; box-shadow: none;
+}
+.site-header.is-wide .site-menu::backdrop { display: none; }
+.site-header.is-wide .site-menu a, .site-header.is-wide .site-menu .site-lang {
+  inline-size: auto; min-block-size: 40px; color: var(--ink-2);
+}
+.site-header.is-wide .site-menu a:hover, .site-header.is-wide .site-menu .site-lang:hover { color: var(--ink); }
+.site-header.is-wide .site-menu a[aria-current="page"] { color: var(--brand-ink); background: none; text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 2px; }
+.site-header.is-wide .site-menu-sep { inline-size: 1px; block-size: 20px; margin: 0 var(--s-2); }
+.site-header.is-measuring * { transition: none !important; }
+
+@media (forced-colors: active) {
+  .site-menu a[aria-current="page"] { text-decoration: underline; }
+}
+.site-header-host { display: contents; }

@@ -58,6 +58,7 @@ export default function Login() {
         <AuthCarousel />
         <div className="pane">
           <div className="authcard login-card">
+            <Link to="/" className="login-home"><Icon name="arrow-l" size={16} /> {t.j.home}</Link>
             <div className="logo"><BrandMark /> {t.appName}</div>
             <p className="sub">{t.tagline}</p>
             {googleErr && <p className="callout warn" role="alert"><Icon name="alert" size={16} /> {googleErr}</p>}
@@ -78,6 +79,7 @@ export default function Login() {
       <AuthCarousel />
       <div className="pane">
         <form className="authcard login-card" onSubmit={submit}>
+          {mode === 'login' && <Link to="/" className="login-home"><Icon name="arrow-l" size={16} /> {t.j.home}</Link>}
           <div className="logo"><BrandMark /> {t.appName}</div>
           {mode === 'setup' ? (
             <>
@@ -106,7 +108,7 @@ export default function Login() {
               minLength={mode === 'setup' ? 8 : undefined} required />
           </label>
           {mode === 'setup' && (
-            <label className="row" style={{ gap: 8, marginBottom: 12, fontSize: '.85rem' }}>
+            <label className="row" style={{ gap: 8, marginBottom: 12, fontSize: 'var(--fs-md)' }}>
               <input type="checkbox" checked={seed} onChange={e => setSeed(e.target.checked)}
                 style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
               <span>{t.seedJapan}</span>

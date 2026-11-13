@@ -38,7 +38,7 @@ export default function TokenCard() {
   return (
     <div style={{ marginTop: 12 }}>
       <div className="row-between">
-        <strong style={{ fontSize: '.9rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}><Icon name="key" size={16} /> {t.accessTokens}</strong>
+        <strong style={{ fontSize: 'var(--fs-md)', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}><Icon name="key" size={16} /> {t.accessTokens}</strong>
       </div>
       {fresh && (
         <div className="callout info" style={{ margin: '8px 0' }}>
@@ -48,7 +48,7 @@ export default function TokenCard() {
       )}
       {tokens.map(tk => (
         <div className="row-between" key={tk.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-          <span style={{ fontSize: '.85rem' }}>
+          <span style={{ fontSize: 'var(--fs-md)' }}>
             {tk.name} {tk.revoked ? <span className="badge warning">{t.revokedLbl}</span> : null}
             <span className="tiny"> · {tk.last_used_at ? `${t.lastUsed} ${fmtDate(tk.last_used_at.slice(0, 10), lang)}` : t.neverUsed}</span>
           </span>

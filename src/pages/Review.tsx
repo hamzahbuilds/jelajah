@@ -164,8 +164,8 @@ export default function Review() {
               <>
                 <h3 style={{ marginTop: 12 }}>{t.peopleOnDoc}</h3>
                 {matches.map((m: any, i: number) => (
-                  <div className="row-between" key={i} style={{ padding: '3px 0' }}>
-                    <span style={{ fontSize: '.85rem' }}>{m.name}</span>
+                  <div className="row-between row-pad" key={i}>
+                    <span style={{ fontSize: 'var(--fs-md)' }}>{m.name}</span>
                     {m.participant
                       ? <span className="badge success">{m.participant.name} ✓</span>
                       : <span className="badge warning">{t.notMatched}</span>}

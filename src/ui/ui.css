@@ -102,7 +102,7 @@ a.ui-row-hit:hover, button.ui-row-hit:hover { background: color-mix(in srgb, var
 
 /* ---------- Segmented ---------- */
 .ui-seg {
-  display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--r-md);
+  display: inline-flex; gap: 2px; padding: 4px; border-radius: var(--r-md);
   background: var(--gray-100); border: 1px solid var(--border); max-inline-size: 100%; overflow-x: auto;
 }
 [data-theme="dark"] .ui-seg { background: var(--gray-800); }
@@ -174,7 +174,7 @@ dialog.ui-sheet {
 @media (min-width: 1024px) {
   dialog.ui-sheet {
     inset: 0; margin: auto; inline-size: min(560px, calc(100vw - 48px));
-    block-size: auto; max-block-size: min(88dvh, 820px); border-radius: var(--r-xl); box-shadow: var(--e-overlay);
+    block-size: auto; max-block-size: min(88dvh, 820px); border-radius: var(--r-2xl); box-shadow: var(--e-overlay);
   }
   dialog.ui-sheet.wide { inline-size: min(760px, calc(100vw - 48px)); }
   .ui-sheet-form { block-size: auto; max-block-size: min(88dvh, 820px); }
@@ -201,7 +201,7 @@ dialog.ui-sheet {
 
 .ui-drp-pop {
   position: fixed; margin: 0; inset: auto; padding: var(--s-4); border: 1px solid var(--border);
-  border-radius: var(--r-xl); background: var(--surface); color: var(--ink); box-shadow: var(--e-overlay);
+  border-radius: var(--r-2xl); background: var(--surface); color: var(--ink); box-shadow: var(--e-overlay);
   /* size to the two month grids; never wider or taller than the viewport — the panel
      is position:fixed, so anything off-screen (the Done button) could not be scrolled to */
   inline-size: max-content; max-inline-size: calc(100vw - 24px);

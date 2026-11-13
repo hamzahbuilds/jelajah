@@ -50,7 +50,7 @@ export default function LfLine({ title, sub, badge, series, unitLabel, firstLabe
         </svg>
       </div>
       {(firstLabel || lastLabel) && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: 'var(--ink-3)', marginTop: 6 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', color: 'var(--ink-3)', marginTop: 6 }}>
           <span>{firstLabel}</span><span>{lastLabel}</span>
         </div>
       )}

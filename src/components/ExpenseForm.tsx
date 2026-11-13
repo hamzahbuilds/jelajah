@@ -548,7 +548,7 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
       {!d.roomsSplit && (
       <div style={{ margin: '8px 0 14px' }}>
         <div className="row-between">
-          <span style={{ fontWeight: 600, fontSize: '.85rem', color: 'var(--ink-2)' }}>
+          <span style={{ fontWeight: 600, fontSize: 'var(--fs-md)', color: 'var(--ink-2)' }}>
             {t.participants} ({d.participant_ids.length})
           </span>
           <span className="row">
@@ -603,7 +603,7 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
 
       <div style={{ marginBottom: 14 }}>
         <div className="row-between">
-          <span style={{ fontWeight: 600, fontSize: '.85rem', color: 'var(--ink-2)' }}>{t.dueDates}</span>
+          <span style={{ fontWeight: 600, fontSize: 'var(--fs-md)', color: 'var(--ink-2)' }}>{t.dueDates}</span>
           <button type="button" className="btn ghost sm"
             onClick={() => set({ due_dates: [...d.due_dates, { due_date: '' }] })}>＋ {t.addDueDate}</button>
         </div>

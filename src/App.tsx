@@ -21,6 +21,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Plan = lazy(() => import('./pages/JournalPlan'));
 const Recovery = lazy(() => import('./pages/Recovery'));
 const PublicJourneys = lazy(() => import('./pages/PublicJourneys'));
+const Home = lazy(() => import('./pages/Home'));
 const MySpend = lazy(() => import('./pages/MySpend'));
 const Documents = lazy(() => import('./pages/Documents'));
 const Review = lazy(() => import('./pages/Review'));
@@ -63,8 +64,12 @@ function Shell() {
   if (state === 'loading') return <Loading label={t.loading} />;
   if (!state) {
     // v0.39: Discover and guides are public; signed in, they open inside the app (below).
-    if (pathname === '/discover') return <I18nProvider><PublicJourneys /></I18nProvider>;
-    if (pathname.startsWith('/guides/')) return <I18nProvider><Routes><Route path="/guides/:id" element={<PublicJourneys detail />} /></Routes></I18nProvider>;
+    // v0.42: "/" is the public homepage when signed out.
+    const pub = pathname === '/' ? <Home />
+      : pathname === '/discover' ? <PublicJourneys />
+        : pathname.startsWith('/guides/') ? <Routes><Route path="/guides/:id" element={<PublicJourneys detail />} /></Routes>
+          : null;
+    if (pub) return <I18nProvider><Suspense fallback={<Loading label={t.loading} />}>{pub}</Suspense></I18nProvider>;
     return <Navigate to="/login" replace />;
   }
 

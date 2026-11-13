@@ -1180,7 +1180,7 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
 
         <div style={{ marginBottom: 12 }}>
           <div className="row-between">
-            <span style={{ fontWeight: 600, fontSize: '.85rem', color: 'var(--ink-2)' }}>{t.participants}</span>
+            <span style={{ fontWeight: 600, fontSize: 'var(--fs-md)', color: 'var(--ink-2)' }}>{t.participants}</span>
             <span className="row">
               <button type="button" className="btn ghost sm"
                 onClick={() => set({ participant_ids: members.map((m: any) => m.id) })}>{t.everyone}</button>
@@ -1286,7 +1286,7 @@ function StartEndModal({ tripId, day, ds, stays, onClose, onSaved }: {
   const side = (label: string, val: any, setVal: any) => (
     <div style={{ marginBottom: 12 }}>
       <div className="row-between">
-        <strong style={{ fontSize: '.88rem' }}>{label}</strong>
+        <strong style={{ fontSize: 'var(--fs-md)' }}>{label}</strong>
         <label className="row tiny" style={{ gap: 5 }}>
           <input type="radio" checked={val === null} onChange={() => setVal(null)} /> {t.useStay}
         </label>
@@ -1317,7 +1317,7 @@ function StartEndModal({ tripId, day, ds, stays, onClose, onSaved }: {
       {side(t.dayEnd, end, setEnd)}
       {unpinned.length > 0 && (
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginBottom: 10 }}>
-          <strong style={{ fontSize: '.88rem' }}><Icon name="pin" size={16} /> {t.setStayPin}</strong>
+          <strong style={{ fontSize: 'var(--fs-md)' }}><Icon name="pin" size={16} /> {t.setStayPin}</strong>
           <select style={{ margin: '6px 0' }} value={pinStay?.expense_id ?? ''}
             onChange={e => setPinStay(unpinned.find(s => s.expense_id === Number(e.target.value)) ?? null)}>
             <option value="">—</option>

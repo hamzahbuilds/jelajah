@@ -203,7 +203,7 @@ export default function MySpend() {
 
           {taggable.length > 0 && (
             <div style={{ margin: '4px 0 12px' }}>
-              <span style={{ display: 'block', fontSize: '.8rem', fontWeight: 600, color: 'var(--ink-2)', marginBottom: 3 }}>
+              <span style={{ display: 'block', fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--ink-2)', marginBottom: 3 }}>
                 {t.tagPeople}
               </span>
               <div className="chips">

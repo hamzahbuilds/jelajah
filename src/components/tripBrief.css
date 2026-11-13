@@ -48,9 +48,9 @@ textarea.tb-text { resize: vertical; field-sizing: content; min-block-size: 2lh;
   font-size: var(--fs-xs); font-weight: 700; letter-spacing: .06em; font-variant-numeric: tabular-nums;
 }
 /* flags (flag-icons, 4:3) */
-.tb-flag { flex: none; inline-size: 1.333em; block-size: 1em; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }
-.tb-flag.lg { font-size: 1.25rem; border-radius: 4px; }
-.tb-iata .tb-flag.lg { font-size: 1.4rem; margin-inline-end: var(--s-2); vertical-align: -0.12em; }
+.tb-flag { flex: none; inline-size: 1.333em; block-size: 1em; object-fit: cover; border-radius: var(--r-xs); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }
+.tb-flag.lg { font-size: var(--fs-lg); border-radius: var(--r-xs); }
+.tb-iata .tb-flag.lg { font-size: var(--fs-lg); margin-inline-end: var(--s-2); vertical-align: -0.12em; }
 .tb-x, .tb-chip button {
   display: inline-grid; place-items: center; border: 0; background: none; color: var(--ink-3);
   border-radius: 50%; cursor: pointer; inline-size: 32px; block-size: 32px;
@@ -123,7 +123,7 @@ textarea.tb-text { resize: vertical; field-sizing: content; min-block-size: 2lh;
 
 /* ---------- ticket ---------- */
 .tb-ticket {
-  border-radius: var(--r-xl); overflow: hidden; margin-block-end: var(--s-5);
+  border-radius: var(--r-2xl); overflow: hidden; margin-block-end: var(--s-5);
   border: 1px solid var(--border); background: var(--surface); box-shadow: var(--e-2);
 }
 .tb-ticket-main {
@@ -134,7 +134,7 @@ textarea.tb-text { resize: vertical; field-sizing: content; min-block-size: 2lh;
 .tb-end { display: grid; gap: 2px; max-inline-size: 11ch; }
 .tb-end.to { text-align: end; justify-items: end; }
 .tb-home { display: grid; place-items: center; inline-size: 40px; block-size: 40px; border-radius: 50%; background: var(--tile); color: var(--brand-ink); }
-.tb-iata { font-size: 1.9rem; font-weight: 800; letter-spacing: .02em; line-height: 1; color: var(--ink); }
+.tb-iata { font-size: var(--fs-xl); font-weight: 800; letter-spacing: .02em; line-height: 1; color: var(--ink); }
 .tb-end small { color: var(--ink-2); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-inline-size: 100%; }
 .tb-route { inline-size: 100%; block-size: 44px; align-self: center; overflow: visible; }
 /* non-scaling stroke: dash lengths are screen pixels whatever the card's width */
@@ -157,7 +157,8 @@ textarea.tb-text { resize: vertical; field-sizing: content; min-block-size: 2lh;
 /* ---------- wizard ---------- */
 .tb-wizard { display: grid; gap: var(--s-4); max-inline-size: 640px; margin-inline: auto; inline-size: 100%; }
 .tb-progress { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-1); }
-.tb-progress li { position: relative; }
+.tb-progress li { position: relative; min-inline-size: 0; }
+.tb-pname { max-inline-size: 100%; text-align: center; overflow-wrap: anywhere; }
 .tb-progress li::after {
   content: ''; position: absolute; inset-block-start: 15px; inset-inline-start: calc(50% + 18px); inset-inline-end: calc(-50% + 18px);
   block-size: 2px; background: var(--border);
@@ -210,7 +211,7 @@ textarea.tb-text { resize: vertical; field-sizing: content; min-block-size: 2lh;
   .tb-card { grid-template-columns: auto 1fr; justify-items: start; text-align: start; column-gap: var(--s-3); }
   .tb-card .icon { grid-row: span 2; margin: 0; align-self: center; }
   .tb-pname { display: none; }
-  .tb-iata { font-size: 1.5rem; }
+  .tb-iata { font-size: var(--fs-lg); }
 }
 
 /* ---------- motion ----------

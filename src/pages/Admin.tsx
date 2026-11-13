@@ -293,7 +293,7 @@ export default function Admin() {
             <div className="card lf">
               <div className="cardhead"><h3>{t.mQuotaTitle}</h3><span className="badge gray"><span className="d" />{t.mBadgeAllTime}</span></div>
               <div className="lfsub">{t.mQuotaSub}</div>
-              <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.7 }}>
+              <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 'var(--fs-sm)', color: 'var(--ink-2)', lineHeight: 1.7 }}>
                 {freeTierLimits(t).map(l => <li key={l}>{l}</li>)}
               </ul>
               <div className="lfsrc">{t.sourcePrefix} · {t.mSourceQuota}. {t.mQuotaNote}</div>
@@ -417,7 +417,7 @@ export default function Admin() {
             </div>
           ))}
           <form onSubmit={addUser} style={{ marginTop: 14 }}>
-            <h3 style={{ fontSize: '.9rem' }}>{t.addUser}</h3>
+            <h3 style={{ fontSize: 'var(--fs-md)' }}>{t.addUser}</h3>
             <div className="form-grid">
               <label className="fld"><span>{t.name}</span>
                 <input required value={uform.name} onChange={e => setUform({ ...uform, name: e.target.value })} /></label>

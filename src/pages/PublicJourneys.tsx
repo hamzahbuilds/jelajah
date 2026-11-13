@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import SiteHeader from "../components/SiteHeader";
 import { api } from "../api";
 import { useT } from "../i18n";
 import PublicSchedule from "../components/PublicSchedule";
 import type { PublicJourney } from "../../shared/journey";
-import { Icon } from "../components/Icon";
+import { Icon, IconDefs } from "../components/Icon";
 
 export default function PublicJourneys({
   guest = false,
@@ -16,15 +17,17 @@ export default function PublicJourneys({
   /** Inside the signed-in app: its nav is around us, so no brand bar or sign-in link. */
   embedded?: boolean;
 }) {
-  const { t, lang, setLang } = useT(),
+  const { t } = useT(),
     j = t.j,
-    params = useParams();
+    params = useParams(),
+    [sp] = useSearchParams();
   const [data, setData] = useState<PublicJourney | null>(null),
     [items, setItems] = useState<any[]>([]),
     [failed, setFailed] = useState(false),
     [loading, setLoading] = useState(true);
-  const [q, setQ] = useState(""),
-    [search, setSearch] = useState(""),
+  // v0.42: the homepage's destination cards open /discover?q=Kyoto.
+  const [q, setQ] = useState(() => sp.get("q") ?? ""),
+    [search, setSearch] = useState(() => sp.get("q") ?? ""),
     [duration, setDuration] = useState("0"),
     [page, setPage] = useState(0);
   useEffect(() => {
@@ -68,24 +71,17 @@ export default function PublicJourneys({
   // Inside the app the shell already provides <main>; the public page is its own.
   const Wrap = embedded ? "div" : "main";
   return (
+    <>
+    {!embedded && <><IconDefs /><div className="no-print site-header-host"><SiteHeader /></div></>}
     <Wrap className={embedded ? "journey-public embedded" : "journey-public"}>
       {embedded ? (detail && (
         <Link to="/discover" className="np-back no-print"><Icon name="arrow-l" size={16} /> {j.discover}</Link>
       )) : (
-      <nav className="public-nav no-print">
-        <Link to="/discover" className="journal-brand">
-          <Icon name="pin" size={20} /> Jelajah
-        </Link>
-        <div className="row">
-          <button
-            className="btn ghost sm"
-            onClick={() => setLang(lang === "en" ? "ms" : "en")}
-          >
-            {lang === "en" ? "Bahasa Malaysia" : "English"}
-          </button>
-          <Link to="/login">{t.signIn}</Link>
-        </div>
-      </nav>
+      <>
+        {detail && (
+          <Link to="/discover" className="np-back no-print"><Icon name="arrow-l" size={16} /> {j.discover}</Link>
+        )}
+      </>
       )}
       {loading ? (
         <p role="status">{t.loading}</p>
@@ -173,5 +169,6 @@ export default function PublicJourneys({
         </>
       )}
     </Wrap>
+    </>
   );
 }

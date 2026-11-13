@@ -134,7 +134,7 @@ export default function Trips() {
       <div className="card" style={{ marginTop: 24 }}>
         <div className="cardhead">
           <h3><span className="invite-icon"><Icon name="gift" className="icon" /></span> {t.inviteSomeone}</h3>
-          <Link to="/settings" style={{ fontSize: 13, fontWeight: 600 }}>{t.yourReferralLink} →</Link>
+          <Link to="/settings" style={{ fontSize: 'var(--fs-sm)', fontWeight: 600 }}>{t.yourReferralLink} →</Link>
         </div>
         <p className="hint">{t.inviteSomeoneHint}</p>
       </div>

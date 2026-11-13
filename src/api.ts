@@ -16,7 +16,7 @@ export function setOfflineListener(fn: ((offline: boolean) => void) | null): voi
 async function handle(res: Response): Promise<any> {
   // Public pages (v0.39: Discover and guides) check the session too; a 401 there
   // just means "not signed in", not "send me to the login page".
-  const publicPage = location.pathname === '/discover' || location.pathname.startsWith('/guides/');
+  const publicPage = location.pathname === '/' || location.pathname === '/discover' || location.pathname.startsWith('/guides/');
   if (res.status === 401 && !location.pathname.startsWith('/login') && !publicPage) {
     // F1 (v0.22 final review, 2026-09-06): fire-and-forget cache clear on
     // session expiry, so the next user on a shared device doesn't inherit

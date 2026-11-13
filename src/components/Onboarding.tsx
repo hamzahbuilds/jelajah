@@ -8,12 +8,13 @@ import { useEffect, useId, useRef, useState } from 'react';
 import Dialog from './Dialog';
 import { Icon } from './Icon';
 import type { IconName } from './iconDefs';
+import ObArt, { type ArtKind } from './ObArt';
 import { useT } from '../i18n';
 import { AnimatePresence, StepSwap, motion } from '../lib/motionKit';
 import { blur, scale, spring, transition as tk, useTempoTransition } from '@animate-ui/react/utils/motion';
 import './onboarding.css';
 
-export interface Step { icon: IconName; title: string; text: string }
+export interface Step { icon: IconName; title: string; text: string; /** v0.41 animated scene; falls back to the icon tile. */ art?: ArtKind }
 
 interface StepsDialogProps {
   steps: Step[];
@@ -49,13 +50,13 @@ export function StepsDialog({ steps, finishLabel, onClose, dontShowLabel, second
     <Dialog className="modalwrap modal ob" labelledBy={`${id}-t`} lightDismiss={false}
       onClose={() => onClose(false, { dontShow })}>
       {/* the step's icon swaps in place (Animate UI swap: scale.icon + blur.icon on transition.swap) */}
-      <div className="ob-art" aria-hidden="true">
+      <div className={step.art ? 'ob-scene' : 'ob-art'} aria-hidden="true">
         <AnimatePresence mode="popLayout" initial={false}>
-          <motion.span key={step.icon} className="ob-art-icon"
+          <motion.span key={step.art ?? step.icon} className="ob-art-icon"
             initial={{ opacity: 0, scale: scale.icon, filter: blur.icon }}
             animate={{ opacity: 1, scale: 1, filter: 'blur(0px)', transition: swap }}
             exit={{ opacity: 0, scale: scale.icon, filter: blur.icon, transition: swap }}>
-            <Icon name={step.icon} size={24} />
+            {step.art ? <ObArt kind={step.art} /> : <Icon name={step.icon} size={24} />}
           </motion.span>
         </AnimatePresence>
       </div>
@@ -101,9 +102,9 @@ export function WelcomeTour({ name, onClose, onPlan }: { name: string; onClose: 
   const { t } = useT();
   const first = name.trim().split(/\s+/)[0] || name;
   const steps: Step[] = [
-    { icon: 'spark', title: t.obWelcomeTitle(first), text: t.obWelcomeText },
-    { icon: 'sparkles', title: t.obAiTitle, text: t.obAiText },
-    { icon: 'users', title: t.obTogetherTitle, text: t.obTogetherText },
+    { icon: 'spark', art: 'route', title: t.obWelcomeTitle(first), text: t.obWelcomeText },
+    { icon: 'sparkles', art: 'ai', title: t.obAiTitle, text: t.obAiText },
+    { icon: 'users', art: 'together', title: t.obTogetherTitle, text: t.obTogetherText },
   ];
   return (
     <StepsDialog steps={steps} finishLabel={t.obPlanFirst}
@@ -116,9 +117,9 @@ export function WelcomeTour({ name, onClose, onPlan }: { name: string; onClose: 
 export function PlanIntro({ onClose }: { onClose: (dontShowAgain: boolean) => void }) {
   const { t } = useT();
   const steps: Step[] = [
-    { icon: 'chat', title: t.obPlan1Title, text: t.obPlan1Text },
-    { icon: 'link', title: t.obPlan2Title, text: t.obPlan2Text },
-    { icon: 'list-check', title: t.obPlan3Title, text: t.obPlan3Text },
+    { icon: 'chat', art: 'chat', title: t.obPlan1Title, text: t.obPlan1Text },
+    { icon: 'link', art: 'link', title: t.obPlan2Title, text: t.obPlan2Text },
+    { icon: 'list-check', art: 'checklist', title: t.obPlan3Title, text: t.obPlan3Text },
   ];
   return (
     <StepsDialog steps={steps} finishLabel={t.obStartPlanning} dontShowLabel={t.obDontShow}

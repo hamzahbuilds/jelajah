@@ -23,3 +23,25 @@ dialog.ob { max-inline-size: min(440px, calc(100vw - 32px)); margin: auto; text-
 .ob-dontshow input { inline-size: 18px; block-size: 18px; accent-color: var(--brand); }
 .ob-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-2); margin-block-start: var(--s-4); }
 .ob-foot .btn.ghost { margin-inline-end: auto; }
+/* v0.41 animated scenes (ObArt.tsx): a soft 2:1 stage above the copy. */
+.ob-scene {
+  position: relative; display: grid; place-items: center; margin: 0 calc(var(--s-2) * -1) var(--s-4);
+  block-size: 136px; border-radius: var(--r-xl); overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 0%, var(--tile), transparent 70%), var(--bg);
+}
+.oba { inline-size: min(100%, 240px); block-size: auto; overflow: visible; }
+.oba-brand { fill: var(--brand); }
+.oba-on-brand { fill: var(--on-brand); }
+.oba-on-brand-stroke { stroke: var(--on-brand); }
+.oba-soft { fill: var(--tile); }
+.oba-card { fill: var(--surface); stroke: var(--border); stroke-width: 1; }
+.oba-line { fill: var(--border); }
+.oba-trail { stroke: var(--brand); }
+.oba-tick { stroke: var(--brand); }
+.oba-face { fill: var(--surface); opacity: .9; }
+.oba-p1 { fill: var(--brand); }
+.oba-p2 { fill: color-mix(in srgb, var(--brand) 60%, var(--warning-500)); }
+.oba-p3 { fill: var(--warning-500); }
+/* v0.41: buttons share the row evenly when the last step wraps (3 actions on a phone). */
+.ob-foot .btn:not(.ghost) { flex: 1 1 auto; justify-content: center; }
+.ob-body { min-block-size: 8.5em; }

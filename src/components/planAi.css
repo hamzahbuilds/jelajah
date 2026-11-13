@@ -4,7 +4,7 @@
 .pc { display: grid; gap: var(--s-3); }
 .pc-hero {
   padding: var(--s-6) var(--s-5) var(--s-5);
-  border-radius: var(--r-xl);
+  border-radius: var(--r-2xl);
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--e-2);
@@ -103,7 +103,7 @@
 .np-draft-head { display: flex; align-items: center; gap: var(--s-3); }
 .np-draft-head h2 { margin: 0; font-size: var(--fs-lg); }
 .np-draft-head p { margin: var(--s-1) 0 0; color: var(--ink-2); font-size: var(--fs-md); }
-.np-emoji { font-size: 2rem; line-height: 1; }
+.np-emoji { font-size: var(--fs-xl); line-height: 1; }
 .np-day { margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
 .np-day legend {
   float: left; inline-size: 100%;
@@ -144,7 +144,7 @@
   .np-chat {
     position: sticky; inset-block-start: var(--s-4);
     block-size: calc(100dvh - 140px); min-block-size: 480px;
-    padding: var(--s-3); border: 1px solid var(--border); border-radius: var(--r-xl); background: var(--bg);
+    padding: var(--s-3); border: 1px solid var(--border); border-radius: var(--r-2xl); background: var(--bg);
   }
   .np-commit { inset-block-end: var(--s-4); }
 }
