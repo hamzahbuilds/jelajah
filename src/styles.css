@@ -213,7 +213,7 @@ button.icon { background: none; border: none; cursor: pointer; font-size: var(--
 /* ---------- tables ---------- */
 .tablewrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
-th { text-align: left; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { text-align: left; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); padding: 8px 10px; border-bottom: 1px solid var(--border); }
 td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
 tr:last-child td { border-bottom: none; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -802,10 +802,10 @@ button.nights-badge:hover { border-color: var(--border); }
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-2xl);
   padding: var(--s-5);
 }
-.card h3 { margin: 0 0 4px; font-size: var(--fs-base); font-weight: 600; }
+.card :is(h2, h3) { margin: 0 0 4px; font-size: var(--fs-base); font-weight: 600; }
 .card .hint { color: var(--ink-3); font-size: var(--fs-sm); margin: 0 0 16px; }
 .cardhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-.cardhead h3 { margin: 0; }
+.cardhead :is(h2, h3) { margin: 0; }
 
 /* icon tile (ported from design/ui-refresh/ui.css .tile/.tile.sm) — used inside
    stat/lrow/cardhead rows wherever a page needs a small icon swatch. .modal's
@@ -935,7 +935,7 @@ label.fld { margin-bottom: 10px; }
   font-size: var(--fs-xs); font-weight: 500; padding: 2px 10px; background: rgba(255,255,255,.15); color: #fff;
 }
 .tc-body { padding: 14px 16px 16px; }
-.tc-body h3 { margin: 0 0 2px; font-size: var(--fs-base); }
+.tc-body :is(h2, h3) { margin: 0 0 2px; font-size: var(--fs-base); }
 .tc-body .sub { color: var(--ink-2); font-size: var(--fs-sm); }
 .tc-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
 .newcard {
@@ -961,9 +961,9 @@ label.fld { margin-bottom: 10px; }
    Noncommercial — ported CSS only, all chart markup is hand-written React/SVG
    in src/components/charts/). Ported from design/ui-refresh/ui.css v5 section;
    .waffle/.punch omitted — Admin.tsx has no honest data for those charts yet. */
-.lf h3 { font-size: var(--fs-base); font-weight: 700; letter-spacing: -.02em; margin: 0; }
+.lf :is(h2, h3) { font-size: var(--fs-base); font-weight: 700; letter-spacing: -.02em; margin: 0; }
 .lf .lfsub { font-size: var(--fs-xs); color: var(--ink-3); margin: 2px 0 14px; }
-.lf .lfsrc { font-size: var(--fs-xs); font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin-top: 14px; }
+.lf .lfsrc { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); margin-top: 14px; }
 .lf .bigv { font-size: var(--fs-xl); font-weight: 800; letter-spacing: -.03em; line-height: 1; }
 .lf .bigv small { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-3); letter-spacing: 0; }
 .lfrow { display: grid; grid-template-columns: 110px 1fr 40px; gap: 10px; align-items: center; padding: 4px 0; }
@@ -994,7 +994,7 @@ label.fld { margin-bottom: 10px; }
 }
 .modalwrap.modal .mhead { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
 .modalwrap.modal .mhead .tile { flex: 0 0 auto; }
-.modalwrap.modal .mhead h3 { margin: 0; font-size: var(--fs-base); }
+.modalwrap.modal .mhead :is(h2, h3) { margin: 0; font-size: var(--fs-base); }
 .modalwrap.modal .mhead p { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--ink-3); }
 .modalwrap.modal .x { margin-left: auto; border: none; background: none; color: var(--ink-3); padding: 4px; border-radius: var(--r-md); }
 .modalwrap.modal .x:hover { background: var(--gray-100); color: var(--ink); }
@@ -1288,12 +1288,12 @@ label.fld2 { display: block; font-size: var(--fs-sm); font-weight: 600; color: v
 .journal-tabs { display:flex; gap:6px; border-bottom:1px solid var(--border); overflow-x:auto; padding:4px 0 12px; }
 .journal-tabs button { flex-shrink:0; border:0; border-radius:var(--r-2xl); padding:12px 20px; color:var(--ink); background:var(--surface); font:inherit; cursor:pointer; }
 .journal-tabs button.active { color: var(--on-brand); background:var(--brand); box-shadow:0 4px 12px #0e938422; }
-.journal-hero { padding:24px 28px; margin:16px 0; border:1px solid var(--border); border-radius:var(--r-2xl); background:var(--surface); color:var(--ink); }
+.journal-hero { padding:var(--s-2) 0 var(--s-5); margin:0 0 var(--s-5); border-bottom:1px solid var(--border); color:var(--ink); } /* v0.44: a page header, not a boxed card */
 .journal-hero h1 { font-size:clamp(1.6rem,3.5vw,2.2rem); line-height:1.15; max-width:800px; margin:6px 0; letter-spacing:-.02em; }
 .journal-hero h2 { font-size:var(--fs-xl); margin:10px 0; }
 .journal-hero p { max-width:650px; line-height:1.65; }
-.journal-hero.compact { padding:28px; margin:0 0 20px; }
-.journal-eyebrow { text-transform:uppercase; font-size:var(--fs-xs); font-weight:750; letter-spacing:.14em; }
+.journal-hero.compact { padding:0 0 var(--s-4); margin:0 0 var(--s-5); }
+.journal-eyebrow { font-size:var(--fs-sm); font-weight:650; color:var(--brand-ink); }
 .journal-brand { font-size:var(--fs-lg); font-weight:800; text-decoration:none; color:var(--ink); }
 .journal-daybar { display:flex; align-items:center; flex-wrap:wrap; gap:16px; margin:24px 0; }
 .journal-daychips { display:flex; flex:1; overflow-x:auto; gap:8px; }
@@ -1344,7 +1344,7 @@ label.fld2 { display: block; font-size: var(--fs-sm); font-weight: 600; color: v
 .schedule-scroll { overflow-x:auto; }
 .public-schedule table { width:100%; border-collapse:collapse; font-size:var(--fs-md); }
 .public-schedule th,.public-schedule td { text-align:left; padding:14px 10px; vertical-align:top; border-bottom:1px solid var(--border); overflow-wrap:anywhere; }
-.public-schedule th { font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:.04em; }
+.public-schedule th { font-size:var(--fs-xs); font-weight:600; }
 .public-schedule td:nth-child(2) { white-space:nowrap; }
 .public-day aside { padding:12px 20px; margin-top:16px; background:#d5b97115; border-radius:var(--r-lg); }
 .publishing { display:grid; gap:20px; }
@@ -1366,7 +1366,7 @@ label.fld2 { display: block; font-size: var(--fs-sm); font-weight: 600; color: v
   .journal-group-columns.show-list>div:last-child,.journal-group-columns.show-map>div:first-child { display:none; }
   .journal-map { position:static; }
   .journal-daychips { flex-basis:100%; }
-  .journal-hero,.journal-hero.compact { padding:24px; }
+  .journal-hero,.journal-hero.compact { padding:0 0 var(--s-4); }
   .journey-public { padding:20px 14px 60px; }
   .journal-stop { padding:14px; gap:10px; }
   .public-day { padding:16px; }
@@ -1469,9 +1469,9 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 /* Connected planning workspace. Shared by group, personal and read-only plans. */
 .journal-workspace { gap:16px; }
 .journal-workspace { --planner-canvas:var(--bg); --planner-soft:var(--brand-50); --planner-peach:var(--peach); }
-.journal-intro { position:relative; padding:24px 28px; margin:8px 0 4px; border-radius:var(--r-2xl); background:var(--surface); border:1px solid var(--border); }
-.journal-intro h1 { max-width:800px; font-size:clamp(26px,2.6vw,34px); letter-spacing:-0.5px; margin:6px 0; overflow-wrap:anywhere; }
-.journal-intro > a { align-self:flex-end; padding:10px 16px; border-radius:var(--r-lg); background:var(--surface); color: var(--brand-ink); font-size:var(--fs-md); font-weight:600; white-space:nowrap; }
+.journal-intro { position:relative; padding:0 0 var(--s-5); margin:0 0 var(--s-5); border-bottom:1px solid var(--border); } /* v0.44: page header, not a card */
+.journal-intro h1 { max-width:800px; font-size:var(--fs-xl); letter-spacing:-0.03em; margin:4px 0 6px; overflow-wrap:anywhere; }
+.journal-intro > a { align-self:flex-end; padding:10px 16px; border-radius:var(--r-lg); background:transparent; color: var(--brand-ink); font-size:var(--fs-md); font-weight:600; white-space:nowrap; }
 .journal-tabs { margin-bottom:8px; border-radius:var(--r-xl); scrollbar-width:thin; scrollbar-color:var(--brand-100) transparent; }
 .journal-workspace .daypills { scrollbar-width:thin; scrollbar-color:var(--brand-100) transparent; }
 .journal-tabs button { padding:10px 16px; font-weight:600; }
@@ -1624,7 +1624,7 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 .document-group-people input { width: 18px; height: 18px; }
 @media(max-width:700px) { .document-upload-options { grid-template-columns: 1fr; } }
 .rail-directions { border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px; margin: 12px 0; }
-.rail-directions h3 { margin: 0 0 12px; font-size: var(--fs-base); }
+.rail-directions :is(h2, h3) { margin: 0 0 12px; font-size: var(--fs-base); }
 .rail-directions ol { padding-left: 24px; }
 .rail-directions li { padding: 4px 0; }
 .rail-directions li span { display: block; margin-top: 4px; }
@@ -1714,7 +1714,12 @@ input:user-invalid:focus, select:user-invalid:focus, textarea:user-invalid:focus
 }
 .skip-link:focus { inset-block-start: var(--s-3); }
 main#main:focus { outline: none; }
-.trip-title { margin: 0; font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); text-wrap: balance; }
+.trip-title { margin: 0; font-size: var(--fs-base); font-weight: 700; line-height: var(--lh-tight); text-wrap: balance; }
+/* v0.44: the trip is context; each page's own h1 leads */
+.trip-header { margin-block-end: var(--s-2); }
+.trip-header-row { gap: var(--s-3); }
+.trip-emoji { font-size: 1.375rem; line-height: 1; }
+.trip-dest { color: var(--ink-3); font-size: var(--fs-sm); }
 /* chat button (floating, docs/18 §0): reserve room under the page so it never covers the last row's actions */
 .container:has(.chat-fab) { padding-bottom: 96px; }
 @media (max-width: 1023px) { .container:has(.chat-fab) { padding-bottom: 168px; } }
@@ -1782,7 +1787,7 @@ main#main:focus { outline: none; }
   --font-body: 'Figtree Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-display: var(--font-body);
 }
-h1, h2, .ui-pagehead h1, .pagehead h1, .tc-body h3, .dash-hero .big, .big, .pc-hero-head h2, .tb-step h2, .ob-body h2,
+h1, h2, .ui-pagehead h1, .pagehead h1, .tc-body :is(h2, h3), .dash-hero .big, .big, .pc-hero-head h2, .tb-step h2, .ob-body h2,
 .login-card .logo, .authcard h2, .np-head h1, .tb-iata, .tb-days {
   font-family: var(--font-display); letter-spacing: -0.02em;
 }
@@ -1811,3 +1816,5 @@ p, .muted, .tiny, li { text-wrap: pretty; }
 /* v0.42: back to the public homepage from sign-in */
 .login-home { display: inline-flex; align-items: center; gap: var(--s-1); min-block-size: 44px; margin-block-end: var(--s-2); color: var(--ink-2); font-weight: 600; font-size: var(--fs-sm); text-decoration: none; }
 .login-home:hover { color: var(--brand-ink); }
+.check-label { display: flex; flex: 1; align-items: center; gap: var(--s-2); min-inline-size: 0; cursor: pointer; }
+.authcard h1.logo { margin: 0 0 16px; line-height: 1.2; }

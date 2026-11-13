@@ -56,10 +56,10 @@ export default function Login() {
     return (
       <div className="split">
         <AuthCarousel />
-        <div className="pane">
+        <main className="pane">
           <div className="authcard login-card">
             <Link to="/" className="login-home"><Icon name="arrow-l" size={16} /> {t.j.home}</Link>
-            <div className="logo"><BrandMark /> {t.appName}</div>
+            <h1 className="logo"><BrandMark /> {t.appName}</h1>
             <p className="sub">{t.tagline}</p>
             {googleErr && <p className="callout warn" role="alert"><Icon name="alert" size={16} /> {googleErr}</p>}
             <div className="google-only">
@@ -69,7 +69,7 @@ export default function Login() {
             <p><Link to="/discover">{t.j.discover} <Icon name="external" size={16} /></Link></p>
             <p className="tiny muted login-foot">{t.loginInviteHint}</p>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
@@ -77,10 +77,10 @@ export default function Login() {
   return (
     <div className="split">
       <AuthCarousel />
-      <div className="pane">
+      <main className="pane">
         <form className="authcard login-card" onSubmit={submit}>
           {mode === 'login' && <Link to="/" className="login-home"><Icon name="arrow-l" size={16} /> {t.j.home}</Link>}
-          <div className="logo"><BrandMark /> {t.appName}</div>
+          <h1 className="logo"><BrandMark /> {t.appName}</h1>
           {mode === 'setup' ? (
             <>
               <h2>{t.setupTitle}</h2>
@@ -122,7 +122,7 @@ export default function Login() {
           <p><Link to="/discover">{t.j.discover} <Icon name="external" size={16} /></Link></p>
           <p className="tiny muted" style={{ marginTop: 16, textAlign: 'center' }}>{t.loginInviteHint}</p>
         </form>
-      </div>
+      </main>
     </div>
   );
 }

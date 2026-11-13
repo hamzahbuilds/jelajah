@@ -97,7 +97,7 @@ export default function Payments() {
       {/* v0.27: column stacks get .grid so consecutive cards don't touch */}
       <div className="grid">
         <div className="card">
-          <div className="cardhead"><h3>{t.balances}</h3></div>
+          <div className="cardhead"><h2>{t.balances}</h2></div>
           {!bal && <Loading label={t.loading} />}
           {bal?.balances?.length === 0 && <Empty icon="check" title={t.allSquare} sub={t.allSquareSub} />}
           <div className={(bal?.balances?.length ?? 0) > 5 ? 'scroll-cap-lg' : ''}>
@@ -135,7 +135,7 @@ export default function Payments() {
       <div className="grid">
         {canLead && (
           <form className="card" onSubmit={record}>
-            <h3>{t.recordPayment}</h3>
+            <h2>{t.recordPayment}</h2>
             <p className="tiny">{t.lumpsumHint}</p>
             <div className="form-grid">
               <label className="fld"><span>{t.from}</span>
@@ -164,7 +164,7 @@ export default function Payments() {
         )}
 
         <div className="card">
-          <div className="cardhead"><h3>{t.history}</h3></div>
+          <div className="cardhead"><h2>{t.history}</h2></div>
           {payments.length === 0 && <p className="muted">{t.noPayments}</p>}
           {payments.map(p => (
             <div className="lrow" key={p.id}>

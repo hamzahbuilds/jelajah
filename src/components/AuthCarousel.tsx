@@ -128,7 +128,7 @@ export default function AuthCarousel() {
   const activePhoto = photos?.[SLIDES[i].destination];
 
   return (
-    <div className="caro">
+    <aside className="caro" aria-label="Jelajah">
       {/* Login/Join render outside <Shell>, which is where <IconDefs> normally
           lives — mount it here too so <Icon> resolves on both auth pages. */}
       <IconDefs />
@@ -189,6 +189,6 @@ export default function AuthCarousel() {
           <a href={activePhoto.photo_link} target="_blank" rel="noopener noreferrer">Unsplash</a>
         </div>
       )}
-    </div>
+    </aside>
   );
 }

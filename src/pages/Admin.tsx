@@ -291,7 +291,7 @@ export default function Admin() {
                 data. See task-4-report.md. */}
 
             <div className="card lf">
-              <div className="cardhead"><h3>{t.mQuotaTitle}</h3><span className="badge gray"><span className="d" />{t.mBadgeAllTime}</span></div>
+              <div className="cardhead"><h2>{t.mQuotaTitle}</h2><span className="badge gray"><span className="d" />{t.mBadgeAllTime}</span></div>
               <div className="lfsub">{t.mQuotaSub}</div>
               <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 'var(--fs-sm)', color: 'var(--ink-2)', lineHeight: 1.7 }}>
                 {freeTierLimits(t).map(l => <li key={l}>{l}</li>)}
@@ -301,7 +301,7 @@ export default function Admin() {
 
             <div className="grid grid-2" style={{ alignItems: 'start' }}>
               <div className="card">
-                <div className="cardhead"><h3><Icon name="gift" /> {t.mReferrals}</h3></div>
+                <div className="cardhead"><h2><Icon name="gift" /> {t.mReferrals}</h2></div>
                 {referrals.length === 0 ? (
                   <p className="muted">{t.mNoReferrals}</p>
                 ) : (
@@ -323,7 +323,7 @@ export default function Admin() {
               </div>
 
               <div className="card">
-                <div className="cardhead"><h3>{t.mFeed}</h3></div>
+                <div className="cardhead"><h2>{t.mFeed}</h2></div>
                 {stats.audit.length === 0 && <p className="muted">—</p>}
                 {(() => {
                   const list = stats.audit.concat(auditExtra);
@@ -356,7 +356,7 @@ export default function Admin() {
 
       <div className="grid grid-2" style={{ alignItems: 'start', marginTop: 16 }}>
         <div className="card">
-          <div className="cardhead"><h3><Icon name="chat" /> {t.aiProvider}</h3></div>
+          <div className="cardhead"><h2><Icon name="chat" /> {t.aiProvider}</h2></div>
           <div className="row" style={{ marginBottom: 10 }}>
             <span className="tiny" style={{ fontWeight: 700 }}>{t.aiPresets}:</span>
             {PRESETS.map(p => (
@@ -387,7 +387,7 @@ export default function Admin() {
         </div>
 
         <div className="card">
-          <div className="cardhead"><h3>{t.accountsTitle}</h3></div>
+          <div className="cardhead"><h2>{t.accountsTitle}</h2></div>
           {access && (
             <div className="callout info access-link" role="status">
               <b>{t.signInLinkTitle(access.name)}</b>
@@ -417,7 +417,7 @@ export default function Admin() {
             </div>
           ))}
           <form onSubmit={addUser} style={{ marginTop: 14 }}>
-            <h3 style={{ fontSize: 'var(--fs-md)' }}>{t.addUser}</h3>
+            <h2 style={{ fontSize: 'var(--fs-md)' }}>{t.addUser}</h2>
             <div className="form-grid">
               <label className="fld"><span>{t.name}</span>
                 <input required value={uform.name} onChange={e => setUform({ ...uform, name: e.target.value })} /></label>
@@ -440,7 +440,7 @@ export default function Admin() {
         </div>
 
         <div className="card">
-          <div className="cardhead"><h3><Icon name="link" /> {t.platformInvites}</h3></div>
+          <div className="cardhead"><h2><Icon name="link" /> {t.platformInvites}</h2></div>
           {invites.filter(i => !i.revoked).map(i => (
             <div className={`lrow invite-row${i.id === justCreated ? ' invite-row-new' : ''}`} key={i.id}>
               <span className="tile sm"><Icon name="link" /></span>
@@ -461,7 +461,7 @@ export default function Admin() {
         </div>
 
         <div className="card">
-          <div className="cardhead"><h3><Icon name="gift" /> {t.referralTitle}</h3></div>
+          <div className="cardhead"><h2><Icon name="gift" /> {t.referralTitle}</h2></div>
           <label className="row" style={{ gap: 8, padding: '4px 0' }}>
             <input type="checkbox" checked={referralsOn} onChange={toggleReferrals}
               style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />

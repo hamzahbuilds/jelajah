@@ -16,18 +16,19 @@ const data: PublicJourney = {
 };
 
 describe('published schedule notes', () => {
-  it('places bullet notes after their own table, including days without activities', () => {
+  it('places bullet notes after their own day\'s stops, including days without activities', () => {
     const html = renderToStaticMarkup(<I18nProvider><PublicSchedule data={data} /></I18nProvider>);
-    const days = html.split('<section class="public-day">').slice(1);
+    const days = html.split('<li class="dv-day">').slice(1);
     expect(days).toHaveLength(3);
     for (const [i, note] of ['Bring water', 'Buy a rail pass'].entries()) {
       expect(days[i]).toContain(`<li>${note}</li>`);
-      expect(days[i].indexOf(`<li>${note}</li>`)).toBeGreaterThan(days[i].indexOf('</table>'));
+      expect(days[i].indexOf(`<li>${note}</li>`)).toBeGreaterThan(Math.max(days[i].indexOf('</ol>'), days[i].indexOf('dv-meta')));
     }
     expect(days[0]).not.toContain('Buy a rail pass');
     expect(days[2]).not.toContain('schedule-notes');
-    for (const table of html.matchAll(/<table>[\s\S]*?<\/table>/g)) {
-      expect(table[0]).not.toMatch(/Bring water|Meet at the gate|Buy a rail pass|Published notes/);
+    for (const stops of html.matchAll(/<ol class="dv-stops">[\s\S]*?<\/ol>/g)) {
+      expect(stops[0]).not.toMatch(/Bring water|Meet at the gate|Buy a rail pass|Published notes/);
     }
+    expect(days[0]).toContain('Garden visit');
   });
 });

@@ -29,7 +29,7 @@ export default function Modal({ open, onClose, icon, title, sub, children, foote
     <Dialog onClose={onClose} className={`modalwrap modal ${className}`.trim()} labelledBy={titleId}>
       <div className="mhead">
         {icon && <span className="tile sm"><Icon name={icon} /></span>}
-        <div><h3 id={titleId}>{title}</h3>{sub && <p>{sub}</p>}</div>
+        <div><h2 id={titleId}>{title}</h2>{sub && <p>{sub}</p>}</div>
         <button type="button" className="x" onClick={onClose} aria-label={closeLabel}>
           <Icon name="x" />
         </button>

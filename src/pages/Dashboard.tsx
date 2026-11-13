@@ -181,7 +181,7 @@ export default function Dashboard() {
       <div className="grid">
       {journey && (
         <div className="card">
-          <div className="cardhead"><h3><Icon name="pin" /> {t.journey}</h3></div>
+          <div className="cardhead"><h2><Icon name="pin" /> {t.journey}</h2></div>
           <LeafletMap pins={journey.pins} arcs={journey.arcs} height={300}
             accent={(trip as any).color || undefined} />
           <div className="journey-stats">
@@ -198,7 +198,7 @@ export default function Dashboard() {
 
         {upcoming.length > 0 ? (
           <div className="card">
-            <div className="cardhead"><h3><Icon name="clock" /> {t.upNext}</h3></div>
+            <div className="cardhead"><h2><Icon name="clock" /> {t.upNext}</h2></div>
             {upcoming.slice(0, canLead ? 3 : 1).map((u2, i) => (
               <div className="row-between" key={i} style={{ padding: '4px 0' }}>
                 <span className="row" style={{ gap: 8 }}><span className="tile sm"><Icon name={u2.icon} /></span><strong>{u2.title}</strong></span>
@@ -209,7 +209,7 @@ export default function Dashboard() {
             ))}
           </div>
         ) : plan ? (
-          <div className="card"><div className="cardhead"><h3><Icon name="clock" /> {t.upNext}</h3></div><p className="muted">{t.nothingUpcoming}</p></div>
+          <div className="card"><div className="cardhead"><h2><Icon name="clock" /> {t.upNext}</h2></div><p className="muted">{t.nothingUpcoming}</p></div>
         ) : null}
       </div>
 
@@ -217,7 +217,7 @@ export default function Dashboard() {
         {!moneyHidden && (
         <div className="card barlist">
           <div className="cardhead">
-            <h3>{t.byCategory}</h3>
+            <h2>{t.byCategory}</h2>
             <span className="row" style={{ gap: 4 }}>
               <button className={`chip ${chartBy === 'category' ? 'on' : ''}`} onClick={() => setChartBy('category')}>{t.byCategoryLbl}</button>
               <button className={`chip ${chartBy === 'item' ? 'on' : ''}`} onClick={() => setChartBy('item')}>{t.byItemLbl}</button>
@@ -243,7 +243,7 @@ export default function Dashboard() {
               </div>
             );
           }) : (
-            <div className="scroll-cap-lg">
+            <div className="scroll-cap-lg" tabIndex={0} role="region" aria-label={t.byCategory ?? 'Spending'}>
               {[...(bal?.expenseItems ?? [])].sort((a: any, b: any) => b.amount_myr - a.amount_myr).map((x: any) => {
                 const maxItem = Math.max(1, ...(bal?.expenseItems ?? []).map((y: any) => y.amount_myr));
                 return (
@@ -261,9 +261,9 @@ export default function Dashboard() {
 
         {moneyHidden ? null : canLead ? (
           <div className="card">
-            <div className="cardhead"><h3>{t.topOutstanding}</h3></div>
+            <div className="cardhead"><h2>{t.topOutstanding}</h2></div>
             {outstanding.length === 0 && <p className="muted">{t.allSettled}</p>}
-            <div className="scroll-cap">
+            <div className="scroll-cap" tabIndex={0} role="region" aria-label={t.topOutstanding}>
               {outstanding.map((b: any) => {
                 const openItems = b.byPayee.flatMap((bp: any) => bp.items.filter((it: any) => it.remaining > 0.004));
                 const key = `o${b.participant.id}`;
@@ -287,7 +287,7 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="card">
-            <div className="cardhead"><h3>{t.myBalance}</h3></div>
+            <div className="cardhead"><h2>{t.myBalance}</h2></div>
             {!mine || mine.outstanding <= 0.004
               ? <p className="muted">{t.allSettled}</p>
               : mine.byPayee.map((bp: any) => (
@@ -301,7 +301,7 @@ export default function Dashboard() {
         )}
 
         <div className="card">
-          <div className="cardhead"><h3>{t.upcomingDues}</h3></div>
+          <div className="cardhead"><h2>{t.upcomingDues}</h2></div>
           {openDues.length === 0 && <p className="muted">{t.none}</p>}
           {openDues.map(d => (
             <div className="row-between row-pad" key={d.id}>
@@ -324,13 +324,15 @@ export default function Dashboard() {
         </div>
 
         <div className="card">
-          <div className="cardhead"><h3>{t.myChecklist}</h3></div>
+          <div className="cardhead"><h2>{t.myChecklist}</h2></div>
           {items.length === 0 && <p className="muted">{t.noTasks}</p>}
           {items.map(it => (
             <div className={`check-item ${it.done ? 'done' : ''}`} key={it.id}>
-              <input type="checkbox" checked={!!it.done} onChange={() => toggle(it)} />
-              <span className="txt">{it.text}</span>
-              <button type="button" className="btn ghost sm" onClick={() => remove(it)} aria-label={t.delete}><Icon name="trash" size={16} /></button>
+              <label className="check-label">
+                <input type="checkbox" checked={!!it.done} onChange={() => toggle(it)} />
+                <span className="txt">{it.text}</span>
+              </label>
+              <button type="button" className="btn ghost sm" onClick={() => remove(it)} aria-label={`${t.delete}: ${it.text}`}><Icon name="trash" size={16} /></button>
             </div>
           ))}
           <form className="row" onSubmit={addTask} style={{ marginTop: 10 }}>

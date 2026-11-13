@@ -142,11 +142,11 @@ export default function Ledger() {
 
       <div className="card">
         <div className="cardhead">
-          <h3>{t.ledger}</h3>
+          <h2>{t.ledger}</h2>
           {list.length > 0 && <span className="badge gray">{list.length} {t.expenses}</span>}
         </div>
         <div className="row-between" style={{ marginBottom: 10 }}>
-          <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width: 190 }}>
+          <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width: 190 }} aria-label={t.category ?? 'Category'}>
             <option value="all">{t.allCategories}</option>
             {CATEGORIES.map(c => <option key={c} value={c}>{(t as any)[c]}</option>)}
           </select>

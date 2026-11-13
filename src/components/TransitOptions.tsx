@@ -63,7 +63,7 @@ export default function TransitOptions({ tripId, from, to, railRoute }: {
       {busy && <p role="status">{t.loading}</p>}
       {message && <p role="status">{message}</p>}
       {flags.transitGeoapify && route && <>
-        <h3>{ms ? 'Laluan anggaran' : 'Approximate route'}</h3>
+        <h2>{ms ? 'Laluan anggaran' : 'Approximate route'}</h2>
         <p>{Math.round(route.duration / 60)} {t.j.minutes} · {(route.distance / 1000).toFixed(1)} km</p>
         <p className="hint">{ms ? 'Berdasarkan data transit OpenStreetMap. Tempoh ialah anggaran, bukan jadual berlepas. Tambang tidak tersedia; sahkan perkhidmatan dengan operator.' : 'Based on OpenStreetMap transit data. Duration is an estimate, not a departure schedule. Fare unavailable; confirm services with the operator.'}</p>
         <LeafletMap pins={[{...from,label:from.name || from.title},{...to,label:to.name || to.title}]} routes={route.segments} height={360} />

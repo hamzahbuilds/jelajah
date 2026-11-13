@@ -53,13 +53,20 @@ export default function NewPlan() {
   const targetTrip = editable.find(tr => tr.id === targetTripId) ?? null;
 
   // A fresh brief from Home starts a new plan; otherwise resume the saved one.
-  const saved = useRef((loc.state as { brief?: unknown } | null)?.brief ? null : load()).current;
+  // v0.44: "Use this template" (Discover) hands over a ready plan draft; it
+  // opens straight in the review with every place picked.
+  const tplIn = (loc.state as { template?: { name: string; draft: Draft } } | null)?.template ?? null;
+  const saved = useRef<Saved | null>(tplIn ? (() => {
+    const d = cleanDraft(tplIn.draft);
+    return { mode: 'plan' as ComposerMode, messages: [{ role: 'assistant' as const, content: t.templateLoaded(tplIn.name) }], draft: d,
+      selected: [...d.days.flatMap(x => x.places), ...d.ideas].map(x => x.id), brief: null };
+  })() : (loc.state as { brief?: unknown } | null)?.brief ? null : load()).current;
   const [mode, setMode] = useState<ComposerMode>(saved?.mode ?? (params.get('mode') === 'import' ? 'import' : 'plan'));
   const [messages, setMessages] = useState<ChatMsg[]>(saved?.messages ?? []);
   const [draft, setDraft] = useState<Draft>(saved ? cleanDraft(saved.draft) : emptyDraft());
   const [selected, setSelected] = useState<Set<string>>(new Set(saved?.selected ?? []));
   const [busy, setBusy] = useState<false | 'plan' | 'link'>(false);
-  const [pane, setPane] = useState<'chat' | 'plan'>('chat');
+  const [pane, setPane] = useState<'chat' | 'plan'>(tplIn ? 'plan' : 'chat');
   const [sheet, setSheet] = useState<null | 'new' | 'add'>(null);
   const [ai, setAi] = useState<{ ai: boolean; video: boolean } | null>(null);
   // v0.36 trip brief (docs/23). Home hands over the countries (step 1); a
@@ -76,7 +83,7 @@ export default function NewPlan() {
   const [editingBrief, setEditingBrief] = useState(false);
   const [briefFound, setBriefFound] = useState(false);
   useEffect(() => {
-    if (handoff?.brief) nav('.', { replace: true, state: null, relative: 'path' });
+    if (handoff?.brief || tplIn) nav('.', { replace: true, state: null, relative: 'path' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const logRef = useRef<HTMLDivElement>(null);

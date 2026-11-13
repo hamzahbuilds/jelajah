@@ -15,7 +15,7 @@ export default function RailDirections({route}: {route?: RouteResult}) {
     ? (bus ? (ms ? 'Naik bas di' : 'Take the bus at') : (ms ? 'Naik di' : 'Board at'))
     : (bus ? (ms ? 'Tukar ke bas di' : 'Change to a bus at') : (ms ? 'Tukar di' : 'Change at'));
   return <section className="rail-directions" aria-label={title}>
-    <h3>{title}</h3>
+    <h2>{title}</h2>
     {route.steps?.length ? <ol>{route.steps.map((step,i) => <li key={i}>
       <strong>{board(step.mode === 'bus', i === 0)} {step.fromStation}</strong>
       <span>{step.line} → {step.toStation} · ~{Math.round(step.duration / 60)} min</span>

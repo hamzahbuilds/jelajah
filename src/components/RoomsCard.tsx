@@ -241,7 +241,7 @@ export default function RoomsCard({ tripId, members, canEdit }: {
   return (
     <div className="card full">
       <div className="cardhead">
-        <h3><Icon name="hotel" /> {t.roomsTitle}</h3>
+        <h2><Icon name="hotel" /> {t.roomsTitle}</h2>
         {canEdit && (
           <button type="button" className="btn secondary sm" onClick={() => setAddOpen(v => !v)}>
             <Icon name="plus" size={16} /> {t.addStay}

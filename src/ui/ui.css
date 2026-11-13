@@ -96,7 +96,7 @@ a.ui-row-hit:hover, button.ui-row-hit:hover { background: color-mix(in srgb, var
 .ui-field-error:empty { display: none; }
 .ui-field.has-error :is(input, select, textarea, .ui-drp-trigger) { border-color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
 .ui-fieldset { border: 0; padding: 0; margin: 0 0 var(--s-2); min-inline-size: 0; }
-.ui-fieldset > legend { font-size: var(--fs-xs); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); padding: 0; margin-block-end: var(--s-3); }
+.ui-fieldset > legend { font-size: var(--fs-sm); font-weight: 650; color: var(--ink-3); padding: 0; margin-block-end: var(--s-3); }
 .ui-grid2 { display: grid; gap: 0 var(--s-3); grid-template-columns: 1fr; }
 @container sheet (min-width: 420px) { .ui-grid2 { grid-template-columns: 1fr 1fr; } }
 

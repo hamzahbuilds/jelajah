@@ -243,7 +243,7 @@ function Compare({ c }: { c: HomeCopy }) {
     <section className="home-section" aria-labelledby="compare-t">
       <div className="home-wrap">
         <SectionHead id="compare-t" eyebrow={v.eyebrow} title={v.title} />
-        <motion.div className="home-table-wrap" {...reveal} tabIndex={0} role="region" aria-labelledby="compare-t">
+        <motion.div className="home-table-wrap" {...reveal} tabIndex={0} role="region" aria-label={`${v.title} ${v.cols.join(', ')}`}>
           <table className="home-table">
             <thead>
               <tr><td />{v.cols.map((col, k) => <th key={col} scope="col" className={k === 0 ? 'us' : ''}>{k === 0 ? <span className="home-table-brand"><BrandMark size={20} /> {col}</span> : col}</th>)}</tr>

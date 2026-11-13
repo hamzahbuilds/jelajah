@@ -112,7 +112,7 @@ export default function Trips() {
                 style={color ? ({ ['--cov' as any]: color }) : undefined}>
                 <TripCardCover trip={tr} chip={chip} />
                 <div className="tc-body">
-                  <h3>{tr.name}</h3>
+                  <h2>{tr.name}</h2>
                   <div className="sub">
                     {tr.destination}{tr.destination ? ' · ' : ''}{fmtDate(tr.start_date, lang)} – {fmtDate(tr.end_date, lang)}
                   </div>
@@ -133,7 +133,7 @@ export default function Trips() {
 
       <div className="card" style={{ marginTop: 24 }}>
         <div className="cardhead">
-          <h3><span className="invite-icon"><Icon name="gift" className="icon" /></span> {t.inviteSomeone}</h3>
+          <h2><span className="invite-icon"><Icon name="gift" className="icon" /></span> {t.inviteSomeone}</h2>
           <Link to="/settings" style={{ fontSize: 'var(--fs-sm)', fontWeight: 600 }}>{t.yourReferralLink} →</Link>
         </div>
         <p className="hint">{t.inviteSomeoneHint}</p>

@@ -302,3 +302,4 @@
 .home-footer-base { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-2); margin-block-start: var(--s-10); padding-block-start: var(--s-6); border-block-start: 1px solid var(--border); font-size: var(--fs-sm); color: var(--ink-3); }
 .home-footer .site-logo { display: inline-flex; align-items: center; gap: var(--s-2); font-weight: 750; font-size: var(--fs-h3); color: var(--ink); text-decoration: none; }
 .home-cta .home-reveal .accent { color: #FFD9C7; }
+.hm .maplibregl-ctrl-attrib a { color: #1D47C8; }

@@ -170,7 +170,7 @@ export default function Documents() {
           </div>
           <div
             role="button" tabIndex={busy || ocrQueue ? -1 : 0}
-            aria-label={t.uploadDoc}
+            aria-disabled={busy || ocrQueue ? true : undefined}
             onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && !busy && !ocrQueue) { e.preventDefault(); fileRef.current?.click(); } }}
             className={`drop2 ${drag ? 'drag' : ''} ${busy || ocrQueue ? 'disabled' : ''}`}
             onClick={() => !busy && !ocrQueue && fileRef.current?.click()}
@@ -208,7 +208,7 @@ export default function Documents() {
 
       {loadError && <div className="callout warn" role="alert">{bm ? 'Fail tidak dapat dimuatkan. Sambungan internet diperlukan.' : 'Could not load files. Documents require an internet connection.'} <button className="btn secondary sm" onClick={() => void load()}>{bm ? 'Cuba lagi' : 'Retry'}</button></div>}
       <section className="card document-library" style={{ marginTop: 16 }}>
-        <div className="cardhead"><h3>{t.documents} <span className="badge gray">{docs.length}</span></h3>
+        <div className="cardhead"><h2>{t.documents} <span className="badge gray">{docs.length}</span></h2>
           <div className="row" role="group" aria-label={bm ? 'Paparan' : 'View mode'}>
             <button className={`btn sm ${view === 'folders' ? '' : 'secondary'}`} aria-pressed={view === 'folders'} onClick={() => { setView('folders'); setFolder('all'); }}>{bm ? 'Folder & fail' : 'Folders & files'}</button>
             <button className={`btn sm ${view === 'list' ? '' : 'secondary'}`} aria-pressed={view === 'list'} onClick={() => { setView('list'); setFolder('all'); }}>{bm ? 'Senarai' : 'List'}</button>

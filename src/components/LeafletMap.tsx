@@ -113,6 +113,7 @@ export default function LeafletMap({ pins, picked, onPick, onSelectPin, height =
       const popup = document.createElement('span');
       popup.textContent = p.label ?? '';
       const m = L.marker([p.lat, p.lng], {
+        title: p.label ?? `${i + 1}`, alt: p.label ?? `${i + 1}`,
         icon: L.divIcon({
           className: '',
           html: `<div class="pin-wrap"><div class="pin-dot" style="background:${color}"><span>${inner}</span></div></div>`,
@@ -128,6 +129,7 @@ export default function LeafletMap({ pins, picked, onPick, onSelectPin, height =
       const popup = document.createElement('span');
       popup.textContent = a.label ?? '';
       L.marker([mid.lat, mid.lng], {
+        title: a.label ?? 'Flight', alt: a.label ?? 'Flight',
         icon: L.divIcon({ className: '', html: `<div class="map-plane">${pinIcon('plane', 18)}</div>`, iconSize: [20, 20], iconAnchor: [10, 10] }),
       }).addTo(layer).bindPopup(popup);
     }

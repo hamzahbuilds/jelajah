@@ -174,7 +174,7 @@ export default function MySpend() {
 
       <div className="grid grid-2" style={{ alignItems: 'start' }}>
         <form className="card" onSubmit={add}>
-          <h3>{t.addSpend}</h3>
+          <h2>{t.addSpend}</h2>
           <div className="form-grid">
             <label className="fld"><span>{t.date}</span>
               <input type="date" value={form.spend_date} onChange={e => setForm({ ...form, spend_date: e.target.value })} required /></label>
@@ -273,7 +273,7 @@ export default function MySpend() {
 
           {tagged.length > 0 && (
             <div className="card">
-              <div className="cardhead"><h3>{t.iOwe}</h3></div>
+              <div className="cardhead"><h2>{t.iOwe}</h2></div>
               {tagged.map(s => (
                 <div key={s.share_id} className={`peer-row ${s.settled ? 'settled' : ''}`}>
                   <span>

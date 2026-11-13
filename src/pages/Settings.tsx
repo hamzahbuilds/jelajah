@@ -31,7 +31,7 @@ export default function Settings() {
       <PageHead crumb={t.settingsCrumb} title={t.settings} sub={t.settingsSub} />
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="cardhead"><h3><Icon name="gift" /> {t.referralTitle}</h3>
+        <div className="cardhead"><h2><Icon name="gift" /> {t.referralTitle}</h2>
           {referral && referral.enabled && (
             <span className="badge brand"><span className="d" />{t.inviteUses(referral.used_count, referral.max_uses)}</span>
           )}
@@ -51,7 +51,7 @@ export default function Settings() {
       <TokenCard />
 
       <div className="card" style={{ marginBottom: 16, marginTop: 16 }}>
-        <div className="cardhead"><h3><Icon name="chat" /> {t.mcpTitle}</h3></div>
+        <div className="cardhead"><h2><Icon name="chat" /> {t.mcpTitle}</h2></div>
         <p className="hint">{t.mcpHelp}</p>
         <div className="mono">{`${window.location.origin}/api/mcp`}</div>
         <details className="tiny" style={{ margin: '8px 0' }}>
@@ -86,7 +86,7 @@ http_headers = { "Authorization" = "Bearer YOUR_TOKEN" }`}</pre>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="cardhead"><h3><Icon name="moon" /> {t.appearance}</h3></div>
+        <div className="cardhead"><h2><Icon name="moon" /> {t.appearance}</h2></div>
         <div className="seg" role="group">
           {([['', t.themeLight], ['dark', t.themeDark], ['system', t.themeSystem]] as const).map(([v, label]) => (
             <button key={v} className={pref === v ? 'on' : ''} onClick={() => pick(v)}>{label}</button>
@@ -96,7 +96,7 @@ http_headers = { "Authorization" = "Bearer YOUR_TOKEN" }`}</pre>
       </div>
 
       <div className="card">
-        <div className="cardhead"><h3><Icon name="globe" /> {t.languageTitle}</h3></div>
+        <div className="cardhead"><h2><Icon name="globe" /> {t.languageTitle}</h2></div>
         <div className="seg" role="group">
           <button className={lang === 'en' ? 'on' : ''} onClick={() => changeLang('en')}>English</button>
           <button className={lang === 'ms' ? 'on' : ''} onClick={() => changeLang('ms')}>Bahasa Malaysia</button>

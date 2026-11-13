@@ -391,7 +391,7 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
       <div className="grid grid-2 trip-settings" style={{ alignItems: 'start' }}>
       {isSettings && canLead && (
         <div className="card settings-details">
-          <div className="cardhead"><h3><Icon name="edit" /> {t.tripDetails}</h3></div>
+          <div className="cardhead"><h2><Icon name="edit" /> {t.tripDetails}</h2></div>
           <form onSubmit={saveTripDetails}>
             <div className="fld">
               <label htmlFor="trip-name">{t.tripName}</label>
@@ -455,7 +455,7 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
 
       {isSettings && canLead && (
         <div className="card">
-          <div className="cardhead"><h3><Icon name="eye" /> {t.visibility}</h3></div>
+          <div className="cardhead"><h2><Icon name="eye" /> {t.visibility}</h2></div>
           <p className="hint">{t.visibilityHint}</p>
           {(['plan', 'documents', 'ledger', 'payments', 'assistant'] as const).map(f => (
             <label key={f} className="row" style={{ gap: 8, padding: '4px 0' }}>
@@ -474,7 +474,7 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
 
       {isSettings && canLead && discover && (
         <div className="card">
-          <div className="cardhead"><h3><Icon name="globe" /> {t.discoverTitle}</h3></div>
+          <div className="cardhead"><h2><Icon name="globe" /> {t.discoverTitle}</h2></div>
           <label className="discover-switch">
             {/* Native switch where supported (Safari); elsewhere a checkbox announced as a switch. */}
             <input type="checkbox" role="switch" {...{ switch: '' }} checked={discover.on} disabled={discover.takenDown} onChange={toggleDiscover} />
@@ -485,12 +485,13 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
         </div>
       )}
       {!isSettings && <div className="card">
-        <div className="cardhead"><h3>{t.tripMembers}</h3><span className="badge gray">{members.length}</span></div>
-        <div className="settings-member-avatars" aria-label={t.tripMembers}>
-          {members.map(m => <button type="button" key={m.id} className="settings-member-avatar" aria-label={m.name}
+        <div className="cardhead"><h2>{t.tripMembers}</h2><span className="badge gray">{members.length}</span></div>
+        <div className="settings-member-avatars" role="group" aria-label={t.tripMembers}>
+          {members.map(m => <button type="button" key={m.id} className="settings-member-avatar"
             onClick={() => { if (canLead) { setDirectorySearch(m.name); setDirectoryPage(0); setManageMembers(true); } }}>
             <span className="avatar" aria-hidden="true">{initials(m.name)}</span>
-            <span className="settings-member-tooltip" role="tooltip">{m.name}{m.is_infant ? ` (${t.infant})` : ''}</span>
+            <span className="sr-only">{m.name}{m.is_infant ? ` (${t.infant})` : ''}</span>
+            <span className="settings-member-tooltip" aria-hidden="true">{m.name}{m.is_infant ? ` (${t.infant})` : ''}</span>
           </button>)}
         </div>
         {!members.length && <p className="hint">{bm ? 'Belum ada ahli.' : 'No members yet.'}</p>}
@@ -503,7 +504,7 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
       {!isSettings && canLead && (
         <div className="card">
           <div className="cardhead">
-            <h3><Icon name="link" /> {t.inviteTitle}</h3>
+            <h2><Icon name="link" /> {t.inviteTitle}</h2>
             <form className="row" style={{ gap: 8 }} onSubmit={createInvite}>
               <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'viewer' | 'editor')} aria-label={t.inviteRoleLabel}>
                 <option value="viewer">{t.roleViewer}</option>
@@ -596,7 +597,7 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
 
       {isSettings && canLead && (
         <div className="card danger-card">
-          <div className="cardhead"><h3 className="danger-title"><Icon name="trash" /> {t.deleteTrip}</h3></div>
+          <div className="cardhead"><h2 className="danger-title"><Icon name="trash" /> {t.deleteTrip}</h2></div>
           <p className="hint">{t.deleteTripHint(trip.name)}</p>
           <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
             <input value={deleteText} onChange={e => setDeleteText(e.target.value)} placeholder={trip.name} style={{ flex: 1, minWidth: 200 }} />

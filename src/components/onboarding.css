@@ -5,7 +5,7 @@ dialog.ob { max-inline-size: min(440px, calc(100vw - 32px)); margin: auto; text-
   display: grid; place-items: center; background: var(--tile); color: var(--brand-ink);
 }
 .ob-body { min-block-size: 9.5em; }
-.ob-count { margin: 0 0 var(--s-1); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); letter-spacing: .04em; text-transform: uppercase; }
+.ob-count { margin: 0 0 var(--s-1); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
 .ob-body h2 { margin: 0 0 var(--s-2); font-size: var(--fs-lg); text-wrap: balance; }
 .ob-body p:last-child { margin: 0; color: var(--ink-2); font-size: var(--fs-md); text-wrap: pretty; }
 .ob-dots { display: flex; justify-content: center; gap: var(--s-2); list-style: none; margin: var(--s-4) 0 0; padding: 0; }

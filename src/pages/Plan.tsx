@@ -644,7 +644,7 @@ export default function Plan() {
             <div className="grid">
             <div className="card">
               <div className="row-between">
-                <h3 style={{ minWidth: 0 }}>
+                <h2 style={{ minWidth: 0 }}>
                   {fmtDate(selDay, lang)} {selDay === today && <span className="today-tag">{t.today}</span>}
                   {titleEdit === null ? (
                     <span className="daytitle">
@@ -667,7 +667,7 @@ export default function Plan() {
                       <button className="btn secondary sm" type="button" onClick={() => setTitleEdit(null)}>{t.cancel}</button>
                     </form>
                   )}
-                </h3>
+                </h2>
                 <span className="row" style={{ gap: 6 }}>
                   {(budget || canLead) && (
                     <button className="badge brand" style={{ border: 'none', cursor: canLead ? 'pointer' : 'default' }}
@@ -846,7 +846,7 @@ export default function Plan() {
             </div>
             <div className="card">
               <div className="row-between">
-                <h3><Icon name="pin" size={16} /> {t.directions}</h3>
+                <h2><Icon name="pin" size={16} /> {t.directions}</h2>
                 {canLead && (
                   <button className="btn ghost sm" onClick={() => setSeModal('start')}>{t.editStartEnd}</button>
                 )}
@@ -866,7 +866,7 @@ export default function Plan() {
             <div className="grid">
               <div className="card">
                 <div className="cardhead">
-                  <h3><Icon name="pin" size={16} /> {t.dayMap}</h3>
+                  <h2><Icon name="pin" size={16} /> {t.dayMap}</h2>
                   <ExpandedMap key={selDay} pins={pins} routes={routes} title={`${t.dayMap} · ${fmtDate(selDay, lang)}`}
                     stops={items.map(item => ({ key: item.key, title: item.title, time: item.time, detail: item.subtitle,
                       pinIndex: item.activity ? (pinNos.get(actRef(item.activity.id)) ?? 0) - 1 : -1 }))} />
@@ -884,7 +884,7 @@ export default function Plan() {
               </div>
               <div className="card">
                 <div className="cardhead">
-                  <h3><Icon name="coins" size={16} /> {t.dayBudget}</h3>
+                  <h2><Icon name="coins" size={16} /> {t.dayBudget}</h2>
                   {canLead && (
                     <button className="btn ghost sm" title={t.editBudget} onClick={() => setBudgetModal(true)}>
                       <Icon name="edit" size={16} />

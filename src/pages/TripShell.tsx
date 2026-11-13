@@ -83,10 +83,10 @@ export default function TripShell() {
           </div>
         )}
         <div className="row trip-header-row">
-          <span style={{ fontSize: '1.6rem' }}>{data.trip.emoji}</span>
+          <span className="trip-emoji" aria-hidden="true">{data.trip.emoji}</span>
           <div>
             <p className="trip-title">{data.trip.name}</p>
-            <div className="muted">{data.trip.destination}</div>
+            <div className="trip-dest">{data.trip.destination}</div>
           </div>
         </div>
       </div>
