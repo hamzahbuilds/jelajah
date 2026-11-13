@@ -150,7 +150,7 @@ export default function MySpend() {
         <div className="card stat">
           <span className="k"><span className="tile sm"><Icon name="wallet" /></span>{t.spentThisTrip}</span>
           <span className="v">{fmtMYR(total)}</span>
-          <span className="t">{items.length} {t.expenses}</span>
+          <span className="t">{t.nExpenses(items.length)}</span>
         </div>
         {owedToMe > 0 && (
           <div className="card stat">

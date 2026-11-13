@@ -11,15 +11,9 @@ import PageHead from '../components/PageHead';
 import Empty from '../components/Empty';
 import { Icon } from '../components/Icon';
 import Dialog from '../components/Dialog';
+import Avatar from '../components/Avatar';
 import { AnimatePresence } from 'motion/react';
 
-// initials for the `.avatar` chip — mirrors the People.tsx helper.
-const initials = (name: string) => {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-};
 
 export default function Payments() {
   const ask = useConfirm();
@@ -93,7 +87,7 @@ export default function Payments() {
     <div>
       <PageHead title={t.money} sub={t.moneySub} />
       <MoneyTabs />
-      <div className="grid grid-2" style={{ alignItems: 'start' }}>
+      <div className="grid grid-2 grid-top">
       {/* v0.27: column stacks get .grid so consecutive cards don't touch */}
       <div className="grid">
         <div className="card">
@@ -102,8 +96,8 @@ export default function Payments() {
           {bal?.balances?.length === 0 && <Empty icon="check" title={t.allSquare} sub={t.allSquareSub} />}
           <div className={(bal?.balances?.length ?? 0) > 5 ? 'scroll-cap-lg' : ''}>
           {bal?.balances?.map((b: any) => (
-            <div key={b.participant.id} className="lrow" style={{ flexWrap: 'wrap' }}>
-              <span className="avatar">{initials(b.participant.name)}</span>
+            <div key={b.participant.id} className="lrow bal-row">
+              <Avatar identity={`participant:${b.participant.id}`} size={32} />
               <div className="l-main">
                 <b>{b.participant.name}</b>
                 <small>{t.owed} {fmtMYR(b.owed)} · {t.paid} {fmtMYR(b.paid)}</small>
@@ -114,17 +108,21 @@ export default function Payments() {
                   : <span className="badge success"><span className="d" />{t.settledLbl}</span>}
               </div>
               {b.byPayee.length > 0 && (
-                <div style={{ flexBasis: '100%', marginLeft: 44 }}>
+                <ul className="debt-list">
                   {b.byPayee.map((bp: any) => (
-                    <div className="row-between" key={bp.to_participant_id} style={{ padding: '4px 0' }}>
-                      <span className="tiny">
-                        {t.owes(b.participant.name, pname(bp.to_participant_id))} · {fmtMYR(bp.remaining)} / {fmtMYR(bp.total)}
-                        {bp.credit > 0 && <> · {t.credit} {fmtMYR(bp.credit)}</>}
-                      </span>
-                      <button type="button" className="btn ghost sm" onClick={() => setOpen({ b, bp })}>{t.statement}</button>
-                    </div>
+                    <li key={bp.to_participant_id}>
+                      <button type="button" className="debt-row" onClick={() => setOpen({ b, bp })}>
+                        <span className="debt-who">{t.owesTo(pname(bp.to_participant_id))}</span>
+                        <span className="debt-amt">
+                          {fmtMYR(bp.remaining)}
+                          {Math.abs(bp.total - bp.remaining) > 0.004 && <small>{t.ofTotal(fmtMYR(bp.total))}</small>}
+                          {bp.credit > 0 && <small>{t.credit} {fmtMYR(bp.credit)}</small>}
+                        </span>
+                        <span className="debt-go">{t.statement} <Icon name="arrow-r" size={16} /></span>
+                      </button>
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
             </div>
           ))}
@@ -135,19 +133,18 @@ export default function Payments() {
       <div className="grid">
         {canLead && (
           <form className="card" onSubmit={record}>
-            <h2>{t.recordPayment}</h2>
-            <p className="tiny">{t.lumpsumHint}</p>
+            <div className="cardhead cardhead-stack"><h2>{t.recordPayment}</h2><p className="hint">{t.lumpsumHint}</p></div>
             <div className="form-grid">
               <label className="fld"><span>{t.from}</span>
                 <select required value={form.from_participant_id}
                   onChange={e => setForm({ ...form, from_participant_id: Number(e.target.value) })}>
-                  <option value={0} disabled>—</option>
+                  <option value={0} disabled>{t.choosePerson}</option>
                   {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select></label>
               <label className="fld"><span>{t.to}</span>
                 <select required value={form.to_participant_id}
                   onChange={e => setForm({ ...form, to_participant_id: Number(e.target.value) })}>
-                  <option value={0} disabled>—</option>
+                  <option value={0} disabled>{t.choosePerson}</option>
                   {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select></label>
               <label className="fld"><span>{t.amountMyr}</span>

@@ -126,3 +126,11 @@ The base-map style request retries with backoff. A single failed tile no longer 
 The Plan header is flat on phones too, with no leftover card edge.
 
 The axe sweep is still at 0 violations, and tests pass (373).
+
+## Money and People pass (v0.44, part 3)
+
+- **Ledger:** rows no longer start with "—" when an expense has no date; the "By rooms" badge sits on the title line; on phones the three totals collapse into one summary card (label left, amount right) instead of 2 + 1 tiles. Correct plurals ("1 expense").
+- **Payments:** each "X owes Y" line is one button row (who, amount, "of total" when part-paid, "Statement →") instead of a tiny sentence plus a floating text button. Balance avatars use the generated avatars. Record-payment selects say "Choose a person".
+- **My spend:** "1 expense" plural fix.
+- **People:** trip members are a named list (avatar, name, "You", infant, role) instead of a grid of duplicate initials; Invite links sit beside it with the role picker and button on their own row; Rooms run full width below. Room cards: name, occupancy and edit/delete on one line; one occupant per row; picker and suggested-stay chips are real buttons (were clickable spans).
+- axe sweep: 38 page/size combinations, light and dark, 0 violations. 373 tests pass.

@@ -257,9 +257,9 @@ export default function RoomsCard({ tripId, members, canEdit }: {
               <div className="tiny" style={{ marginBottom: 6 }}>{t.suggestedStays}</div>
               <div className="chips" style={{ marginBottom: 12 }}>
                 {availableSuggestions.map(s => (
-                  <span key={s.label} className="chip" onClick={() => quickAddStay(s)}>
+                  <button type="button" key={s.label} className="chip" onClick={() => quickAddStay(s)}>
                     {s.label}{s.check_in && s.check_out ? ` · ${t.stayDates(s.check_in, s.check_out)}` : ''}
-                  </span>
+                  </button>
                 ))}
               </div>
             </>
@@ -341,12 +341,12 @@ export default function RoomsCard({ tripId, members, canEdit }: {
                         <button type="button" className="btn ghost sm" onClick={() => setEditingRoom(null)}>{t.cancel}</button>
                       </form>
                     ) : (
-                      <div className="row-between">
+                      <div className="room-head">
                         <b>{room.name}</b>
-                        <div className="row" style={{ gap: 6 }}>
-                          <span className={`badge ${over ? 'warning' : 'gray'}`} title={over ? t.overCapacity : undefined}>
-                            {label}
-                          </span>
+                        <span className={`badge ${over ? 'warning' : 'gray'}`} title={over ? t.overCapacity : undefined}>
+                          {label}
+                        </span>
+                        <div className="room-acts">
                           {canEdit && (
                             <>
                               <button type="button" className="btn ghost sm" title={t.edit} aria-label={t.edit} onClick={() => startEdit(room)}>
@@ -361,7 +361,7 @@ export default function RoomsCard({ tripId, members, canEdit }: {
                       </div>
                     )}
 
-                    <div className="chips" style={{ marginTop: 8 }}>
+                    <div className="room-occs">
                       {occMembers.map(m => {
                         // v0.26 — nights badge: n = this occupant's explicit
                         // nights, or the stay's full night count when unset.
@@ -370,7 +370,7 @@ export default function RoomsCard({ tripId, members, canEdit }: {
                         return (
                           <span key={m.id} className="room-occ">
                             <Avatar identity={`participant:${m.id}`} size={28} />
-                            {m.name}
+                            <span className="room-occ-name">{m.name}</span>
                             {!!m.is_infant && <span className="badge infant">{t.infant}</span>}
                             {/* F6 — infants are excluded from the money weighting
                                (server filters them out of occupantWeights), so no
@@ -411,14 +411,14 @@ export default function RoomsCard({ tripId, members, canEdit }: {
                     </div>
 
                     {canEdit && (
-                      <div style={{ marginTop: 8 }}>
+                      <div className="room-assign">
                         {pickerFor === room.id ? (
                           <div className="chips">
                             {unassignedPool.length === 0 && <span className="tiny">{t.unassigned}: —</span>}
                             {unassignedPool.map(p => (
-                              <span key={p.id} className="chip" onClick={() => assign(room, p.id)}>
+                              <button type="button" key={p.id} className="chip" onClick={() => assign(room, p.id)}>
                                 {p.name}{p.is_infant ? ` (${t.infant})` : ''}
-                              </span>
+                              </button>
                             ))}
                             <button type="button" className="btn ghost sm" onClick={() => setPickerFor(null)}>{t.cancel}</button>
                           </div>

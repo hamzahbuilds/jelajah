@@ -122,11 +122,11 @@ export default function Ledger() {
       <PageHead title={t.money} sub={t.moneySub} />
       <MoneyTabs />
 
-      <div className="stats">
+      <div className="stats stats-trio">
         <div className="card stat">
           <span className="k"><span className="tile sm"><Icon name="wallet" /></span>{t.tripTotal}</span>
           <span className="v">{fmtMYR(total)}</span>
-          <span className="t">{list.length} {t.expenses}</span>
+          <span className="t">{t.nExpenses(list.length)}</span>
         </div>
         <div className="card stat">
           <span className="k"><span className="tile sm"><Icon name="hotel" /></span>{t.committedLabel}</span>
@@ -143,10 +143,10 @@ export default function Ledger() {
       <div className="card">
         <div className="cardhead">
           <h2>{t.ledger}</h2>
-          {list.length > 0 && <span className="badge gray">{list.length} {t.expenses}</span>}
+          {list.length > 0 && <span className="badge gray">{t.nExpenses(list.length)}</span>}
         </div>
-        <div className="row-between" style={{ marginBottom: 10 }}>
-          <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width: 190 }} aria-label={t.category ?? 'Category'}>
+        <div className="ledger-tools">
+          <select value={filter} onChange={e => setFilter(e.target.value)} aria-label={t.category ?? 'Category'}>
             <option value="all">{t.allCategories}</option>
             {CATEGORIES.map(c => <option key={c} value={c}>{(t as any)[c]}</option>)}
           </select>
@@ -175,13 +175,17 @@ export default function Ledger() {
             <div className="lrow" key={e.id}>
               <span className="tile"><Icon name={expenseIcon(e.category)} /></span>
               <div className="l-main">
-                <b>{e.description}</b>
-                {roomsSplitJson && <span className="badge brand" style={{ marginLeft: 6 }}>{t.byRooms}</span>}
+                <span className="l-title">
+                  <b>{e.description}</b>
+                  {roomsSplitJson && <span className="badge brand">{t.byRooms}</span>}
+                </span>
                 <small>
-                  {fmtDate(e.expense_date, lang)}
-                  {e.payer_participant_id ? ` · ${pname(e.payer_participant_id)}` : ''}
-                  {shareCount > 0 ? ` · ${t.nPeople(shareCount)}` : ''}
-                  {e.vendor ? ` · ${e.vendor}` : ''}
+                  {[
+                    e.expense_date ? fmtDate(e.expense_date, lang) : null,
+                    e.payer_participant_id ? pname(e.payer_participant_id) : null,
+                    shareCount > 0 ? t.nPeople(shareCount) : null,
+                    e.vendor || null,
+                  ].filter(Boolean).join(' · ')}
                 </small>
               </div>
               <div className="l-amt">

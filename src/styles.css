@@ -1846,3 +1846,68 @@ p, .muted, .tiny, li { text-wrap: pretty; }
 .due-main:hover .due-title { color: var(--brand-ink); text-decoration: underline; }
 .due-title { font-weight: 600; overflow-wrap: anywhere; }
 .due-side { display: flex; align-items: center; gap: var(--s-2); font-variant-numeric: tabular-nums; }
+
+/* v0.44 Money + People pass (docs/30) */
+.grid-top { align-items: start; }
+.cardhead-stack { flex-direction: column; align-items: flex-start; gap: var(--s-1); }
+.cardhead-stack .hint { margin: 0; }
+button.chip { font: inherit; font-size: var(--fs-sm); color: var(--ink); background: var(--surface); }
+button.chip:hover { border-color: color-mix(in srgb, var(--brand) 45%, var(--border)); }
+button.chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* Ledger: badge sits on the title line; tools row */
+.lrow .l-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); }
+.lrow .l-title b { display: inline; }
+.ledger-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2); margin-block-end: var(--s-2); }
+.ledger-tools select { inline-size: auto; min-inline-size: 180px; }
+/* phone: the three totals become one compact summary card instead of 2 + 1 tiles */
+@media (max-width: 639px) {
+  .stats-trio { grid-template-columns: 1fr; gap: 0; border: 1px solid var(--border); border-radius: var(--r-xl); background: var(--surface); overflow: hidden; }
+  .stats-trio > .card.stat { flex-direction: row; align-items: center; justify-content: space-between; gap: var(--s-3);
+    border: 0; border-radius: 0; box-shadow: none; padding: var(--s-3) var(--s-4); margin: 0; }
+  .stats-trio > .card.stat + .card.stat { border-block-start: 1px solid var(--border); }
+  .stats-trio .stat .v { font-size: var(--fs-base); font-weight: 700; }
+  .stats-trio .stat .t { display: none; }
+}
+
+/* Payments: who-owes-whom rows open the statement */
+.bal-row { flex-wrap: wrap; }
+.debt-list { flex-basis: 100%; list-style: none; margin: 0; padding: 0 0 0 44px; display: grid; gap: var(--s-1); }
+.debt-row {
+  inline-size: 100%; display: grid; grid-template-columns: 1fr auto; grid-template-areas: "who amt" "go amt"; align-items: center; gap: 2px var(--s-3);
+  padding: var(--s-2) var(--s-3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg);
+  font: inherit; color: var(--ink); text-align: start; cursor: pointer;
+}
+.debt-row:hover { border-color: color-mix(in srgb, var(--brand) 40%, var(--border)); }
+.debt-row:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.debt-who { grid-area: who; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.debt-amt { grid-area: amt; text-align: end; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.debt-amt small { display: block; font-weight: 400; font-size: var(--fs-xs); color: var(--ink-3); }
+.debt-go { grid-area: go; display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--brand-ink); }
+@media (max-width: 480px) { .debt-list { padding-inline-start: 0; } }
+
+/* People: names, not initials */
+.member-list { list-style: none; margin: 0 0 var(--s-4); padding: 0; display: grid; gap: 2px; }
+.member-row {
+  inline-size: 100%; display: flex; align-items: center; gap: var(--s-3); min-block-size: 48px; padding: var(--s-1) var(--s-2);
+  border: 0; border-radius: var(--r-md); background: none; font: inherit; color: var(--ink); text-align: start;
+}
+button.member-row { cursor: pointer; }
+button.member-row:hover { background: var(--subtle); }
+button.member-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.member-name { flex: 1; min-inline-size: 0; font-size: var(--fs-md); font-weight: 550; overflow-wrap: anywhere; }
+.member-name small { color: var(--ink-3); font-weight: 400; }
+.member-row .badge { flex: none; }
+.invite-form { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-block-end: var(--s-3); }
+.invite-form select { inline-size: auto; flex: 1 1 140px; }
+
+/* Rooms: one header line, one occupant per row */
+.room-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: var(--s-3); }
+.room-card { padding: var(--s-3) var(--s-4); background: var(--surface); }
+.room-head { display: flex; align-items: center; gap: var(--s-2); min-block-size: 36px; }
+.room-head b { min-inline-size: 0; overflow-wrap: anywhere; }
+.room-acts { display: flex; margin-inline-start: auto; }
+.room-occs { display: grid; gap: var(--s-1); margin-block-start: var(--s-2); }
+.room-occs .room-occ { display: flex; inline-size: 100%; border-radius: var(--r-md); padding: var(--s-1) var(--s-2) var(--s-1) var(--s-1); }
+.room-occ-name { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
+.room-assign { margin-block-start: var(--s-2); }

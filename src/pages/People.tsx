@@ -11,6 +11,7 @@ import { Icon } from '../components/Icon';
 import Modal from '../components/Modal';
 import { resizeImageFile } from '../lib/image';
 import RoomsCard from '../components/RoomsCard';
+import Avatar from '../components/Avatar';
 import { smallCover, uploadSmallCover } from '../lib/coverThumb';
 
 type UnsplashPhoto = {
@@ -484,33 +485,38 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
       )}
       {!isSettings && <div className="card">
         <div className="cardhead"><h2>{t.tripMembers}</h2><span className="badge gray">{members.length}</span></div>
-        <div className="settings-member-avatars" role="group" aria-label={t.tripMembers}>
-          {members.map(m => <button type="button" key={m.id} className="settings-member-avatar"
-            onClick={() => { if (canLead) { setDirectorySearch(m.name); setDirectoryPage(0); setManageMembers(true); } }}>
-            <span className="avatar" aria-hidden="true">{initials(m.name)}</span>
-            <span className="sr-only">{m.name}{m.is_infant ? ` (${t.infant})` : ''}</span>
-            <span className="settings-member-tooltip" aria-hidden="true">{m.name}{m.is_infant ? ` (${t.infant})` : ''}</span>
-          </button>)}
-        </div>
+        {members.length > 0 && (
+          <ul className={`member-list${members.length > 8 ? ' scroll-cap-lg' : ''}`} aria-label={t.tripMembers}>
+            {members.map(m => {
+              const role = m.trip_role === 'leader' ? t.roleLeader : m.trip_role === 'editor' ? t.roleEditor : m.trip_role === 'viewer' ? t.roleViewer : '';
+              const body = <>
+                <Avatar identity={`participant:${m.id}`} size={32} />
+                <span className="member-name">{m.name}{m.id === user.participant_id && <small> · {t.memberYou}</small>}</span>
+                {!!m.is_infant && <span className="badge infant">{t.infant}</span>}
+                {role && <span className="badge gray">{role}</span>}
+              </>;
+              return <li key={m.id}>
+                {canLead
+                  ? <button type="button" className="member-row" onClick={() => { setDirectorySearch(m.name); setDirectoryPage(0); setManageMembers(true); }}>{body}</button>
+                  : <div className="member-row">{body}</div>}
+              </li>;
+            })}
+          </ul>
+        )}
         {!members.length && <p className="hint">{bm ? 'Belum ada ahli.' : 'No members yet.'}</p>}
         {canLead && <button className="btn secondary sm" onClick={() => { setDirectorySearch(''); setDirectoryPage(0); setManageMembers(true); }}><Icon name="edit" size={16} />{bm ? 'Urus ahli' : 'Manage members'}</button>}
-
       </div>}
-
-      {!isSettings && <RoomsCard tripId={tripId} members={members} canEdit={canEdit} />}
 
       {!isSettings && canLead && (
         <div className="card">
-          <div className="cardhead">
-            <h2><Icon name="link" /> {t.inviteTitle}</h2>
-            <form className="row" style={{ gap: 8 }} onSubmit={createInvite}>
-              <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'viewer' | 'editor')} aria-label={t.inviteRoleLabel}>
-                <option value="viewer">{t.roleViewer}</option>
-                <option value="editor">{t.roleEditor}</option>
-              </select>
-              <button type="submit" className="btn sm"><Icon name="plus" size={16} /> {t.inviteCreate}</button>
-            </form>
-          </div>
+          <div className="cardhead"><h2><Icon name="link" /> {t.inviteTitle}</h2></div>
+          <form className="invite-form" onSubmit={createInvite}>
+            <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'viewer' | 'editor')} aria-label={t.inviteRoleLabel}>
+              <option value="viewer">{t.roleViewer}</option>
+              <option value="editor">{t.roleEditor}</option>
+            </select>
+            <button type="submit" className="btn sm"><Icon name="plus" size={16} /> {t.inviteCreate}</button>
+          </form>
           {invites.filter(i => !i.revoked).map(i => (
             <div className={`lrow invite-row${i.id === justCreated ? ' invite-row-new' : ''}`} key={i.id}>
               <span className="tile sm"><Icon name="link" /></span>
@@ -527,6 +533,8 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
           ))}
         </div>
       )}
+
+      {!isSettings && <RoomsCard tripId={tripId} members={members} canEdit={canEdit} />}
 
       <Modal open={manageMembers && canLead} onClose={() => setManageMembers(false)} icon="edit" title={bm ? 'Urus ahli perjalanan' : 'Manage trip members'} closeLabel={t.close}>
         <p className="hint">{t.memberHint}</p>
