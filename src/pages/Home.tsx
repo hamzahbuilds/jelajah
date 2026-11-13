@@ -1,8 +1,10 @@
-// v0.42 public homepage (docs/28): what someone signed out sees at "/".
-// Sections: hero with a live-looking product mock, link sources, features,
-// how it works, comparison, destinations (Unsplash, credited), fresh Discover
-// journeys, FAQ, closing call to action, footer. Signed in, "/" stays My trips.
-import { useEffect, useState } from 'react';
+// v0.43 public homepage (docs/29): what someone signed out sees at "/".
+// Hero with a real OpenStreetMap tour of a Penang day (HeroMap), link sources,
+// three feature showcases with small product vignettes plus three smaller
+// features, how it works, comparison, destinations (Unsplash, credited), fresh
+// Discover journeys, FAQ, closing call to action, footer.
+// Signed in, "/" stays My trips.
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import SiteHeader from '../components/SiteHeader';
@@ -10,17 +12,21 @@ import BrandMark from '../components/BrandMark';
 import { Icon, IconDefs } from '../components/Icon';
 import { useT } from '../i18n';
 import { HOME, type HomeCopy } from './homeCopy';
+import '@fontsource/instrument-serif/400-italic.css';
 import './home.css';
+import type { IconName } from '../components/iconDefs';
+
+const HeroMap = lazy(() => import('./HeroMap'));
 
 interface Photo { destination: string; url: string; author_name: string; author_link: string | null; photo_link: string | null }
 interface Guide { id: string; title: string; destination: string; duration: number }
 
 /** Sections fade up once as they scroll in (transforms drop under reduced motion; ReducedMotionConfig in main.tsx). */
 const reveal = {
-  initial: { opacity: 0, y: 24 },
+  initial: { opacity: 0, y: 20 },
   whileInView: { opacity: 1, y: 0 },
   viewport: { once: true, margin: '0px 0px -80px 0px' },
-  transition: { type: 'spring' as const, stiffness: 120, damping: 22 },
+  transition: { type: 'spring' as const, stiffness: 140, damping: 24 },
 };
 
 export default function Home() {
@@ -49,7 +55,7 @@ export default function Home() {
       <main id="main">
         <Hero c={c} />
         <Sources c={c} />
-        <Features c={c} />
+        <Showcase c={c} />
         <How c={c} />
         <Compare c={c} />
         {photos.length > 0 && <Places c={c} photos={photos} />}
@@ -62,76 +68,47 @@ export default function Home() {
   );
 }
 
-function Hero({ c }: { c: HomeCopy }) {
+/** Headline words rise in one after another; the accent word is set in serif italic. */
+function Reveal({ parts, as: Tag = 'h1', id }: { parts: string[]; as?: 'h1' | 'h2'; id?: string }) {
+  let n = 0;
   return (
-    <section className="home-hero">
-      <div className="home-wrap home-hero-grid">
-        <div className="home-hero-copy">
-          <p className="home-eyebrow"><span className="home-dot" aria-hidden="true" /> {c.hero.eyebrow}</p>
-          <h1>{c.hero.title}</h1>
-          <p className="home-lede">{c.hero.sub}</p>
-          <div className="home-actions">
-            <Link to="/login" className="btn home-btn-lg">{c.hero.primary} <Icon name="arrow-r" size={20} /></Link>
-            <Link to="/discover" className="btn secondary home-btn-lg">{c.hero.secondary}</Link>
-          </div>
-          <p className="home-note"><Icon name="check" size={16} /> {c.hero.note}</p>
-        </div>
-        <HeroMock c={c} />
-      </div>
-    </section>
+    <Tag id={id} className="home-reveal">
+      {parts.map((part, k) => (
+        <span key={k} className={k === 1 ? 'accent' : undefined}>
+          {part.split(' ').map((w, i) => (
+            <motion.span key={i} className="w" initial={{ opacity: 0, y: '0.4em', filter: 'blur(6px)' }}
+              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+              transition={{ delay: 0.08 + (n++) * 0.06, type: 'spring', stiffness: 200, damping: 26 }}>
+              {w}{' '}
+            </motion.span>
+          ))}
+        </span>
+      ))}
+    </Tag>
   );
 }
 
-/** A drawn product preview (no screenshots of real trips). Decorative: the copy says the same. */
-function HeroMock({ c }: { c: HomeCopy }) {
-  const m = c.mock;
+function Hero({ c }: { c: HomeCopy }) {
   return (
-    <div className="home-mock" aria-hidden="true">
-      <div className="mock-window">
-        <div className="mock-top">
-          <div>
-            <strong>{m.trip}</strong>
-            <span>{m.dates}</span>
-          </div>
-          <div className="mock-avatars"><i /><i /><i /><b>{m.people}</b></div>
-        </div>
-        <div className="mock-body">
-          <svg className="mock-map" viewBox="0 0 320 220" preserveAspectRatio="xMidYMid slice">
-            <rect width="320" height="220" className="mm-sea" />
-            <path d="M40 30 C 110 0, 230 10, 290 60 S 300 190, 220 210 S 60 210, 30 150 S 0 60, 40 30 Z" className="mm-land" />
-            <path d="M70 70 C 120 60, 150 110, 200 100 S 260 130, 250 170" className="mm-road" />
-            <motion.path d="M78 62 C 120 40, 160 90, 196 96 S 248 120, 244 168" className="mm-route"
-              initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.6, delay: .4, ease: 'easeInOut' }} />
-            {[[78, 62, 1], [140, 64, 2], [196, 96, 3], [244, 168, 4]].map(([x, y, n], k) => (
-              <motion.g key={n} initial={{ opacity: 0, scale: .4 }} animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: .5 + k * .35, type: 'spring', stiffness: 300, damping: 18 }}>
-                <circle cx={x} cy={y} r="11" className="mm-pin" />
-                <text x={x} y={y + 4} textAnchor="middle" className="mm-pin-n">{n}</text>
-              </motion.g>
-            ))}
-          </svg>
-          <div className="mock-list">
-            <span className="mock-day">{m.day}</span>
-            <ol>
-              {m.stops.map(([time, name], k) => (
-                <motion.li key={k} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: .3 + k * .12, type: 'spring', stiffness: 220, damping: 24 }}>
-                  <span className="mock-n">{k + 1}</span>
-                  <span className="mock-t">{time}</span>
-                  <span className="mock-name">{name}</span>
-                </motion.li>
-              ))}
-            </ol>
-          </div>
-        </div>
+    <section className="home-hero">
+      <div className="home-wrap home-hero-copy">
+        <Link to="/discover" className="home-badge"><span className="home-badge-dot" aria-hidden="true" /> {c.badge} <Icon name="arrow-r" size={16} /></Link>
+        <Reveal parts={c.titleParts} />
+        <motion.p className="home-lede" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .55 }}>{c.hero.sub}</motion.p>
+        <motion.div className="home-actions" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .7 }}>
+          <Link to="/login" className="btn home-btn-lg">{c.hero.primary} <Icon name="arrow-r" size={20} /></Link>
+          <Link to="/discover" className="btn secondary home-btn-lg">{c.hero.secondary}</Link>
+        </motion.div>
+        <ul className="home-trust">
+          {c.trust.map(x => <li key={x}><Icon name="check" size={16} /> {x}</li>)}
+        </ul>
       </div>
-      <motion.div className="mock-chip mock-chip-transit" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.4 }}>
-        <Icon name="train" size={16} /> {m.transit}
+      <motion.div className="home-wrap home-hero-visual" initial={{ opacity: 0, y: 32 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .85, type: 'spring', stiffness: 90, damping: 20 }}>
+        <Suspense fallback={<div className="hm hm-skeleton" aria-hidden="true" />}>
+          <HeroMap c={c} />
+        </Suspense>
       </motion.div>
-      <motion.div className="mock-chip mock-chip-owe" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.7 }}>
-        <Icon name="wallet" size={16} /> {m.owe}
-      </motion.div>
-    </div>
+    </section>
   );
 }
 
@@ -146,9 +123,9 @@ function Sources({ c }: { c: HomeCopy }) {
   );
 }
 
-function SectionHead({ eyebrow, title, sub, id }: { eyebrow?: string; title: string; sub?: string; id: string }) {
+function SectionHead({ eyebrow, title, sub, id, center }: { eyebrow?: string; title: string; sub?: string; id: string; center?: boolean }) {
   return (
-    <div className="home-head">
+    <div className={`home-head${center ? ' center' : ''}`}>
       {eyebrow && <p className="home-eyebrow">{eyebrow}</p>}
       <h2 id={id}>{title}</h2>
       {sub && <p className="home-lede">{sub}</p>}
@@ -156,18 +133,80 @@ function SectionHead({ eyebrow, title, sub, id }: { eyebrow?: string; title: str
   );
 }
 
-function Features({ c }: { c: HomeCopy }) {
+/* ---- feature vignettes: small, drawn-in-HTML slices of the product ---- */
+function VLink({ c }: { c: HomeCopy }) {
+  const v = c.vignette;
+  return (
+    <div className="vg vg-link" aria-hidden="true">
+      <div className="vg-input"><Icon name="link" size={16} /> <span>{v.url}</span></div>
+      <div className="vg-progress"><span /> {v.making}</div>
+      <ul>{v.days.map(d => <li key={d}>{d}</li>)}</ul>
+    </div>
+  );
+}
+function VTransit({ c }: { c: HomeCopy }) {
+  const v = c.vignette;
+  return (
+    <div className="vg vg-transit" aria-hidden="true">
+      <div className="vg-stop"><i /> <strong>{v.from}</strong></div>
+      <div className="vg-ride"><span className="vg-line" /><span className="vg-chip"><Icon name="train" size={16} /> {c.mock.legs[1]}</span><small>{v.stopsBetween}</small></div>
+      <div className="vg-stop end"><i /> <strong>{v.to}</strong></div>
+    </div>
+  );
+}
+function VSplit({ c }: { c: HomeCopy }) {
+  const v = c.vignette;
+  return (
+    <div className="vg vg-split" aria-hidden="true">
+      <small>{v.balances}</small>
+      <ul>
+        {v.people.map(([name, amt], k) => (
+          <li key={name}><span className={`vg-av a${k}`}>{name[0]}</span> {name} <b className={amt.startsWith('-') ? 'neg' : 'pos'}>RM {amt.replace(/^[-+]/, amt.startsWith('-') ? '−' : '+')}</b></li>
+        ))}
+      </ul>
+      <span className="vg-btn">{v.settle}</span>
+    </div>
+  );
+}
+
+function Showcase({ c }: { c: HomeCopy }) {
+  const items = c.features.items;
+  const vignettes = [<VLink c={c} />, <VTransit c={c} />, <VSplit c={c} />];
+  const big = [items[1], items[2], items[5]], small = [items[0], items[3], items[4]];
   return (
     <section id="features" className="home-section" aria-labelledby="features-t">
       <div className="home-wrap">
-        <SectionHead id="features-t" eyebrow={c.features.eyebrow} title={c.features.title} />
-        <ul className="home-features">
-          {c.features.items.map((f, k) => (
-            <motion.li key={f.title} className={k === 0 ? 'big' : ''} {...reveal} transition={{ ...reveal.transition, delay: (k % 3) * .06 }}>
-              <span className="home-ficon"><Icon name={f.icon} size={24} /></span>
-              <h3>{f.title}</h3>
-              <p>{f.text}</p>
+        <div className="home-head center">
+          <p className="home-eyebrow">{c.features.eyebrow}</p>
+          <h2 id="features-t" className="home-reveal static"><span>{c.featParts[0]} </span><span className="accent">{c.featParts[1]}</span></h2>
+        </div>
+        <ul className="home-pills">
+          {c.pills.map(([icon, label], k) => (
+            <motion.li key={label} initial={{ opacity: 0, scale: .9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }}
+              transition={{ delay: k * .035, type: 'spring', stiffness: 260, damping: 22 }}>
+              <Icon name={icon as IconName} size={16} /> {label}
             </motion.li>
+          ))}
+        </ul>
+        <div className="home-rows">
+          {big.map((f, k) => (
+            <motion.article key={f.title} className={`home-row${k % 2 ? ' flip' : ''}`} {...reveal}>
+              <div className="home-row-text">
+                <span className="home-row-n">{String(k + 1).padStart(2, '0')}</span>
+                <h3>{f.title}</h3>
+                <p>{f.text}</p>
+              </div>
+              <div className="home-row-art">{vignettes[k]}</div>
+            </motion.article>
+          ))}
+        </div>
+        <h3 className="home-more-title">{c.more}</h3>
+        <ul className="home-small">
+          {small.map(f => (
+            <li key={f.title}>
+              <span className="home-ficon"><Icon name={f.icon} size={20} /></span>
+              <div><h4>{f.title}</h4><p>{f.text}</p></div>
+            </li>
           ))}
         </ul>
       </div>
@@ -183,7 +222,7 @@ function How({ c }: { c: HomeCopy }) {
         <ol className="home-steps">
           {c.how.steps.map((s, k) => (
             <motion.li key={s.title} {...reveal} transition={{ ...reveal.transition, delay: k * .08 }}>
-              <span className="home-step-n">{k + 1}</span>
+              <span className="home-step-n">{String(k + 1).padStart(2, '0')}</span>
               <h3>{s.title}</h3>
               <p>{s.text}</p>
             </motion.li>
@@ -197,7 +236,7 @@ function How({ c }: { c: HomeCopy }) {
 function Compare({ c }: { c: HomeCopy }) {
   const v = c.compare;
   const cell = (x: boolean | 'some' | 'paid') =>
-    x === true ? <><Icon name="check" size={20} /><span className="sr-only">{v.yes}</span></>
+    x === true ? <><span className="home-yes"><Icon name="check" size={16} /></span><span className="sr-only">{v.yes}</span></>
       : x === false ? <><span className="home-dash" aria-hidden="true">–</span><span className="sr-only">{v.no}</span></>
         : <span className="home-partial">{x === 'some' ? v.some : v.paid}</span>;
   return (
@@ -207,7 +246,7 @@ function Compare({ c }: { c: HomeCopy }) {
         <motion.div className="home-table-wrap" {...reveal} tabIndex={0} role="region" aria-labelledby="compare-t">
           <table className="home-table">
             <thead>
-              <tr><td />{v.cols.map((col, k) => <th key={col} scope="col" className={k === 0 ? 'us' : ''}>{col}</th>)}</tr>
+              <tr><td />{v.cols.map((col, k) => <th key={col} scope="col" className={k === 0 ? 'us' : ''}>{k === 0 ? <span className="home-table-brand"><BrandMark size={20} /> {col}</span> : col}</th>)}</tr>
             </thead>
             <tbody>
               {v.rows.map(([label, vals]) => (
@@ -225,26 +264,39 @@ function Compare({ c }: { c: HomeCopy }) {
 }
 
 function Places({ c, photos }: { c: HomeCopy; photos: Photo[] }) {
+  const [paused, setPaused] = useState(false);
+  const list = photos.slice(0, 6);
+  const card = (p: Photo, dup: boolean) => (
+    <li key={(dup ? 'b-' : 'a-') + p.destination} aria-hidden={dup || undefined}>
+      <Link to={`/discover?q=${encodeURIComponent(p.destination)}`} className="home-place" tabIndex={dup ? -1 : undefined}>
+        <img src={p.url} alt="" loading="lazy" decoding="async" width="600" height="800"
+          onError={e => { e.currentTarget.hidden = true; }} />
+        <span className="home-place-name">{p.destination}</span>
+        <span className="home-place-go">{c.places.open} <Icon name="arrow-r" size={16} /></span>
+      </Link>
+      {p.author_name && !dup && (
+        <small className="home-credit">
+          {c.places.photo} {p.author_link ? <a href={p.author_link} target="_blank" rel="noopener noreferrer">{p.author_name}</a> : p.author_name}
+        </small>
+      )}
+    </li>
+  );
   return (
-    <section className="home-section" aria-labelledby="places-t">
-      <div className="home-wrap">
-        <SectionHead id="places-t" eyebrow={c.places.eyebrow} title={c.places.title} sub={c.places.sub} />
+    <section className="home-section home-section-tight" aria-labelledby="places-t">
+      <div className="home-wrap home-row-head">
+        <div>
+          <p className="home-eyebrow">{c.places.eyebrow}</p>
+          <h2 id="places-t">{c.places.title}</h2>
+          <p className="home-lede">{c.places.sub}</p>
+        </div>
+        <button type="button" className="btn secondary sm home-marquee-toggle" onClick={() => setPaused(x => !x)} aria-pressed={undefined}>
+          {paused ? c.play : c.pause}
+        </button>
+      </div>
+      <div className={`home-marquee${paused ? ' paused' : ''}`}>
         <ul className="home-places">
-          {photos.slice(0, 5).map(p => (
-            <motion.li key={p.destination} {...reveal}>
-              <Link to={`/discover?q=${encodeURIComponent(p.destination)}`} className="home-place">
-                <img src={p.url} alt="" loading="lazy" decoding="async" width="600" height="800"
-                  onError={e => { e.currentTarget.hidden = true; }} />
-                <span className="home-place-name">{p.destination}</span>
-                <span className="home-place-go">{c.places.open} <Icon name="arrow-r" size={16} /></span>
-              </Link>
-              {p.author_name && (
-                <small className="home-credit">
-                  {c.places.photo} {p.author_link ? <a href={p.author_link} target="_blank" rel="noopener noreferrer">{p.author_name}</a> : p.author_name}
-                </small>
-              )}
-            </motion.li>
-          ))}
+          {list.map(p => card(p, false))}
+          {list.map(p => card(p, true))}
         </ul>
       </div>
     </section>
@@ -265,7 +317,7 @@ function Journeys({ c, guides, nDays }: { c: HomeCopy; guides: Guide[]; nDays: (
               <Link to={`/guides/${g.id}`} className="home-guide">
                 <small><Icon name="pin" size={16} /> {g.destination}</small>
                 <strong>{g.title}</strong>
-                <span>{nDays(g.duration)}</span>
+                <span>{nDays(g.duration)} <Icon name="arrow-r" size={16} /></span>
               </Link>
             </li>
           ))}
@@ -282,7 +334,7 @@ function Faq({ c }: { c: HomeCopy }) {
         <SectionHead id="faq-t" title={c.faq.title} />
         <div className="home-faq">
           {c.faq.items.map(([q, a]) => (
-            <details key={q}>
+            <details key={q} name="home-faq">
               <summary>{q}<Icon name="plus" size={20} /></summary>
               <p>{a}</p>
             </details>
@@ -296,11 +348,16 @@ function Faq({ c }: { c: HomeCopy }) {
 function FinalCta({ c }: { c: HomeCopy }) {
   return (
     <section className="home-section" aria-labelledby="cta-t">
-      <motion.div className="home-wrap home-cta" {...reveal}>
-        <h2 id="cta-t">{c.cta.title}</h2>
-        <p>{c.cta.sub}</p>
-        <Link to="/login" className="btn home-btn-lg home-btn-invert">{c.cta.button} <Icon name="arrow-r" size={20} /></Link>
-      </motion.div>
+      <div className="home-wrap">
+        <motion.div className="home-cta" {...reveal}>
+          <svg className="home-cta-route" viewBox="0 0 1200 320" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M-20 260 C 180 200, 260 300, 420 220 S 700 60, 860 140 S 1100 260, 1240 120" />
+          </svg>
+          <h2 id="cta-t" className="home-reveal static"><span>{c.ctaParts[0]} </span><span className="accent">{c.ctaParts[1]}</span></h2>
+          <p>{c.cta.sub}</p>
+          <Link to="/login" className="btn home-btn-lg home-btn-invert">{c.cta.button} <Icon name="arrow-r" size={20} /></Link>
+        </motion.div>
+      </div>
     </section>
   );
 }
@@ -309,25 +366,36 @@ function Footer({ c, credit }: { c: HomeCopy; credit: boolean }) {
   return (
     <footer className="home-footer">
       <div className="home-wrap home-footer-grid">
-        <div>
+        <div className="home-footer-brand">
           <Link to="/" className="site-logo"><BrandMark size={28} /> <span>Jelajah</span></Link>
           <p>{c.footer.tagline}</p>
+          <Link to="/login" className="btn home-footer-cta">{c.nav.start} <Icon name="arrow-r" size={16} /></Link>
         </div>
         <nav aria-label={c.footer.product}>
           <h2>{c.footer.product}</h2>
           <ul>
             <li><a href="#features">{c.nav.features}</a></li>
             <li><a href="#how">{c.nav.how}</a></li>
-            <li><Link to="/discover">{c.nav.discover}</Link></li>
             <li><a href="#faq">{c.nav.faq}</a></li>
+          </ul>
+        </nav>
+        <nav aria-label={c.nav.discover}>
+          <h2>{c.nav.discover}</h2>
+          <ul>
+            <li><Link to="/discover">{c.journeys.all}</Link></li>
             <li><Link to="/login">{c.nav.signIn}</Link></li>
+          </ul>
+        </nav>
+        <nav aria-label={c.footer.privacy}>
+          <h2>{c.footer.legal}</h2>
+          <ul>
             <li><a href="/privacy.html">{c.footer.privacy}</a></li>
           </ul>
         </nav>
       </div>
       <div className="home-wrap home-footer-base">
         <span>© {new Date().getFullYear()} Jelajah. {c.footer.rights}</span>
-        {credit && <span>{c.places.photo} Unsplash</span>}
+        <span>Map data © OpenStreetMap contributors{credit ? ' · Photos from Unsplash' : ''}</span>
       </div>
     </footer>
   );

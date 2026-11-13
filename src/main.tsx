@@ -7,7 +7,7 @@ import { initTheme } from './theme';
 import { registerSW } from './lib/pwa';
 import { ReducedMotionConfig } from '@animate-ui/react/utils/motion';
 // v0.38: heading font (self-hosted, variable weight, latin only loads for latin text; font-display: swap).
-import '@fontsource-variable/bricolage-grotesque/wght.css';
+import '@fontsource-variable/figtree/wght.css';
 
 initTheme();
 

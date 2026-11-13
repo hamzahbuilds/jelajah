@@ -21,7 +21,7 @@ export { pinIcon } from './mapTypes';
 // page's stylesheet cascade, so `var(--gray-400)` would not resolve there;
 // #A8A69F is that token's actual value (src/styles.css --gray-400).
 const ROUTE_STYLE: Record<string, { color: string; dashArray?: string }> = {
-  train: { color: '#116B58' }, metro: { color: '#116B58' }, transit: { color: '#116B58' }, intercity: { color: '#116B58' },
+  train: { color: '#2557E8' }, metro: { color: '#2557E8' }, transit: { color: '#2557E8' }, intercity: { color: '#2557E8' },
   walk: { color: '#087F8C', dashArray: '2 7' },
   bus: { color: '#6E56CF' }, // v0.40: buses (Malaysia, Singapore) when the feed has no line colour
   taxi: { color: '#F79009', dashArray: '7 5' }, car: { color: '#F79009', dashArray: '7 5' }, drive: { color: '#F79009', dashArray: '7 5' },
