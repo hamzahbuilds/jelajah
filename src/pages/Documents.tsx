@@ -209,9 +209,9 @@ export default function Documents() {
       {loadError && <div className="callout warn" role="alert">{bm ? 'Fail tidak dapat dimuatkan. Sambungan internet diperlukan.' : 'Could not load files. Documents require an internet connection.'} <button className="btn secondary sm" onClick={() => void load()}>{bm ? 'Cuba lagi' : 'Retry'}</button></div>}
       <section className="card document-library" style={{ marginTop: 16 }}>
         <div className="cardhead"><h2>{t.documents} <span className="badge gray">{docs.length}</span></h2>
-          <div className="row" role="group" aria-label={bm ? 'Paparan' : 'View mode'}>
-            <button className={`btn sm ${view === 'folders' ? '' : 'secondary'}`} aria-pressed={view === 'folders'} onClick={() => { setView('folders'); setFolder('all'); }}>{bm ? 'Folder & fail' : 'Folders & files'}</button>
-            <button className={`btn sm ${view === 'list' ? '' : 'secondary'}`} aria-pressed={view === 'list'} onClick={() => { setView('list'); setFolder('all'); }}>{bm ? 'Senarai' : 'List'}</button>
+          <div className="seg" role="group" aria-label={bm ? 'Paparan' : 'View mode'}>
+            <button type="button" className={view === 'folders' ? 'on' : ''} aria-pressed={view === 'folders'} onClick={() => { setView('folders'); setFolder('all'); }}>{bm ? 'Folder & fail' : 'Folders & files'}</button>
+            <button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => { setView('list'); setFolder('all'); }}>{bm ? 'Senarai' : 'List'}</button>
           </div>
         </div>
         <div className="document-library-toolbar">

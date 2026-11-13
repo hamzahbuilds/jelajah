@@ -788,8 +788,8 @@ button.nights-badge:hover { border-color: var(--border); }
 /* page header (ported from prototype .pagehead) */
 .pagehead { margin-bottom: 24px; }
 .pagehead .crumb { font-size: var(--fs-sm); color: var(--ink-3); font-weight: 500; margin-bottom: 4px; }
-.pagehead h1 { margin: 0; font-size: var(--fs-lg); line-height: 32px; font-weight: 600; letter-spacing: -.4px; }
-.pagehead .sub { color: var(--ink-2); margin-top: 4px; font-size: var(--fs-md); }
+.pagehead h1 { margin: 0; font-size: var(--fs-xl); line-height: 1.1; font-weight: 800; letter-spacing: -0.03em; } /* v0.44: same scale as the other page headers */
+.pagehead .sub { color: var(--ink-2); margin-top: var(--s-2); font-size: var(--fs-base); max-width: 65ch; }
 .pagehead .row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .pagehead .actions { display: flex; gap: 12px; flex-wrap: wrap; }
 
@@ -1361,7 +1361,7 @@ label.fld2 { display: block; font-size: var(--fs-sm); font-weight: 600; color: v
 .journal-workspace button:focus-visible,.journey-public a:focus-visible { outline:3px solid var(--brand-600); outline-offset:3px; }
 @media(max-width:760px) {
   .journal-columns { grid-template-columns:1fr; }
-  .journal-mobile-toggle { display:flex; gap:8px; margin:12px 0; }
+  .journal-mobile-toggle { display:inline-flex; margin:var(--s-3) 0; }
   .journal-columns.show-list .journal-map,.journal-columns.show-map .journal-timeline { display:none; }
   .journal-group-columns.show-list>div:last-child,.journal-group-columns.show-map>div:first-child { display:none; }
   .journal-map { position:static; }
@@ -1425,15 +1425,16 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 .journal-intro { padding:24px 0 28px; align-items:center; }
 .journal-intro h1 { font-size:var(--fs-xl); line-height:1.15; letter-spacing:-1.2px; margin:8px 0 12px; }
 .journal-intro p { max-width:640px; line-height:1.6; margin:0; }
-.journal-tabs { background:var(--surface); padding:6px; border:1px solid var(--border); border-radius:var(--r-xl); width:fit-content; margin-bottom:28px; gap:4px; }
-.journal-tabs button { border-radius:var(--r-lg); min-height:44px; }
-.journal-tabs button.active { background:var(--brand); color: var(--on-brand); }
+.journal-tabs { background:var(--subtle); padding:4px; border:0; border-radius:var(--r-lg); width:fit-content; margin-bottom:var(--s-6); gap:2px; }
+.journal-tabs button { border-radius:var(--r-md); min-height:40px; padding:0 var(--s-4); background:transparent; color:var(--ink-2); font-weight:600; font-size:var(--fs-md); }
+.journal-tabs button:hover { color:var(--ink); }
+.journal-tabs button.active { background:var(--surface); color:var(--ink); box-shadow:var(--shadow-xs); }
 .journal-next { padding:20px 24px; border-radius:var(--r-2xl); background:var(--brand-50); border:1px solid var(--brand-100); margin-bottom:24px; display:flex; align-items:center; gap:20px; }
 .journal-workspace .card { border-radius:var(--r-2xl); padding:24px; box-shadow:none; }
 .journal-workspace .btn { border-radius:var(--r-lg); min-height:44px; }
 .journal-workspace .daypills { gap:10px; padding:8px 0 24px; }
 .journal-workspace .daypill { border-radius:var(--r-xl); padding:14px 16px; min-width:112px; }
-.journal-workspace .daypill.on { background:var(--brand); color: var(--on-brand); border-color:var(--brand); }
+.journal-workspace .daypill.on { background:var(--brand-50); color:var(--brand-ink); border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
 .journal-workspace .daypill.on .dd,.journal-workspace .daypill.on .dt { color:inherit; opacity:.9; }
 .journal-group-columns { grid-template-columns:minmax(0,1.15fr) minmax(340px,1fr); gap:28px; }
 .journal-group-columns > .grid:last-child { position:sticky; top:24px; }
@@ -1452,7 +1453,7 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 .map-stop small,.map-stop strong { display:block; overflow-wrap:anywhere; }
 .map-stop small { color:var(--ink-2); margin:4px 0; }
 .map-stop-number { flex:0 0 28px; height:28px; display:grid; place-items:center; border-radius:50%; background:var(--tile); color:var(--ink); }
-[data-theme="dark"] .journal-tabs button.active,[data-theme="dark"] .journal-workspace .daypill.on,[data-theme="dark"] .journal-workspace .btn:not(.ghost):not(.secondary):not(.danger) { color:var(--on-brand); }
+[data-theme="dark"] .journal-workspace .btn:not(.ghost):not(.secondary):not(.danger) { color:var(--on-brand); }
 @media(max-width:1100px) and (min-width:761px) { .journal-group-columns { grid-template-columns:minmax(0,1fr); }.journal-group-columns > .grid:last-child { position:static; } }
 @media(max-width:760px) {
   .journal-group-columns { grid-template-columns:minmax(0,1fr); }
@@ -1527,7 +1528,7 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 [data-theme="dark"] .journal-workspace .pinno:hover,[data-theme="dark"] .journal-workspace .stop-number:hover { color:var(--on-brand); }
 @media(max-width:1100px) and (min-width:761px) { .journal-workspace .journal-group-columns,.journal-columns { grid-template-columns:minmax(0,1fr); }.journal-map { position:static; } }
 @media(max-width:760px) {
-  .journal-intro { padding:22px; border-radius:var(--r-2xl); flex-direction:column; align-items:flex-start; gap:16px; }
+  .journal-intro { padding:0 0 var(--s-4); flex-direction:column; align-items:flex-start; gap:var(--s-3); }
   .journal-intro > a { align-self:flex-start; }
   .journal-workspace .journal-group-columns,.journal-columns { grid-template-columns:minmax(0,1fr); }
   .day-overview { flex-direction:column; align-items:stretch; padding:20px; gap:16px; }
@@ -1545,7 +1546,7 @@ img.avatar { object-fit: cover; border: 1px solid var(--border); border-radius: 
 @media(prefers-reduced-motion:reduce) { .journal-workspace *, .journal-workspace *::before,.journal-workspace *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; } }
 
 @media(max-width:760px) {
-  .journal-intro { padding:16px; gap:8px; }
+  .journal-intro { padding:0 0 var(--s-4); gap:var(--s-2); }
   .journal-intro h1 { font-size:var(--fs-lg); margin:4px 0 8px; letter-spacing:-.7px; }
   .journal-intro .journal-eyebrow { display:none; }
   .journal-intro p { font-size:var(--fs-sm); }
@@ -1818,3 +1819,30 @@ p, .muted, .tiny, li { text-wrap: pretty; }
 .login-home:hover { color: var(--brand-ink); }
 .check-label { display: flex; flex: 1; align-items: center; gap: var(--s-2); min-inline-size: 0; cursor: pointer; }
 .authcard h1.logo { margin: 0 0 16px; line-height: 1.2; }
+/* v0.44: a checkbox and its label on one line; the label wraps beside the box, never under it */
+.check-row { display: flex; align-items: flex-start; gap: var(--s-3); padding: var(--s-2) 0; cursor: pointer; line-height: 1.4; }
+.check-row input[type="checkbox"] { flex: none; inline-size: 18px; block-size: 18px; margin: 1px 0 0; accent-color: var(--brand); }
+.check-row > span { display: inline-flex; align-items: center; gap: var(--s-2); }
+.check-row.divided { margin-block-start: var(--s-2); padding-block-start: var(--s-3); border-block-start: 1px solid var(--border); }
+/* v0.44: a radio group that looks like a segmented control (real radios, so arrow keys and screen readers work) */
+.seg-radio { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
+.seg-radio legend { padding: 0; margin-block-end: var(--s-1); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.seg-radio > div { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 4px; border-radius: var(--r-lg); background: var(--subtle); }
+.seg-radio label { position: relative; cursor: pointer; }
+.seg-radio input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.seg-radio span { display: inline-flex; align-items: center; min-block-size: 36px; padding: 0 var(--s-4); border-radius: var(--r-md); font-size: var(--fs-md); font-weight: 600; color: var(--ink-2); }
+.seg-radio input:checked + span { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-xs); }
+.seg-radio input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 1px; }
+@media (pointer: coarse) { .seg-radio span { min-block-size: 44px; } }
+.tn-choices { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-4) var(--s-6); margin-block-end: var(--s-4); }
+.tn-date { display: grid; gap: var(--s-1); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.tn-date input { inline-size: auto; }
+.tn-note { display: block; margin-block-end: var(--s-1); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.travel-notes textarea { inline-size: 100%; margin-block-end: var(--s-3); }
+/* v0.44 overview: payment due rows share one grid (title left, amount + action right) */
+.due-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--s-3); padding-block: var(--s-3); }
+.due-row + .due-row { border-block-start: 1px solid var(--border); }
+.due-main { display: grid; gap: 2px; min-inline-size: 0; color: inherit; text-decoration: none; }
+.due-main:hover .due-title { color: var(--brand-ink); text-decoration: underline; }
+.due-title { font-weight: 600; overflow-wrap: anywhere; }
+.due-side { display: flex; align-items: center; gap: var(--s-2); font-variant-numeric: tabular-nums; }

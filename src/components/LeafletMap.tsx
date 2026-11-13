@@ -77,8 +77,20 @@ export default function LeafletMap({ pins, picked, onPick, onSelectPin, height =
       maxZoom: 19,
       attribution: (window as any).JELAJAH_TILE_ATTRIBUTION ?? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map);
-    else fetch('https://tiles.openfreemap.org/styles/liberty', { signal: controller.signal })
-      .then(r => { if (!r.ok) throw new Error('map-style'); return r.json() as Promise<StyleSpecification>; })
+    // v0.44: a flaky connection used to leave a grey map after one failed
+    // request; retry the style a few times with backoff before giving up.
+    else (async function getStyle(): Promise<StyleSpecification> {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const r = await fetch('https://tiles.openfreemap.org/styles/liberty', { signal: controller.signal });
+          if (!r.ok) throw new Error('map-style');
+          return await r.json() as StyleSpecification;
+        } catch (e) {
+          if (controller.signal.aborted || attempt >= 3) throw e;
+          await new Promise(res => setTimeout(res, 800 * (attempt + 1)));
+        }
+      }
+    })()
       .then(style => {
         if (disposed) return;
         for (const layer of style.layers) {
@@ -88,7 +100,10 @@ export default function LeafletMap({ pins, picked, onPick, onSelectPin, height =
         }
         const base = maplibreGL({ style, attributionControl: false }).addTo(map);
         map.attributionControl.addAttribution('<a href="https://openfreemap.org/">OpenFreeMap</a> · <a href="https://www.openmaptiles.org/">OpenMapTiles</a> · &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>');
-        base.getMaplibreMap().on('error', () => { if (!disposed) setTileFailed(true); });
+        // One missing tile is not a broken map: only flag it when the style never loaded.
+        const gl = base.getMaplibreMap();
+        gl.on('error', () => { if (!disposed && !gl.isStyleLoaded()) setTileFailed(true); });
+        gl.on('load', () => { if (!disposed) setTileFailed(false); });
       }).catch(() => { if (!disposed) setTileFailed(true); });
     map.on('click', e => onPickRef.current?.(e.latlng.lat, e.latlng.lng));
     mapRef.current = map;

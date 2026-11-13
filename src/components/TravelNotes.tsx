@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useT } from "../i18n";
 import { useToast } from "./Toast";
+import { Icon } from "./Icon";
 
 export default function TravelNotes({
   tripId,
@@ -15,6 +16,7 @@ export default function TravelNotes({
 }) {
   const ask = useConfirm();
   const { t, lang } = useT(),
+    ms = lang === "ms",
     j = t.j,
     { toast } = useToast();
   const [notes, setNotes] = useState<any[]>([]),
@@ -59,48 +61,31 @@ export default function TravelNotes({
           });
         }}
       >
-        <div className="row">
-          <label>
-            {j.day}
-            <select
-              value={scope === "*" ? "*" : "day"}
-              onChange={(e) =>
-                setScope(
-                  e.target.value === "*"
-                    ? "*"
-                    : day || new Date().toLocaleDateString("en-CA"),
-                )
-              }
-            >
-              <option value="*">{j.tripNote}</option>
-              <option value="day">{j.day}</option>
-            </select>
-          </label>
-          <label>
-            {j.notes}
-            <select
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value)}
-            >
-              <option value="private">{j.private}</option>
-              {canEdit && <option value="group">{j.groupNote}</option>}
-            </select>
-          </label>
+        {/* v0.44: plain choices instead of two dropdowns both called "Day" */}
+        <div className="tn-choices">
+          <fieldset className="seg-radio">
+            <legend>{ms ? "Berkenaan" : "Applies to"}</legend>
+            <div>
+              <label><input type="radio" name="tn-scope" checked={scope === "*"} onChange={() => setScope("*")} /><span>{j.tripNote}</span></label>
+              <label><input type="radio" name="tn-scope" checked={scope !== "*"}
+                onChange={() => setScope(day || new Date().toLocaleDateString("en-CA"))} /><span>{ms ? "Satu hari" : "One day"}</span></label>
+            </div>
+          </fieldset>
+          <fieldset className="seg-radio">
+            <legend>{ms ? "Siapa boleh lihat" : "Who can see it"}</legend>
+            <div>
+              <label><input type="radio" name="tn-vis" checked={visibility === "private"} onChange={() => setVisibility("private")} /><span>{j.private}</span></label>
+              {canEdit && <label><input type="radio" name="tn-vis" checked={visibility === "group"} onChange={() => setVisibility("group")} /><span>{j.groupNote}</span></label>}
+            </div>
+          </fieldset>
+          {scope !== "*" && (
+            <label className="tn-date">
+              {ms ? "Tarikh" : "Date"}
+              <input type="date" required value={scope} onChange={(e) => setScope(e.target.value)} />
+            </label>
+          )}
         </div>
-        {scope !== "*" && (
-          <label>
-            {j.day}
-            <input
-              type="date"
-              required
-              value={scope}
-              onChange={(e) => setScope(e.target.value)}
-            />
-          </label>
-        )}
-        <label className="sr-only" htmlFor="travel-note-content">
-          {j.notes}
-        </label>
+        <label className="tn-note" htmlFor="travel-note-content">{ms ? "Nota" : "Note"}</label>
         <textarea
           id="travel-note-content"
           value={content}
@@ -108,10 +93,11 @@ export default function TravelNotes({
           required
           maxLength={2000}
           rows={3}
+          placeholder={ms ? "Contoh: Bawa pasport untuk check-in hotel" : "e.g. Bring passports for hotel check-in"}
         />
         {visibility === 'group' && <label className="row"><input type="checkbox" checked={checkItem} onChange={e => setCheckItem(e.target.checked)} />{lang === 'ms' ? 'Item senarai semak' : 'Checklist item'}</label>}
-        <button className="btn sm" disabled={busy}>
-          {t.add}
+        <button className="btn sm" type="submit" disabled={busy}>
+          <Icon name="plus" size={16} /> {ms ? "Tambah nota" : "Add note"}
         </button>
       </form>
       <div className="journal-notes-list">

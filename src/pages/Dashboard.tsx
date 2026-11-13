@@ -304,13 +304,13 @@ export default function Dashboard() {
           <div className="cardhead"><h2>{t.upcomingDues}</h2></div>
           {openDues.length === 0 && <p className="muted">{t.none}</p>}
           {openDues.map(d => (
-            <div className="row-between row-pad" key={d.id}>
-              <Link style={{ color: 'inherit', display: 'block' }}
+            <div className="due-row" key={d.id}>
+              <Link className="due-main"
                 to={`/trips/${tripId}/money/payments?expense=${d.expense_id}${d.participant_id ? `&participant=${d.participant_id}` : ''}`}>
-                <div>{d.description} {d.participant_id != null && <span className="tiny muted">· {d.participant_name}</span>} <span className="tiny">→</span></div>
-                <div className="tiny">{fmtDate(d.due_date, lang)}{d.vendor ? ` · ${d.vendor}` : ''}</div>
+                <span className="due-title">{d.description}</span>
+                <span className="tiny muted">{fmtDate(d.due_date, lang)}{d.participant_id != null ? ` · ${d.participant_name}` : ''}{d.vendor ? ` · ${d.vendor}` : ''}</span>
               </Link>
-              <div className="row">
+              <div className="due-side">
                 {d.amount_myr ? <strong>{fmtMYR(d.amount_myr)}</strong> : null}
                 {canLead && (
                   <button className="btn ghost sm" onClick={async () => {

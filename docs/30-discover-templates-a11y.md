@@ -79,3 +79,50 @@ An axe-core sweep covers public and app pages, phone and desktop, light and dark
   The boarding-pass ticket and photo captions keep uppercase on purpose.
 - Boxed page "hero" cards (Plan, publishing) are now flat page headers with a hairline divider.
 - On trip pages the trip name is a compact context line, so each page's own `h1` leads.
+
+## Trip pages pass (v0.44, part 2)
+
+### One page-title scale
+
+`.pagehead h1` is now the same size as the Plan header: `--fs-xl`, weight 800, tight tracking. Subtitles are base size.
+
+### One segmented style
+
+The grey track with a white active segment is now used for:
+
+- Plan's Group plan / My plan / Shared / Share & export tabs (was solid blue)
+- Documents' Folders & files / List toggle (was two mismatched buttons)
+- the phone-only Timeline / Map toggle
+
+### Day pills
+
+The active day is a tint with a ring, not a solid block. It reads correctly in dark mode too.
+
+### Trip settings
+
+- Visibility checkboxes use `.check-row`: the box and label stay on one line, and long labels wrap beside the box.
+- This removed four inline styles. The ratchet is now 250.
+
+### Travel notes form
+
+| Before | After |
+|---|---|
+| Two dropdowns both labelled "Day" | "Applies to" (Whole trip / One day) and "Who can see it" (Private / Group) |
+| — | Both are real radio groups styled as segmented controls (`.seg-radio`, `fieldset` + `legend`) |
+| — | A labelled Date field when "One day" is chosen |
+| — | A labelled Note field with an example |
+| Unclear submit button | "Add note" |
+
+### Overview: payment due dates
+
+Rows share one grid: title and meta on the left, amount and Mark settled on the right. Before, the first row broke onto two lines.
+
+### Trip maps
+
+The base-map style request retries with backoff. A single failed tile no longer shows "could not load"; the message appears only if the style never loads. This is the same resilience as the homepage map.
+
+### Phone
+
+The Plan header is flat on phones too, with no leftover card edge.
+
+The axe sweep is still at 0 violations, and tests pass (373).

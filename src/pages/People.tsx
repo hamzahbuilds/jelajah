@@ -458,15 +458,13 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
           <div className="cardhead"><h2><Icon name="eye" /> {t.visibility}</h2></div>
           <p className="hint">{t.visibilityHint}</p>
           {(['plan', 'documents', 'ledger', 'payments', 'assistant'] as const).map(f => (
-            <label key={f} className="row" style={{ gap: 8, padding: '4px 0' }}>
-              <input type="checkbox" checked={!hidden.includes(f)} onChange={() => toggleFeature(f)}
-                style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
+            <label key={f} className="check-row">
+              <input type="checkbox" checked={!hidden.includes(f)} onChange={() => toggleFeature(f)} />
               <span>{f === 'assistant' ? <><Icon name="chat" size={16} /> {t.assistantFeature}</> : (t as any)[f === 'ledger' ? 'ledger' : f]}</span>
             </label>
           ))}
-          <label className="row" style={{ gap: 8, padding: '10px 0 4px', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-            <input type="checkbox" checked={canEditPlan} onChange={toggleEditPlan}
-              style={{ width: 17, height: 17, accentColor: 'var(--brand-700)' }} />
+          <label className="check-row divided">
+            <input type="checkbox" checked={canEditPlan} onChange={toggleEditPlan} />
             <span><Icon name="edit" size={16} /> {t.memberCanEditPlan}</span>
           </label>
         </div>

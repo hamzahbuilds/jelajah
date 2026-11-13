@@ -506,15 +506,15 @@ function PersonalPlan({ id }: { id: number }) {
           </div>
         )}
       </div>
-      <div className="journal-mobile-toggle">
+      <div className="journal-mobile-toggle seg" role="group" aria-label={`${j.list} / ${j.map}`}>
         <button
-          className={`btn ${!mapView ? "" : "ghost"}`}
+          type="button" className={!mapView ? "on" : ""} aria-pressed={!mapView}
           onClick={() => setMapView(false)}
         >
           {j.list}
         </button>
         <button
-          className={`btn ${mapView ? "" : "ghost"}`}
+          type="button" className={mapView ? "on" : ""} aria-pressed={mapView}
           onClick={() => setMapView(true)}
         >
           {j.map}
