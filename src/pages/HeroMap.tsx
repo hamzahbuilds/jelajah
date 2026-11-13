@@ -94,6 +94,9 @@ export default function HeroMap({ c }: { c: HomeCopy }) {
       };
       await new Promise<void>(r => m.once('load', () => r()));
       if (dead) return;
+      // Compact attribution starts expanded, which covers the chips on a phone; start it collapsed (the (i) button opens it).
+      const attrib = box.current?.querySelector('.maplibregl-ctrl-attrib');
+      attrib?.removeAttribute('open'); attrib?.classList.remove('maplibregl-compact-show');
       try { m.setPadding(pad()); } catch { /* ignore */ }
 
       m.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -103,10 +106,12 @@ export default function HeroMap({ c }: { c: HomeCopy }) {
         paint: { 'line-color': brand, 'line-width': 4.5, 'line-dasharray': ['case', ['==', ['get', 'mode'], 'walk'], ['literal', [.6, 1.8]], ['literal', [1, 0]]] },
       });
       const pins = STOPS.map((p, i) => {
-        const el = document.createElement('div');
-        el.className = 'hm-pin';
+        const wrap = document.createElement('div'), el = document.createElement('div');
+        wrap.className = 'hm-pin-wrap'; el.className = 'hm-pin';
         el.textContent = String(i + 1);
-        return new ml.Marker({ element: el }).setLngLat(p).addTo(m);
+        wrap.appendChild(el);
+        new ml.Marker({ element: wrap }).setLngLat(p).addTo(m);
+        return el;
       });
       const draw = (parts: LngLat[][]) => {
         const src = m.getSource('route') as import('maplibre-gl').GeoJSONSource | undefined;
@@ -120,7 +125,7 @@ export default function HeroMap({ c }: { c: HomeCopy }) {
       if (reduce) {
         fit(bounds, { duration: 0 });
         draw(LEGS);
-        pins.forEach(p => p.getElement().classList.add('on'));
+        pins.forEach(p => p.classList.add('on'));
         return;
       }
 
@@ -139,12 +144,12 @@ export default function HeroMap({ c }: { c: HomeCopy }) {
 
       while (!dead) {
         // reset to the first stop, close in
-        pins.forEach(p => p.getElement().classList.remove('on'));
+        pins.forEach(p => p.classList.remove('on'));
         draw([]);
         setLeg(-1); setActive(0);
         try { m.setPadding(pad()); } catch { /* ignore */ }
         m.jumpTo({ center: STOPS[0], zoom: 14.6, pitch: 42, bearing: -12 });
-        pins[0].getElement().classList.add('on');
+        pins[0].classList.add('on');
         await sleep(900); await gate();
         const done: LngLat[][] = [];
         for (let k = 0; k < LEGS.length && !dead; k++) {
@@ -154,7 +159,7 @@ export default function HeroMap({ c }: { c: HomeCopy }) {
           fit(lb, { maxZoom: 15.2, pitch: 45, bearing: [-12, 18, -20][k], duration: 1600, easing: ease });
           await animateLeg(k, done);
           done.push(line);
-          pins[k + 1].getElement().classList.add('on');
+          pins[k + 1].classList.add('on');
           setActive(k + 1); setLeg(-1);
           await sleep(1100); await gate();
         }

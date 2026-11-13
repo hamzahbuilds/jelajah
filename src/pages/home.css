@@ -57,6 +57,10 @@
 .hm-map { position: absolute; inset: 0; opacity: 0; transition: opacity .6s ease; }
 .hm-map.ready { opacity: 1; }
 .hm .maplibregl-ctrl-attrib { font-size: 10px; }
+.hm .maplibregl-ctrl-attrib summary { list-style: none; background-repeat: no-repeat; background-position: center; min-block-size: 24px; block-size: 24px; }
+.hm .maplibregl-ctrl-attrib summary::-webkit-details-marker { display: none; }
+/* MapLibre writes inline opacity on the marker, so the pin's own show/hide lives on an inner element */
+.hm-pin-wrap { inline-size: 30px; block-size: 30px; }
 .hm-pin {
   display: grid; place-items: center; inline-size: 30px; block-size: 30px; border-radius: 50%;
   background: var(--brand); color: var(--on-brand); font: 700 13px/1 var(--font-body);
@@ -74,9 +78,13 @@
 .hm-panel {
   position: absolute; z-index: 2; inset-inline-start: var(--s-5); inset-block-end: var(--s-5);
   inline-size: min(320px, calc(100% - var(--s-8))); padding: var(--s-4);
-  background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(14px) saturate(1.3);
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent); border-radius: var(--r-xl); box-shadow: var(--shadow-lg);
+  /* frosted glass: the map shows through, softly */
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6); backdrop-filter: blur(18px) saturate(1.6);
+  border: 1px solid color-mix(in srgb, var(--surface) 65%, transparent); border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 color-mix(in srgb, var(--surface) 80%, transparent);
 }
+@supports not (backdrop-filter: blur(1px)) { .hm-panel { background: var(--surface); } }
 .hm-panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s-3); }
 .hm-panel-head strong { display: block; font-size: var(--fs-base); font-weight: 700; }
 .hm-panel-head span { font-size: var(--fs-xs); color: var(--ink-3); }
@@ -119,8 +127,13 @@
 }
 .hm-play:hover { color: var(--brand-ink); }
 @media (max-width: 520px) {
-  .hm { block-size: 560px; }
-  .hm-panel { inset-inline: var(--s-3); inset-block-end: var(--s-3); inline-size: auto; }
+  .hm { block-size: 540px; }
+  /* compact panel so the route stays visible above it: only the leg in motion shows its line */
+  .hm-panel { inset-inline: var(--s-3); inset-block-end: var(--s-3); inline-size: auto; padding: var(--s-3) var(--s-4); }
+  .hm-day { display: none; }
+  .hm-panel li { padding-block: 6px; }
+  .hm-panel li:not(:last-child)::before { inset-block: 26px -6px; }
+  .hm-leg:not(.moving) { display: none; }
   .hm-owe { inset-inline-end: var(--s-3); inset-block-start: var(--s-3); }
   .hm-play { inset-inline-end: var(--s-3); inset-block-start: 64px; inset-block-end: auto; }
 }
