@@ -59,10 +59,13 @@ export default function Settings() {
           <pre className="mcp-snippet">{`claude mcp add --transport http jelajah ${window.location.origin}/api/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN"`}</pre>
         </details>
-        <details className="tiny" style={{ margin: '8px 0' }}>
+        <details className="tiny" style={{ margin: '8px 0' }} open>
           <summary>Claude Desktop / claude.ai (custom connector)</summary>
-          <p style={{ margin: '4px 0' }}>{t.mcpDesktopHint}</p>
+          <ol className="mcp-steps">
+            {t.mcpDesktopSteps.map((step: string) => <li key={step}>{step}</li>)}
+          </ol>
           <pre className="mcp-snippet">{`${window.location.origin}/api/mcp/t/YOUR_TOKEN`}</pre>
+          <p style={{ margin: '4px 0' }}>{t.mcpTroubleshoot}</p>
         </details>
         <details className="tiny" style={{ margin: '8px 0' }}>
           <summary>Claude Desktop via config file (mcp-remote bridge, needs Node.js)</summary>

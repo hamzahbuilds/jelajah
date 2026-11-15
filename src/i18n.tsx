@@ -273,6 +273,15 @@ const en = {
   tokenOnce: 'Copy this token now. It will not be shown again.',
   mcpUrlTokenHint: 'claude.ai connectors cannot send auth headers, so put the token in the URL instead. The whole URL is then a secret. Revoke the token if it ever leaks.',
   mcpDesktopHint: 'Settings → Connectors → Add custom connector, then paste this URL (with your token). The whole URL is a secret.',
+  mcpDesktopSteps: [
+    'Create a token above and copy the "Connector URL" it shows (the token is already inside it).',
+    'In Claude Desktop or claude.ai, open Settings → Connectors. If an old Jelajah connector is listed, remove it first.',
+    'Choose "Add custom connector". Name: Jelajah. Remote MCP server URL: paste the Connector URL.',
+    'Leave "Advanced settings" (OAuth Client ID and Secret) empty, then choose Add.',
+    'In a new chat, open the tools menu (the + or sliders button) and make sure Jelajah is switched on. Ask: "List my Jelajah trips".',
+  ],
+  mcpTroubleshoot: 'Still failing? Make a fresh token: a revoked token, or a URL with the old address, cannot connect. Never paste the URL into a chat or share it.',
+  connectorUrl: 'Connector URL (Claude Desktop / claude.ai)', copyLbl2: 'Copy', connectorCopied: 'Connector URL copied',
   revoke: 'Revoke', revokedLbl: 'revoked', lastUsed: 'last used', neverUsed: 'never used',
   tokenCreated: 'Token created', tokenRevoked: 'Token revoked',
   // v0.19 — Modal destructive pattern
@@ -924,6 +933,15 @@ const ms: typeof en = {
   tokenOnce: 'Salin token ini sekarang. Ia tidak akan dipaparkan lagi.',
   mcpUrlTokenHint: 'Penyambung claude.ai tidak boleh menghantar pengepala auth, jadi letakkan token dalam URL. Seluruh URL itu adalah rahsia. Batalkan token jika ia terbocor.',
   mcpDesktopHint: 'Settings → Connectors → Add custom connector, kemudian tampal URL ini (dengan token anda). Seluruh URL adalah rahsia.',
+  mcpDesktopSteps: [
+    'Cipta token di atas dan salin "URL penyambung" yang dipaparkan (token sudah ada di dalamnya).',
+    'Dalam Claude Desktop atau claude.ai, buka Settings → Connectors. Jika ada penyambung Jelajah lama, buang dahulu.',
+    'Pilih "Add custom connector". Nama: Jelajah. Remote MCP server URL: tampal URL penyambung.',
+    'Biarkan "Advanced settings" (OAuth Client ID dan Secret) kosong, kemudian pilih Add.',
+    'Dalam sembang baharu, buka menu alatan (butang + atau gelangsar) dan pastikan Jelajah dihidupkan. Tanya: "Senaraikan perjalanan Jelajah saya".',
+  ],
+  mcpTroubleshoot: 'Masih gagal? Cipta token baharu: token yang dibatalkan, atau URL dengan alamat lama, tidak boleh bersambung. Jangan tampal URL dalam sembang atau kongsikannya.',
+  connectorUrl: 'URL penyambung (Claude Desktop / claude.ai)', copyLbl2: 'Salin', connectorCopied: 'URL penyambung disalin',
   revoke: 'Batal', revokedLbl: 'dibatalkan', lastUsed: 'terakhir digunakan', neverUsed: 'belum digunakan',
   tokenCreated: 'Token dicipta', tokenRevoked: 'Token dibatalkan',
   // v0.19 — corak pemadaman Modal

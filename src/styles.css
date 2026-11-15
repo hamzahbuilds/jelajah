@@ -1997,3 +1997,4 @@ button.member-row:focus-visible { outline: 2px solid var(--brand); outline-offse
 .ps-status.warn { color: var(--warning); font-weight: 600; }
 .ps-hint { margin: 0; }
 .ps-kind { margin-inline-start: var(--s-2); padding: 1px 6px; border-radius: 999px; background: var(--bg); color: var(--ink-3); font-style: normal; font-weight: 500; font-size: var(--fs-xs, 12px); vertical-align: 1px; }
+.mcp-steps { margin: 6px 0; padding-inline-start: 20px; display: grid; gap: 4px; line-height: 1.5; }

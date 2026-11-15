@@ -44,6 +44,13 @@ export default function TokenCard() {
         <div className="callout info" style={{ margin: '8px 0' }}>
           <div className="tiny">{t.tokenOnce}</div>
           <code className="token-fresh" onClick={() => navigator.clipboard?.writeText(fresh).catch(() => {})}>{fresh}</code>
+          {/* v0.46: the ready-made connector URL, so nobody has to splice the token into the address by hand */}
+          <div className="tiny" style={{ marginTop: 10 }}>{t.connectorUrl}</div>
+          <code className="token-fresh">{`${window.location.origin}/api/mcp/t/${fresh}`}</code>
+          <button type="button" className="btn secondary sm" style={{ marginTop: 6 }}
+            onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/api/mcp/t/${fresh}`).then(() => toast(t.connectorCopied)).catch(() => {})}>
+            <Icon name="copy" size={16} /> {t.copyLbl2}
+          </button>
         </div>
       )}
       {tokens.map(tk => (
