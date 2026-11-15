@@ -206,3 +206,19 @@ removing the others.
 - Google Maps Platform service terms (caching): https://cloud.google.com/maps-platform/terms/maps-service-terms
 - OpenStreetMap MCP servers: https://lobehub.com/mcp/buzdolapci-osm-tools, https://lobehub.com/en/mcp/nervsystems-osmmcp, https://lobehub.com/zh/mcp/grabosm-osm-mcp
 - MCP elicitation (2025-06-18): https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation.md
+
+## v0.46 removal and rebuild (server 0.46.0)
+
+| Need | Tool |
+|---|---|
+| One stop | `delete_activity` |
+| Several stops by id (≤300) | `delete_activities` |
+| One day | `clear_day` |
+| Date range (`from_day`/`to_day`, inclusive, either end open) or whole trip (`all_days: true`) | `clear_activities` (new) |
+| Swap a day's activities for a new list | `replace_day` (new; one D1 batch, so never half-built) |
+
+- `dry_run: true` on `delete_activities`, `clear_day`, `clear_activities` previews without deleting.
+- Every delete returns the removed rows in `add_activities` shape (nulls dropped). Undo = pass them back without `id`. Who-is-going is not restored.
+- `clear_activities` with no range is refused: the whole trip needs an explicit `all_days: true`.
+- Bookings, notes, day titles and budgets are never touched; leg overrides on cleared days are removed.
+- Optimised: id deletes run two statements per 90 ids (was two per id); `list_trips` looks up each trip's role and map centre in parallel.

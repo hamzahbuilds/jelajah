@@ -179,7 +179,7 @@ describe('MCP v2 bulk tools', () => {
   it('delete_activities touches only this trip\'s ids and names what it removed', async () => {
     const r = await call(TOKENS.leader, 'delete_activities', { trip_id: 1, activity_ids: [4, 9, 999] });
     const out = r.result.structuredContent;
-    expect(out.deleted).toEqual([{ id: 4, title: 'Tower', day: '2026-12-01' }]);
+    expect(out.deleted).toEqual([{ id: 4, title: 'Tower', day: '2026-12-01', place: 'Tokyo Tower', lat: 35.65, lng: 139.74 }]);
     expect([...out.not_found_on_this_trip].sort((a: number, b: number) => a - b)).toEqual([9, 999]);
     expect(sqlite.prepare('SELECT COUNT(*) n FROM activities WHERE id=9').get()).toEqual({ n: 1 });
   });
@@ -295,5 +295,93 @@ describe('MCP v2 pins', () => {
     expect(sqlite.prepare('SELECT lat, lng FROM activities WHERE id=?').get(id)).toEqual({ lat: 34.985849, lng: 135.758767 });
     const bad = await call(TOKENS.leader, 'add_activities', { trip_id: 1, activities: [{ day: '2026-12-03', title: 'Junk', lat: '12abc', lng: 'x' }] });
     expect(bad.result.structuredContent.activities[0].located).toBe(false);
+  });
+});
+
+describe('MCP removal (v0.46): ranges, previews, undo, rebuild', () => {
+  const T = TOKENS.other; // leader of trip 2
+  const seed = () => sqlite.exec(`DELETE FROM activities WHERE trip_id=2;
+    INSERT INTO activities(id,trip_id,title,day,start_time,lat,lng,location_name,category) VALUES
+    (201,2,'Breakfast','2026-12-10','08:00',3.15,101.71,'Nasi lemak stall','food'),
+    (202,2,'Museum','2026-12-11',NULL,3.14,101.69,'Muzium Negara',NULL),
+    (203,2,'Caves','2026-12-12','09:00',3.23,101.68,'Batu Caves','sightseeing'),
+    (204,2,'Free time','2026-12-13',NULL,NULL,NULL,NULL,NULL);
+    INSERT INTO activity_participants(activity_id,participant_id) VALUES (202,3);`);
+  const count = (where = '') => (sqlite.prepare(`SELECT COUNT(*) n FROM activities WHERE trip_id=2${where}`).get() as any).n;
+
+  it('dry_run previews a range without deleting', async () => {
+    seed();
+    const r = (await call(T, 'clear_activities', { trip_id: 2, from_day: '2026-12-11', to_day: '2026-12-12', dry_run: true })).result.structuredContent;
+    expect(r.dry_run).toBe(true);
+    expect(r.would_delete.map((a: any) => a.id)).toEqual([202, 203]);
+    expect(count()).toBe(4);
+  });
+
+  it('clears an inclusive date range, keeping other days and cleaning who-is-going', async () => {
+    const r = (await call(T, 'clear_activities', { trip_id: 2, from_day: '2026-12-11', to_day: '2026-12-12' })).result.structuredContent;
+    expect(r.deleted_count).toBe(2);
+    expect(r.undo).toMatch(/add_activities/);
+    expect(count()).toBe(2);
+    expect(sqlite.prepare('SELECT COUNT(*) n FROM activity_participants WHERE activity_id=202').get()).toEqual({ n: 0 });
+  });
+
+  it('removed activities restore through add_activities as-is', async () => {
+    seed();
+    const cleared = (await call(T, 'clear_activities', { trip_id: 2, from_day: '2026-12-12' })).result.structuredContent;
+    expect(cleared.deleted.map((a: any) => a.title)).toEqual(['Caves', 'Free time']);
+    const restore = cleared.deleted.map(({ id: _id, ...a }: any) => a);
+    const added = await call(T, 'add_activities', { trip_id: 2, activities: restore });
+    expect(added.result.isError).toBe(false);
+    const back = sqlite.prepare("SELECT title,start_time,lat,lng,location_name,category FROM activities WHERE trip_id=2 AND day>='2026-12-12' ORDER BY day").all();
+    expect(back).toEqual([
+      { title: 'Caves', start_time: '09:00', lat: 3.23, lng: 101.68, location_name: 'Batu Caves', category: 'sightseeing' },
+      { title: 'Free time', start_time: null, lat: null, lng: null, location_name: null, category: null },
+    ].map(x => expect.objectContaining(x)));
+  });
+
+  it('whole-trip clear needs all_days: true; a bare call is refused', async () => {
+    seed();
+    const bare = await call(T, 'clear_activities', { trip_id: 2 });
+    expect(bare.result.isError).toBe(true);
+    expect(bare.result.content[0].text).toMatch(/all_days/);
+    expect(count()).toBe(4);
+    const all = (await call(T, 'clear_activities', { trip_id: 2, all_days: true })).result.structuredContent;
+    expect(all.deleted_count).toBe(4);
+    expect(count()).toBe(0);
+    expect((sqlite.prepare('SELECT COUNT(*) n FROM activities WHERE trip_id=1').get() as any).n).toBeGreaterThan(0); // other trips untouched
+  });
+
+  it('viewers cannot clear ranges', async () => {
+    const r = await call(TOKENS.viewer, 'clear_activities', { trip_id: 1, all_days: true });
+    expect(r.result.isError).toBe(true);
+  });
+
+  it('replace_day swaps a day in one step and reports what it removed', async () => {
+    seed();
+    const r = (await call(T, 'replace_day', { trip_id: 2, day: '2026-12-10', activities: [
+      { title: 'Roti canai', start_time: '07:30', lat: 3.16, lng: 101.7 },
+      { title: 'KLCC', start_time: '10:00', lat: 3.158, lng: 101.712 },
+    ] })).result.structuredContent;
+    expect(r.removed.map((a: any) => a.title)).toEqual(['Breakfast']);
+    expect(r.added).toBe(2);
+    expect(sqlite.prepare("SELECT title FROM activities WHERE trip_id=2 AND day='2026-12-10' ORDER BY start_time").all())
+      .toEqual([{ title: 'Roti canai' }, { title: 'KLCC' }]);
+    expect(count()).toBe(5); // 4 seeded − 1 removed + 2 added
+  });
+
+  it('replace_day changes nothing when an item is invalid or on another day', async () => {
+    seed();
+    const wrongDay = await call(T, 'replace_day', { trip_id: 2, day: '2026-12-10', activities: [{ title: 'X', day: '2026-12-11', lat: 3, lng: 101 }] });
+    expect(wrongDay.result.isError).toBe(true);
+    const badTime = await call(T, 'replace_day', { trip_id: 2, day: '2026-12-10', activities: [{ title: 'X', start_time: '25:00' }] });
+    expect(badTime.result.isError).toBe(true);
+    expect(sqlite.prepare("SELECT title FROM activities WHERE trip_id=2 AND day='2026-12-10'").all()).toEqual([{ title: 'Breakfast' }]);
+  });
+
+  it('delete_activity returns the removed row for undo', async () => {
+    seed();
+    const r = (await call(T, 'delete_activity', { activity_id: 201 })).result.structuredContent;
+    expect(r.deleted).toMatchObject({ id: 201, title: 'Breakfast', start_time: '08:00', category: 'food' });
+    expect(count(' AND id=201')).toBe(0);
   });
 });
