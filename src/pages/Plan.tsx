@@ -239,7 +239,12 @@ export default function Plan() {
   // ---- day chain: start → located activities → end ----
   const stays: any[] = data?.stays ?? [];
   const dsList: any[] = data?.daySettings ?? [];
-  const ds = dsList.find((x: any) => x.day === selDay) ?? dsList.find((x: any) => x.day === '*');
+  // v0.45: start and end resolve separately, most specific first — a place set
+  // for this day, else that morning's / night's accommodation, else the
+  // trip-wide default. (A trip-wide start used to outrank the hotels, so after
+  // moving hotel every day still began at the first one.)
+  const dayRow = dsList.find((x: any) => x.day === selDay);
+  const tripRow = dsList.find((x: any) => x.day === '*');
   // a day's title is per-day only — the '*' row is a start/end default, not a name
   const dayTitleOf = (d: string): string | null => dsList.find((x: any) => x.day === d)?.title || null;
   const saveDayTitle = async (value: string) => {
@@ -252,16 +257,13 @@ export default function Plan() {
   };
   const stayMorning = stays.find(s => s.checkin < selDay && selDay <= (s.checkout ?? '9999'));
   const stayNight = stays.find(s => s.checkin <= selDay && selDay < (s.checkout ?? '9999'));
-  const startPt: ChainPt | null = ds?.start_lat != null
-    ? { ref: 'start', name: ds.start_name ?? '', lat: ds.start_lat, lng: ds.start_lng }
-    : stayMorning?.lat != null
-      ? { ref: 'start', name: stayMorning.description, lat: stayMorning.lat, lng: stayMorning.lng }
-      : null;
-  const endPt: ChainPt | null = ds?.end_lat != null
-    ? { ref: 'end', name: ds.end_name ?? '', lat: ds.end_lat, lng: ds.end_lng }
-    : stayNight?.lat != null
-      ? { ref: 'end', name: stayNight.description, lat: stayNight.lat, lng: stayNight.lng }
-      : null;
+  const pointFrom = (ref: 'start' | 'end'): ChainPt | null => {
+    const stay = ref === 'start' ? stayMorning : stayNight;
+    const row = dayRow?.[`${ref}_lat`] != null ? dayRow : stay?.lat != null ? null : tripRow?.[`${ref}_lat`] != null ? tripRow : null;
+    if (row) return { ref, name: row[`${ref}_name`] ?? '', lat: row[`${ref}_lat`], lng: row[`${ref}_lng`] };
+    return stay?.lat != null ? { ref, name: stay.description, lat: stay.lat, lng: stay.lng } : null;
+  };
+  const startPt = pointFrom('start'), endPt = pointFrom('end');
   const locatedActs: ChainPt[] = items
     .filter(i => i.activity?.lat != null)
     .map(i => ({ ref: `act:${i.activity.id}`, name: i.title, lat: i.activity.lat, lng: i.activity.lng, station: stationOf(i.activity) }));
@@ -945,7 +947,8 @@ export default function Plan() {
         />
       )}
       {seModal && (
-        <StartEndModal tripId={tripId} day={selDay} ds={ds} stays={stays}
+        <StartEndModal tripId={tripId} day={selDay} dayRow={dayRow} tripRow={tripRow} stays={stays}
+          current={{ start: startPt, end: endPt }}
           onClose={() => setSeModal(null)} onSaved={() => { setSeModal(null); load(); }} />
       )}
       {budgetModal && (
@@ -1253,72 +1256,98 @@ function PlacePicker({ value, onChange }: {
   );
 }
 
-function StartEndModal({ tripId, day, ds, stays, onClose, onSaved }: {
-  tripId: number; day: string; ds: any; stays: any[];
+type EndChoice = { kind: 'auto' } | { kind: 'stay'; id: number } | { kind: 'place'; v: { name: string; lat: number; lng: number } | null };
+
+/** v0.45: pick each end of the day — automatic, one of the trip's
+ *  accommodations, or any other place — for this day or as the trip default. */
+function StartEndModal({ tripId, day, dayRow, tripRow, stays, current, onClose, onSaved }: {
+  tripId: number; day: string; dayRow: any; tripRow: any; stays: any[];
+  current: { start: { name: string } | null; end: { name: string } | null };
   onClose: () => void; onSaved: () => void;
 }) {
-  const { t } = useT();
-  const [scope, setScope] = useState<'day' | '*'>(ds?.day === '*' ? '*' : 'day');
-  const [start, setStart] = useState<{ name: string; lat: number; lng: number } | null>(
-    ds?.start_lat != null ? { name: ds.start_name ?? '', lat: ds.start_lat, lng: ds.start_lng } : null);
-  const [end, setEnd] = useState<{ name: string; lat: number; lng: number } | null>(
-    ds?.end_lat != null ? { name: ds.end_name ?? '', lat: ds.end_lat, lng: ds.end_lng } : null);
+  const { t, lang } = useT();
+  const ms = lang === 'ms';
+  const pinned = stays.filter(s => s.lat != null);
+  const choiceOf = (row: any, ref: 'start' | 'end'): EndChoice => {
+    if (row?.[`${ref}_lat`] == null) return { kind: 'auto' };
+    const stay = pinned.find(s => Math.abs(s.lat - row[`${ref}_lat`]) < 1e-6 && Math.abs(s.lng - row[`${ref}_lng`]) < 1e-6);
+    return stay ? { kind: 'stay', id: stay.expense_id } : { kind: 'place', v: { name: row[`${ref}_name`] ?? '', lat: row[`${ref}_lat`], lng: row[`${ref}_lng`] } };
+  };
+  const [scope, setScope] = useState<'day' | '*'>('day');
+  const rowFor = (sc: 'day' | '*') => (sc === '*' ? tripRow : dayRow);
+  const [start, setStart] = useState<EndChoice>(() => choiceOf(dayRow, 'start'));
+  const [end, setEnd] = useState<EndChoice>(() => choiceOf(dayRow, 'end'));
   const [pinStay, setPinStay] = useState<any | null>(null);
   const [pinLoc, setPinLoc] = useState<{ name: string; lat: number; lng: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const unpinned = stays.filter(s => s.lat == null);
+  const switchScope = (sc: 'day' | '*') => { setScope(sc); setStart(choiceOf(rowFor(sc), 'start')); setEnd(choiceOf(rowFor(sc), 'end')); };
 
+  const resolve = (c: EndChoice) => {
+    if (c.kind === 'stay') { const s = pinned.find(x => x.expense_id === c.id); return s ? { name: s.description, lat: s.lat, lng: s.lng } : null; }
+    return c.kind === 'place' ? c.v : null;
+  };
   const save = async () => {
     setBusy(true);
     try {
-      if (pinStay && pinLoc) {
-        await api.patch(`/expenses/${pinStay.expense_id}/coords`, { lat: pinLoc.lat, lng: pinLoc.lng });
-      }
+      if (pinStay && pinLoc) await api.patch(`/expenses/${pinStay.expense_id}/coords`, { lat: pinLoc.lat, lng: pinLoc.lng });
+      const a = resolve(start), b = resolve(end);
       await api.put(`/trips/${tripId}/daysettings`, {
         day: scope === '*' ? '*' : day,
-        start_name: start?.name ?? null, start_lat: start?.lat ?? null, start_lng: start?.lng ?? null,
-        end_name: end?.name ?? null, end_lat: end?.lat ?? null, end_lng: end?.lng ?? null,
+        start_name: a?.name ?? null, start_lat: a?.lat ?? null, start_lng: a?.lng ?? null,
+        end_name: b?.name ?? null, end_lat: b?.lat ?? null, end_lng: b?.lng ?? null,
       });
       onSaved();
     } finally { setBusy(false); }
   };
 
-  const side = (label: string, val: any, setVal: any) => (
-    <div style={{ marginBottom: 12 }}>
-      <div className="row-between">
-        <strong style={{ fontSize: 'var(--fs-md)' }}>{label}</strong>
-        <label className="row tiny" style={{ gap: 5 }}>
-          <input type="radio" checked={val === null} onChange={() => setVal(null)} /> {t.useStay}
+  const side = (ref: 'start' | 'end', label: string, val: EndChoice, setVal: (c: EndChoice) => void) => {
+    const autoHint = scope === '*'
+      ? (ms ? 'Penginapan setiap hari' : "Each day's accommodation")
+      : current[ref] && val.kind === 'auto' ? current[ref]!.name
+        : ref === 'start' ? (ms ? 'Penginapan pagi ini, atau lalai perjalanan' : "This morning's accommodation, or the trip default")
+          : (ms ? 'Penginapan malam ini, atau lalai perjalanan' : "Tonight's accommodation, or the trip default");
+    const name = `se-${ref}`;
+    return (
+      <fieldset className="se-side">
+        <legend>{label}</legend>
+        <label className="se-opt">
+          <input type="radio" name={name} checked={val.kind === 'auto'} onChange={() => setVal({ kind: 'auto' })} />
+          <span><b>{ms ? 'Automatik' : 'Automatic'}</b><small>{autoHint}</small></span>
         </label>
-      </div>
-      {val !== null ? <PlacePicker value={val} onChange={setVal} />
-        : <button type="button" className="btn ghost sm"
-            onClick={() => setVal({ name: '', lat: 35.68, lng: 139.76 })}><Icon name="edit" size={16} /> {t.edit}</button>}
-    </div>
-  );
+        {pinned.map(s => (
+          <label key={s.expense_id} className="se-opt">
+            <input type="radio" name={name} checked={val.kind === 'stay' && val.id === s.expense_id} onChange={() => setVal({ kind: 'stay', id: s.expense_id })} />
+            <span><b><Icon name="hotel" size={16} /> {s.description}</b>{s.checkin && <small>{s.checkin}{s.checkout ? ` → ${s.checkout}` : ''}</small>}</span>
+          </label>
+        ))}
+        <label className="se-opt">
+          <input type="radio" name={name} checked={val.kind === 'place'} onChange={() => setVal({ kind: 'place', v: val.kind === 'place' ? val.v : null })} />
+          <span><b><Icon name="pin" size={16} /> {ms ? 'Tempat lain' : 'Another place'}</b><small>{ms ? 'Lapangan terbang, stesen, rumah rakan…' : 'Airport, station, a friend\'s place…'}</small></span>
+        </label>
+        {val.kind === 'place' && <PlacePicker value={val.v} onChange={v => setVal({ kind: 'place', v })} />}
+      </fieldset>
+    );
+  };
 
   return (
     <Modal open onClose={onClose} icon="hotel" title={`${t.editStartEnd} · ${day}`} closeLabel={t.close}
       footer={(
         <>
           <button type="button" className="btn secondary" onClick={onClose}>{t.cancel}</button>
-          <button className="btn" disabled={busy} onClick={save}>{t.save}</button>
+          <button className="btn" disabled={busy || (start.kind === 'place' && !start.v) || (end.kind === 'place' && !end.v)} onClick={save}>{t.save}</button>
         </>
       )}>
-      <div className="row" style={{ marginBottom: 10 }}>
-        <label className="row tiny" style={{ gap: 5 }}>
-          <input type="radio" checked={scope === 'day'} onChange={() => setScope('day')} /> {t.thisDayOnly}
-        </label>
-        <label className="row tiny" style={{ gap: 5 }}>
-          <input type="radio" checked={scope === '*'} onChange={() => setScope('*')} /> {t.wholeTrip}
-        </label>
+      <div className="seg se-scope" role="group" aria-label={t.editStartEnd}>
+        <button type="button" className={scope === 'day' ? 'on' : ''} aria-pressed={scope === 'day'} onClick={() => switchScope('day')}>{t.thisDayOnly}</button>
+        <button type="button" className={scope === '*' ? 'on' : ''} aria-pressed={scope === '*'} onClick={() => switchScope('*')}>{t.wholeTrip}</button>
       </div>
-      {side(t.dayStart, start, setStart)}
-      {side(t.dayEnd, end, setEnd)}
+      {side('start', t.dayStart, start, setStart)}
+      {side('end', t.dayEnd, end, setEnd)}
       {unpinned.length > 0 && (
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginBottom: 10 }}>
-          <strong style={{ fontSize: 'var(--fs-md)' }}><Icon name="pin" size={16} /> {t.setStayPin}</strong>
-          <select style={{ margin: '6px 0' }} value={pinStay?.expense_id ?? ''}
+        <div className="se-pin">
+          <strong><Icon name="pin" size={16} /> {t.setStayPin}</strong>
+          <select value={pinStay?.expense_id ?? ''}
             onChange={e => setPinStay(unpinned.find(s => s.expense_id === Number(e.target.value)) ?? null)}>
             <option value="">—</option>
             {unpinned.map(s => <option key={s.expense_id} value={s.expense_id}>{s.description}</option>)}

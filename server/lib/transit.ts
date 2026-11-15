@@ -25,7 +25,7 @@ interface Net {
   out: number[][]; // per stop: indexes into raw.edges (step 5)
   grid: Map<string, number[]>;
 }
-interface Meta { id: string; kind: 'rail' | 'bus'; bbox: [number, number, number, number]; attribution: string; built: string }
+interface Meta { id: string; country?: string; kind: 'rail' | 'bus'; bbox: [number, number, number, number]; attribution: string; built: string }
 
 const NETWORKS = (manifest as unknown as { networks: Meta[] }).networks;
 const cache = new Map<string, Promise<Net>>();
@@ -60,7 +60,15 @@ const PAD = 0.03;
 const inBox = (b: Meta['bbox'], p: Point) => p[0] >= b[0] - PAD && p[0] <= b[2] + PAD && p[1] >= b[1] - PAD && p[1] <= b[3] + PAD;
 /** Networks covering both points (rail only, or rail + bus). */
 export function transitCoverage(from: Point, to: Point, railOnly: boolean): Meta[] {
-  return NETWORKS.filter(m => (!railOnly || m.kind === 'rail') && inBox(m.bbox, from) && inBox(m.bbox, to));
+  // v0.45 Japan: regional networks join at shared stations, so a network
+  // counts when it holds either end (Tokyo rail + Shinkansen + Kansai rail
+  // for Tokyo → Kyoto), as long as both ends are somewhere in Japan.
+  const jp = NETWORKS.filter(m => m.country === 'JP');
+  const inJapan = (p: Point) => jp.some(m => inBox(m.bbox, p));
+  const bothJapan = inJapan(from) && inJapan(to);
+  return NETWORKS.filter(m => (!railOnly || m.kind === 'rail') && (
+    (inBox(m.bbox, from) && inBox(m.bbox, to))
+    || (m.country === 'JP' && bothJapan && (inBox(m.bbox, from) || inBox(m.bbox, to) || m.id === 'jp-shinkansen'))));
 }
 
 function decode(str: string): Point[] {
@@ -168,7 +176,8 @@ export async function transitRoute(from: Point, to: Point, railOnly: boolean) {
     if (s.e < 0) { connections.push({ from: pos(s.from), to: pos(s.g), label: nameOf(s.g) }); lastLine = -1; continue; }
     const k = netOf(s.g), n = nets[k], r = n.raw.edges, li = r[s.e + 2], L = n.raw.lines[li];
     used.add(n.id);
-    const pts = r[s.e + 4] >= 0 ? decode(n.raw.shapes[r[s.e + 4]]) : [pos(s.from), pos(s.g)];
+    const si = r[s.e + 4]; // >= 0 shape, <= -2 shape (-2 - si) run backwards, -1 straight
+    const pts = si >= 0 ? decode(n.raw.shapes[si]) : si <= -2 ? decode(n.raw.shapes[-2 - si]).reverse() : [pos(s.from), pos(s.g)];
     const colour = /^[0-9A-F]{6}$/i.test(L[2]) ? `#${L[2]}` : undefined;
     const label = L[1] && L[1] !== L[0] ? `${L[0]} ${L[1]}` : L[0];
     segments.push({ points: pts, mode: L[3], label: `${label}: ${nameOf(s.from)} → ${nameOf(s.g)}`, color: colour });

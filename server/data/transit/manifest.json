@@ -1,5 +1,5 @@
 {
- "built": "2026-11-09",
+ "built": "2026-11-15",
  "networks": [
   {
    "id": "my-klang-valley-rail",
@@ -320,6 +320,206 @@
    "stops": 5601,
    "lines": 867,
    "edges": 26979
+  },
+  {
+   "id": "jp-kanto-rail",
+   "name": "Japan rail: Kanto (Tokyo, Yokohama)",
+   "country": "JP",
+   "kind": "rail",
+   "attribution": "Japan rail data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-15",
+   "bbox": [
+    34.9716,
+    138.316,
+    38.2599,
+    141.0225
+   ],
+   "key": "transit/jp-kanto-rail@4b89e029e53b",
+   "bytes": 513316,
+   "stops": 4752,
+   "lines": 277,
+   "edges": 7282
+  },
+  {
+   "id": "jp-kansai-rail",
+   "name": "Japan rail: Kansai (Osaka, Kyoto, Kobe, Nara)",
+   "country": "JP",
+   "kind": "rail",
+   "attribution": "Japan rail data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-15",
+   "bbox": [
+    33.8868,
+    134.226,
+    35.6674,
+    136.884
+   ],
+   "key": "transit/jp-kansai-rail@cc44589f54e9",
+   "bytes": 320607,
+   "stops": 2950,
+   "lines": 202,
+   "edges": 4329
+  },
+  {
+   "id": "jp-chubu-rail",
+   "name": "Japan rail: Chubu (Nagoya, Kanazawa, Niigata)",
+   "country": "JP",
+   "kind": "rail",
+   "attribution": "Japan rail data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-15",
+   "bbox": [
+    34.6668,
+    135.1784,
+    37.9123,
+    139.9301
+   ],
+   "key": "transit/jp-chubu-rail@907185d53fa9",
+   "bytes": 199250,
+   "stops": 1955,
+   "lines": 83,
+   "edges": 2390
+  },
+  {
+   "id": "jp-tohoku-rail",
+   "name": "Japan rail: Tohoku (Sendai)",
+   "country": "JP",
+   "kind": "rail",
+   "attribution": "Japan rail data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-15",
+   "bbox": [
+    35.7132,
+    139.1211,
+    41.283,
+    141.974
+   ],
+   "key": "transit/jp-tohoku-rail@00173f3d50e6",
+   "bytes": 115225,
+   "stops": 1059,
+   "lines": 52,
+   "edges": 1385
+  },
+  {
+   "id": "jp-hokkaido-rail",
+   "name": "Japan rail: Hokkaido (Sapporo)",
+   "country": "JP",
+   "kind": "rail",
+   "attribution": "Japan rail data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-15",
+   "bbox": [
+    41.6993,
+    140.2732,
+    45.4166,
+    145.5828
+   ],
+   "key": "transit/jp-hokkaido-rail@0948590a907d",
+   "bytes": 42913,
+   "stops": 334,
+   "lines": 24,
+   "edges": 405
+  },
+  {
+   "id": "jp-chugoku-rail",
+   "name": "Japan rail: Chugoku (Hiroshima, Okayama)",
+   "country": "JP",
+   "kind": "rail",
+   "attribution": "Japan rail data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-15",
+   "bbox": [
+    33.5898,
+    130.4211,
+    35.5181,
+    135.501
+   ],
+   "key": "transit/jp-chugoku-rail@50bc6903fbf2",
+   "bytes": 128300,
+   "stops": 1084,
+   "lines": 67,
+   "edges": 1594
+  },
+  {
+   "id": "jp-shikoku-rail",
+   "name": "Japan rail: Shikoku (Matsuyama, Takamatsu)",
+   "country": "JP",
+   "kind": "rail",
+   "attribution": "Japan rail data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-15",
+   "bbox": [
+    32.9326,
+    132.4361,
+    34.6668,
+    134.5514
+   ],
+   "key": "transit/jp-shikoku-rail@0262f67bc22f",
+   "bytes": 30521,
+   "stops": 253,
+   "lines": 12,
+   "edges": 329
+  },
+  {
+   "id": "jp-kyushu-rail",
+   "name": "Japan rail: Kyushu (Fukuoka, Kagoshima)",
+   "country": "JP",
+   "kind": "rail",
+   "attribution": "Japan rail data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-15",
+   "bbox": [
+    31.5301,
+    129.7257,
+    33.9449,
+    131.9191
+   ],
+   "key": "transit/jp-kyushu-rail@881e6a8493c1",
+   "bytes": 174847,
+   "stops": 1460,
+   "lines": 74,
+   "edges": 2246
+  },
+  {
+   "id": "jp-okinawa-rail",
+   "name": "Japan rail: Okinawa (Naha)",
+   "country": "JP",
+   "kind": "rail",
+   "attribution": "Japan rail data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-15",
+   "bbox": [
+    26.1932,
+    127.6522,
+    26.2439,
+    127.7419
+   ],
+   "key": "transit/jp-okinawa-rail@61321fb17dab",
+   "bytes": 3100,
+   "stops": 38,
+   "lines": 1,
+   "edges": 36
+  },
+  {
+   "id": "jp-shinkansen",
+   "name": "Japan Shinkansen",
+   "country": "JP",
+   "kind": "rail",
+   "attribution": "Japan rail data \u00a9 OpenStreetMap contributors, ODbL",
+   "license": "ODbL",
+   "built": "2026-11-15",
+   "bbox": [
+    31.5835,
+    129.8633,
+    41.9047,
+    141.4309
+   ],
+   "key": "transit/jp-shinkansen@0b6ce4958699",
+   "bytes": 68977,
+   "stops": 234,
+   "lines": 15,
+   "edges": 363
   }
  ]
 }

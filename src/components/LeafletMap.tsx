@@ -14,6 +14,7 @@ setWorkerUrl(workerUrl);
 import { pinIcon, type Pin, type Arc, type Route } from './mapTypes';
 export type { Pin, Arc, Route } from './mapTypes';
 export { pinIcon } from './mapTypes';
+import { mergeTransit } from './transitLines';
 
 // v0.19 per-mode route-line styling (ported from design/ui-refresh/ui.css
 // .leg-train/.leg-walk/.leg-taxi). Colours are literal hex, not CSS vars —
@@ -160,16 +161,28 @@ export default function LeafletMap({ pins, picked, onPick, onSelectPin, height =
     if (line && pins.length > 1) {
       L.polyline(pins.map(p => [p.lat, p.lng] as [number, number]), { color, weight: 3, dashArray: '6 6' }).addTo(layer);
     }
-    for (const r of routes) {
+    // v0.45: one continuous line per ride (not one per station hop), a new
+    // colour only where the traveller changes line, and a marker there.
+    const { routes: drawn, transfers } = mergeTransit(routes);
+    // Casings first, so a later casing never cuts a gap into an earlier line.
+    for (const r of drawn) L.polyline(r.points, { color: '#ffffff', weight: 12, opacity: 0.9, interactive: false, lineJoin: 'round', lineCap: 'round' }).addTo(layer);
+    for (const r of drawn) {
       const style = { ...(ROUTE_STYLE[r.mode] ?? FALLBACK_ROUTE_STYLE), ...(r.color ? { color: r.color } : {}) };
-      // A light casing keeps calculated routes visible over busy street tiles.
-      L.polyline(r.points, { color: '#ffffff', weight: 12, opacity: 0.9, interactive: false }).addTo(layer);
-      const path = L.polyline(r.points, { color: style.color, weight: 8, opacity: 1, dashArray: style.dashArray }).addTo(layer);
+      const path = L.polyline(r.points, { color: style.color, weight: 8, opacity: 1, dashArray: style.dashArray, lineJoin: 'round', lineCap: 'round' }).addTo(layer);
       if (r.label) { const label = document.createElement('span'); label.textContent = r.label; path.bindTooltip(label); }
+    }
+    for (const x of transfers) {
+      const text = lang === 'ms' ? `Tukar ke ${x.to}` : `Change to ${x.to}`;
+      const tip = document.createElement('span');
+      tip.textContent = `${text}${x.walk ? (lang === 'ms' ? ' (jalan kaki)' : ' (short walk)') : ''}`;
+      L.marker(x.at, {
+        title: text, alt: text, keyboard: false, zIndexOffset: 500,
+        icon: L.divIcon({ className: '', html: `<span class="map-transfer" style="--line:${x.color}">${pinIcon('swap', 12)}</span>`, iconSize: [24, 24], iconAnchor: [12, 12] }),
+      }).addTo(layer).bindTooltip(tip, { direction: 'top', offset: [0, -12] });
     }
     if (all.length === 1) map.setView([all[0].lat, all[0].lng], 14);
     else if (all.length > 1) map.fitBounds(L.latLngBounds([...all.map(p => [p.lat, p.lng] as [number, number]), ...routes.flatMap(r => r.points)]), { padding: [30, 30] });
-  }, [sized, JSON.stringify(pins), JSON.stringify(picked ?? null), line, JSON.stringify(arcs), JSON.stringify(routes), accent]);
+  }, [sized, JSON.stringify(pins), JSON.stringify(picked ?? null), line, JSON.stringify(arcs), JSON.stringify(routes), accent, lang]);
 
   // Pan to the pin the user tapped in the itinerary list and open its popup.
   useEffect(() => {

@@ -802,14 +802,17 @@ journey.post("/trips/:id/routes", async (c) => {
   if (["train", "metro", "transit", "intercity"].includes(b.mode)) {
     if (!(await consumeLimit(c.env, `rail-user:${c.get("user").id}`, 60, 60)))
       return c.json({ available: false, reason: "quota" });
-    // v0.40: Malaysia + Singapore first (docs/26): rail, then rail + bus where
-    // rail can't connect the two points (e.g. Ipoh, Kuching); Tokyo otherwise.
+    // v0.40: Malaysia + Singapore (docs/26): rail, then rail + bus where rail
+    // can't connect the two points (e.g. Ipoh, Kuching). v0.45: greater Tokyo
+    // keeps its GTFS network (real running times) first; the rest of Japan,
+    // and trips leaving Tokyo, use the OpenStreetMap rail networks.
     const [p0, p1] = b.points as [[number, number], [number, number]];
+    const tokyo = tokyoRailRoute(p0, p1);
+    if (tokyo.available) return c.json(tokyo);
     const rail = await transitRoute(p0, p1, true);
     if (rail.available) return c.json(rail);
     const anyTransit = await transitRoute(p0, p1, false);
-    if (anyTransit.available) return c.json(anyTransit);
-    return c.json(tokyoRailRoute(p0, p1));
+    return c.json(anyTransit.available ? anyTransit : tokyo);
   }
   if (!["walk", "drive", "taxi", "car"].includes(b.mode))
     return c.json({ available: false, reason: "unsupported" });

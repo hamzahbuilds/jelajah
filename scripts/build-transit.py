@@ -283,6 +283,10 @@ build('sg-rail', 'Singapore MRT and LRT', 'SG', 'rail', SG_ATTR, 'ODbL', 'https:
 build('sg-bus', 'Singapore buses', 'SG', 'bus', SG_ATTR, 'ODbL', 'https://www.openstreetmap.org (Overpass)',
       lambda n: osm(n, 'sg-bus-geom.json', 'sg-nodes.json', 'bus', 5.0, 20, 1.3, 600))
 
+# Japan rail comes from scripts/build-japan-rail.py; keep its entries.
+_old = OUT / 'manifest.json'
+if _old.exists():
+    manifest += [m for m in json.loads(_old.read_text())['networks'] if m.get('country') == 'JP']
 (OUT / 'manifest.json').write_text(json.dumps({'built': TODAY, 'networks': manifest}, indent=1), encoding='utf-8')
 # Lazy loaders: each network is its own module, parsed only when a route needs it.
 loaders = '\n'.join(f"  '{m['id']}': () => import('./{m['id']}.json')," for m in manifest)

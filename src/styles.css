@@ -1911,3 +1911,52 @@ button.member-row:focus-visible { outline: 2px solid var(--brand); outline-offse
 .room-occs .room-occ { display: flex; inline-size: 100%; border-radius: var(--r-md); padding: var(--s-1) var(--s-2) var(--s-1) var(--s-1); }
 .room-occ-name { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
 .room-assign { margin-block-start: var(--s-2); }
+
+/* v0.45 transit rides: one colour per line, transfer markers, step list */
+.map-transfer {
+  display: grid; place-items: center; inline-size: 24px; block-size: 24px; border-radius: 50%;
+  background: #fff; color: var(--line, #2557E8); border: 3px solid var(--line, #2557E8);
+  box-shadow: 0 1px 4px rgb(16 24 40 / .3);
+}
+.rail-directions .rd-steps { list-style: none; padding: 0; margin: 0; }
+.rail-directions .rd-step {
+  position: relative; display: grid; gap: 2px; padding: 0 0 var(--s-4) var(--s-6);
+}
+.rail-directions .rd-step::before {
+  content: ''; position: absolute; inset-inline-start: 7px; inset-block: 6px 0; inline-size: 4px; border-radius: 2px;
+  background: var(--line, var(--brand));
+}
+.rail-directions .rd-step::after {
+  content: ''; position: absolute; inset-inline-start: 2px; inset-block-start: 2px; inline-size: 10px; block-size: 10px;
+  border-radius: 50%; background: var(--surface); border: 2px solid var(--line, var(--brand));
+}
+.rail-directions .rd-end { padding-block-end: 0; }
+.rail-directions .rd-end::before { display: none; }
+.rail-directions .rd-end::after { border-color: var(--ink); background: var(--ink); }
+.rail-directions .rd-line { display: inline-flex; align-items: center; gap: var(--s-2); }
+.rail-directions .rd-swatch { display: inline-block; inline-size: 12px; block-size: 12px; border-radius: 3px; background: var(--line, var(--brand)); flex: none; }
+.rail-directions .rd-step span { margin: 0; }
+.rail-directions .rd-meta { color: var(--ink-3); font-size: var(--fs-sm); }
+.rail-directions .rd-change {
+  margin: 0 0 var(--s-2); padding: var(--s-2) var(--s-3); border-radius: var(--r-md);
+  background: var(--bg); font-size: var(--fs-sm); color: var(--ink-2);
+}
+@media (forced-colors: active) {
+  .rail-directions .rd-step::before, .rail-directions .rd-swatch { background: CanvasText; }
+}
+
+/* v0.45 day start / end picker */
+.se-scope { margin-block-end: var(--s-4); }
+.se-side { border: 0; padding: 0; margin: 0 0 var(--s-5); display: grid; gap: var(--s-2); min-inline-size: 0; }
+.se-side legend { font-weight: 700; margin-block-end: var(--s-2); padding: 0; }
+.se-opt {
+  display: flex; align-items: flex-start; gap: var(--s-3); padding: var(--s-3); border: 1px solid var(--border);
+  border-radius: var(--r-lg); cursor: pointer; min-block-size: 44px;
+}
+.se-opt:has(input:checked) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 6%, var(--surface)); }
+.se-side label.se-opt, .modalwrap.modal .se-side label.se-opt { margin: 0; font-weight: 400; font-size: var(--fs-md); display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+.se-side .se-opt input[type="radio"] { inline-size: 18px; block-size: 18px; min-block-size: 0; margin: 2px 0 0; padding: 0; flex: none; accent-color: var(--brand); }
+.se-opt span { display: grid; gap: 2px; min-inline-size: 0; }
+.se-opt b { display: inline-flex; align-items: center; gap: var(--s-1); font-weight: 600; overflow-wrap: anywhere; }
+.se-opt small { color: var(--ink-3); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.se-pin { border-block-start: 1px solid var(--border); padding-block-start: var(--s-3); display: grid; gap: var(--s-2); }

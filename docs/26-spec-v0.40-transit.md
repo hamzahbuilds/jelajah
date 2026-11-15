@@ -43,3 +43,29 @@ bash scripts/fetch-transit.sh /tmp/transit-feeds
 python3 scripts/build-transit.py /tmp/transit-feeds server/data/transit
 npx vitest run tests/transit.test.ts
 ```
+
+## Japan rail (v0.45)
+
+Trains across Japan, from OpenStreetMap route relations (ODbL): JR lines,
+private railways, subways, monorails, trams, and the Shinkansen. Buses are not
+included (Japanese bus routes are too patchy in OSM).
+
+- `scripts/fetch-japan-rail.sh` downloads nine regions from Overpass (Kanto,
+  Kansai, Chubu, Tohoku, Hokkaido, Chugoku, Shikoku, Kyushu, Okinawa) as
+  relations with geometry plus member-node tags. Re-runs skip finished files.
+- `scripts/build-japan-rail.py` writes `jp-<region>-rail` networks plus one
+  national `jp-shinkansen` network in the same compact v1 format, and merges
+  them into `manifest.json` / `index.ts` (other networks are kept; likewise
+  `build-transit.py` keeps the `JP` entries).
+  - Names: `name:en`, then romaji from any other node of the same station.
+  - Times: the relation's own `duration`/`distance` when tagged, else a typical
+    speed (Shinkansen 180 km/h + 60 s, train 50 km/h + 30 s, subway 36 km/h,
+    tram 20 km/h); headway from `interval`, else by kind.
+  - Shapes: each hop is sliced from the relation's chained track ways
+    (Douglas–Peucker 12 m). A hop already stored the other way round reuses
+    that shape; the edge's shape index is then `-2 - i` (decoded reversed).
+- Coverage: a Japanese network joins a query when it holds either end and both
+  ends are in Japan, and the Shinkansen network always joins — so Tokyo →
+  Kyoto runs Kanto rail → Shinkansen → Kansai rail, joined by ≤400 m walks.
+- Order in `/routes`: Tokyo GTFS first (real running times), then the
+  MY/SG/JP networks.

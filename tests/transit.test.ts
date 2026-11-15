@@ -14,7 +14,7 @@ describe('Malaysia + Singapore transit (v0.40)', () => {
   it('knows which networks cover a trip', () => {
     expect(transitCoverage(KLCC, MID_VALLEY, true).map(m => m.id)).toEqual(expect.arrayContaining(['my-klang-valley-rail', 'my-ktmb']));
     expect(transitCoverage(CHANGI, ORCHARD, false).map(m => m.id)).toEqual(expect.arrayContaining(['sg-rail', 'sg-bus']));
-    expect(transitCoverage([35.68, 139.76], [35.66, 139.70], false)).toHaveLength(0); // Tokyo has its own router
+    expect(transitCoverage([35.68, 139.76], [35.66, 139.70], false).every(m => m.country === "JP")).toBe(true); // v0.45: Japan rail
   });
 
   it('Kuala Lumpur by rail: KLCC to Mid Valley and to Batu Caves', async () => {

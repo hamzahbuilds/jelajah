@@ -691,41 +691,12 @@ function PersonalPlan({ id }: { id: number }) {
               />
             </label>
             {(["start", "end"] as const).map((k) => (
-              <fieldset key={k}>
-                <legend>{k === "start" ? j.startPoint : j.endPoint}</legend>
-                <label>
-                  {j.location}
-                  <input
-                    value={dayEdit[`${k}_name`]}
-                    onChange={(e) =>
-                      setDayEdit({ ...dayEdit, [`${k}_name`]: e.target.value })
-                    }
-                  />
-                </label>
-                <div className="row">
-                  {(["lat", "lng"] as const).map((axis) => (
-                    <label key={axis}>
-                      {axis === "lat" ? j.latitude : j.longitude}
-                      <input
-                        type="number"
-                        step="any"
-                        min={axis === "lat" ? -90 : -180}
-                        max={axis === "lat" ? 90 : 180}
-                        value={dayEdit[`${k}_${axis}`] ?? ""}
-                        onChange={(e) =>
-                          setDayEdit({
-                            ...dayEdit,
-                            [`${k}_${axis}`]:
-                              e.target.value === ""
-                                ? null
-                                : Number(e.target.value),
-                          })
-                        }
-                      />
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+              <DayPoint
+                key={k}
+                label={k === "start" ? j.startPoint : j.endPoint}
+                value={{ name: dayEdit[`${k}_name`], lat: dayEdit[`${k}_lat`], lng: dayEdit[`${k}_lng`] }}
+                onChange={(v) => setDayEdit({ ...dayEdit, [`${k}_name`]: v.name, [`${k}_lat`]: v.lat, [`${k}_lng`]: v.lng })}
+              />
             ))}
             <button className="btn" disabled={busy}>
               {t.save}
@@ -741,6 +712,47 @@ function PersonalPlan({ id }: { id: number }) {
         </Modal>
       )}
     </section>
+  );
+}
+
+/** v0.45: a day's start or end in a personal plan. Typing a new name clears
+ *  the old pin (it used to keep the original coordinates, so the map and
+ *  routes still began at the first place); search or tap the map to place it. */
+function DayPoint({ label, value, onChange }: {
+  label: string;
+  value: { name: string; lat: number | null; lng: number | null };
+  onChange: (v: { name: string; lat: number | null; lng: number | null }) => void;
+}) {
+  const { t } = useT(), j = t.j;
+  const [places, setPlaces] = useState<GeoResult[]>([]), [searching, setSearching] = useState(false);
+  return (
+    <fieldset>
+      <legend>{label}</legend>
+      <label>
+        {j.location}
+        <input value={value.name} maxLength={300}
+          onChange={(e) => { onChange({ name: e.target.value, lat: null, lng: null }); setPlaces([]); }} />
+      </label>
+      <div className="row">
+        <button type="button" className="btn ghost sm" disabled={searching || !value.name}
+          onClick={async () => { setSearching(true); try { setPlaces(await geocode(value.name)); } finally { setSearching(false); } }}>
+          {searching ? t.loading : j.searchPlace}
+        </button>
+        {(value.name || value.lat !== null) && (
+          <button type="button" className="btn ghost sm" onClick={() => { onChange({ name: "", lat: null, lng: null }); setPlaces([]); }}>
+            {t.none}
+          </button>
+        )}
+      </div>
+      {places.map((p, i) => (
+        <button type="button" className="place-result" key={i}
+          onClick={() => { onChange({ name: p.name, lat: p.lat, lng: p.lng }); setPlaces([]); }}>
+          {p.name}
+        </button>
+      ))}
+      <LeafletMap pins={[]} picked={value.lat !== null && value.lng !== null ? { lat: value.lat, lng: value.lng } : null}
+        onPick={(lat, lng) => onChange({ ...value, lat, lng })} height={160} />
+    </fieldset>
   );
 }
 
