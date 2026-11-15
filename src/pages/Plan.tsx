@@ -28,6 +28,7 @@ import { Suggestion } from '../../shared/assistant';
 import { useToast } from '../components/Toast';
 import { Icon, type IconName } from '../components/Icon';
 import Menu from '../components/Menu';
+import PlaceSearch, { isPinned, pinFirst, type PlaceValue } from '../components/PlaceSearch';
 import Modal from '../components/Modal';
 import { AnimatePresence, motion, useListItem } from '../lib/motionKit';
 
@@ -1039,16 +1040,10 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
 }) {
   const { t } = useT();
   const [d, setD] = useState({ ...draft });
-  const [results, setResults] = useState<any[]>([]);
-  const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const set = (p: any) => setD((prev: any) => ({ ...prev, ...p }));
-
-  const search = async () => {
-    if (!q.trim()) return;
-    const bias = d.lat != null ? { lat: d.lat, lng: d.lng } : undefined;
-    setResults(await geocode(q, bias));
-  };
+  // Bias searches towards where the activity already was (or nothing).
+  const [bias] = useState(() => (draft.lat != null ? { lat: draft.lat, lng: draft.lng } : undefined));
 
   const toggle = (id: number) => {
     const on = d.participant_ids.includes(id);
@@ -1065,6 +1060,9 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
+    // A typed place that was never picked still gets pinned (best match).
+    const place = await pinFirst({ name: d.location_name ?? '', lat: d.lat ?? null, lng: d.lng ?? null }, bias);
+    Object.assign(d, { lat: place.lat, lng: place.lng });
     const payload = {
       title: d.title, day: d.day, start_time: d.start_time || null, end_time: d.end_time || null,
       notes: d.notes || null, location_name: d.location_name || null, lat: d.lat, lng: d.lng,
@@ -1142,18 +1140,9 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
         </div>
 
         <div style={{ margin: '4px 0 12px' }}>
-          <div className="row" style={{ flexWrap: 'nowrap' }}>
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder={t.searchPlace}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); search(); } }} />
-            <button type="button" className="btn ghost sm" onClick={search}>{t.searchBtn}</button>
-          </div>
-          {results.map((r: any, i) => (
-            <div key={i} className="search-result" onClick={() => {
-              set({ location_name: r.name.split(',').slice(0, 2).join(','), lat: r.lat, lng: r.lng });
-              setResults([]);
-            }}><Icon name="pin" size={16} /> {r.name}</div>
-          ))}
-          {d.location_name && <p className="tiny" style={{ margin: '6px 0' }}><Icon name="pin" size={16} /> {d.location_name}</p>}
+          <PlaceSearch label={t.location} bias={bias} mapHeight={200}
+            value={{ name: d.location_name ?? '', lat: d.lat ?? null, lng: d.lng ?? null }}
+            onChange={v => set({ location_name: v.name, lat: v.lat, lng: v.lng })} />
           {(() => {
             try {
               const sts: Station[] = d.stations_json ? JSON.parse(d.stations_json) : [];
@@ -1173,12 +1162,6 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
               );
             } catch { return null; }
           })()}
-          <div style={{ marginTop: 8 }}>
-            <LeafletMap pins={[]} picked={d.lat != null ? { lat: d.lat, lng: d.lng } : null}
-              onPick={(lat, lng) => set({ lat, lng, location_name: d.location_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}` })}
-              height={200} />
-            <p className="tiny">{t.mapHint}</p>
-          </div>
         </div>
 
         <div style={{ marginBottom: 12 }}>
@@ -1221,38 +1204,13 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
 
 function PlacePicker({ value, onChange }: {
   value: { name: string; lat: number; lng: number } | null;
-  onChange: (v: { name: string; lat: number; lng: number }) => void;
+  onChange: (v: { name: string; lat: number; lng: number } | null) => void;
 }) {
-  const { t } = useT();
-  const [q, setQ] = useState('');
-  const [results, setResults] = useState<any[]>([]);
-  const search = async () => {
-    if (!q.trim()) return;
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`);
-      setResults(await res.json());
-    } catch { setResults([]); }
-  };
+  // The typed text lives here; the parent only sees a place once it is pinned.
+  const [draft, setDraft] = useState<PlaceValue>(value ?? { name: '', lat: null, lng: null });
   return (
-    <div>
-      <div className="row" style={{ flexWrap: 'nowrap' }}>
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder={t.searchPlace}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); search(); } }} />
-        <button type="button" className="btn ghost sm" onClick={search}>{t.searchBtn}</button>
-      </div>
-      {results.map((r, i) => (
-        <div key={i} className="search-result" onClick={() => {
-          onChange({ name: r.display_name.split(',').slice(0, 2).join(','), lat: Number(r.lat), lng: Number(r.lon) });
-          setResults([]);
-        }}><Icon name="pin" size={16} /> {r.display_name}</div>
-      ))}
-      {value && <p className="tiny" style={{ margin: '4px 0' }}><Icon name="pin" size={16} /> {value.name}</p>}
-      <div style={{ marginTop: 6 }}>
-        <LeafletMap pins={[]} picked={value ? { lat: value.lat, lng: value.lng } : null}
-          onPick={(lat, lng) => onChange({ name: value?.name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`, lat, lng })}
-          height={160} />
-      </div>
-    </div>
+    <PlaceSearch value={draft} mapHeight={160}
+      onChange={v => { setDraft(v); onChange(isPinned(v) ? { name: v.name, lat: v.lat!, lng: v.lng! } : null); }} />
   );
 }
 

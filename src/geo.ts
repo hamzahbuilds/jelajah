@@ -2,7 +2,7 @@
 // Overpass nearest-station lookup. All free, no keys; results are cached server-side.
 import { haversine } from '../shared/fares';
 
-export interface GeoResult { name: string; lat: number; lng: number }
+export interface GeoResult { name: string; lat: number; lng: number; /** e.g. "station", "bus stop", "park" */ kind?: string; /** street / neighbourhood */ detail?: string }
 
 export async function geocode(q: string, bias?: { lat: number; lng: number }): Promise<GeoResult[]> {
   const qs = new URLSearchParams({ q, limit: '5' });

@@ -24,7 +24,7 @@ import {
   type JourneyStop,
   type JourneyDay,
 } from "../../shared/journey";
-import { geocode, type GeoResult } from "../geo";
+import PlaceSearch, { pinFirst, type PlaceValue } from "../components/PlaceSearch";
 import { Icon } from "../components/Icon";
 
 export default function JournalPlan() {
@@ -669,11 +669,14 @@ function PersonalPlan({ id }: { id: number }) {
             onSubmit={(e) => {
               e.preventDefault();
               run(async () => {
+                const [st, en] = await Promise.all((["start", "end"] as const).map((k) =>
+                  pinFirst({ name: dayEdit[`${k}_name`], lat: dayEdit[`${k}_lat`], lng: dayEdit[`${k}_lng`] })));
+                const pinnedDay = { ...dayEdit, start_lat: st.lat, start_lng: st.lng, end_lat: en.lat, end_lng: en.lng };
                 await save({
                   ...content,
                   days: [
                     ...content.days.filter((d) => d.day !== dayEdit.day),
-                    dayEdit,
+                    pinnedDay,
                   ],
                 });
                 setDayEdit(null);
@@ -720,38 +723,13 @@ function PersonalPlan({ id }: { id: number }) {
  *  routes still began at the first place); search or tap the map to place it. */
 function DayPoint({ label, value, onChange }: {
   label: string;
-  value: { name: string; lat: number | null; lng: number | null };
-  onChange: (v: { name: string; lat: number | null; lng: number | null }) => void;
+  value: PlaceValue;
+  onChange: (v: PlaceValue) => void;
 }) {
-  const { t } = useT(), j = t.j;
-  const [places, setPlaces] = useState<GeoResult[]>([]), [searching, setSearching] = useState(false);
   return (
     <fieldset>
       <legend>{label}</legend>
-      <label>
-        {j.location}
-        <input value={value.name} maxLength={300}
-          onChange={(e) => { onChange({ name: e.target.value, lat: null, lng: null }); setPlaces([]); }} />
-      </label>
-      <div className="row">
-        <button type="button" className="btn ghost sm" disabled={searching || !value.name}
-          onClick={async () => { setSearching(true); try { setPlaces(await geocode(value.name)); } finally { setSearching(false); } }}>
-          {searching ? t.loading : j.searchPlace}
-        </button>
-        {(value.name || value.lat !== null) && (
-          <button type="button" className="btn ghost sm" onClick={() => { onChange({ name: "", lat: null, lng: null }); setPlaces([]); }}>
-            {t.none}
-          </button>
-        )}
-      </div>
-      {places.map((p, i) => (
-        <button type="button" className="place-result" key={i}
-          onClick={() => { onChange({ name: p.name, lat: p.lat, lng: p.lng }); setPlaces([]); }}>
-          {p.name}
-        </button>
-      ))}
-      <LeafletMap pins={[]} picked={value.lat !== null && value.lng !== null ? { lat: value.lat, lng: value.lng } : null}
-        onPick={(lat, lng) => onChange({ ...value, lat, lng })} height={160} />
+      <PlaceSearch value={value} onChange={onChange} mapHeight={160} />
     </fieldset>
   );
 }
@@ -769,16 +747,17 @@ function StopEditor({
 }) {
   const { t } = useT(),
     j = t.j,
-    [a, setA] = useState(value),
-    [places, setPlaces] = useState<GeoResult[]>([]),
-    [searching, setSearching] = useState(false);
+    [a, setA] = useState(value);
   return (
     <Modal open onClose={onClose} title={j.activity} closeLabel={t.close}>
       <form
         className="journal-editor"
         onSubmit={(e) => {
           e.preventDefault();
-          onSave(a);
+          // A typed place that was never picked still gets pinned (best match).
+          void pinFirst({ name: a.location_name, lat: a.lat, lng: a.lng }).then((p) =>
+            onSave({ ...a, lat: p.lat, lng: p.lng }),
+          );
         }}
       >
         <h2>{j.activity}</h2>
@@ -819,57 +798,10 @@ function StopEditor({
             />
           </label>
         </div>
-        <label>
-          {j.location}
-          <input
-            value={a.location_name}
-            onChange={(e) => {
-              setA({
-                ...a,
-                location_name: e.target.value,
-                lat: null,
-                lng: null,
-              });
-              setPlaces([]);
-            }}
-            maxLength={300}
-          />
-        </label>
-        <button
-          type="button"
-          className="btn ghost sm"
-          disabled={searching || !a.location_name}
-          onClick={async () => {
-            setSearching(true);
-            try {
-              setPlaces(await geocode(a.location_name));
-            } finally {
-              setSearching(false);
-            }
-          }}
-        >
-          {searching ? t.loading : j.searchPlace}
-        </button>
-        {places.map((p, i) => (
-          <button
-            type="button"
-            className="place-result"
-            key={i}
-            onClick={() => {
-              setA({ ...a, location_name: p.name, lat: p.lat, lng: p.lng });
-              setPlaces([]);
-            }}
-          >
-            {p.name}
-          </button>
-        ))}
-        <LeafletMap
-          pins={[]}
-          picked={
-            a.lat !== null && a.lng !== null ? { lat: a.lat, lng: a.lng } : null
-          }
-          onPick={(lat, lng) => setA({ ...a, lat, lng })}
-          height={180}
+        <PlaceSearch
+          label={j.location}
+          value={{ name: a.location_name, lat: a.lat, lng: a.lng }}
+          onChange={(v) => setA({ ...a, location_name: v.name, lat: v.lat, lng: v.lng })}
         />
         <div className="row">
           {(["lat", "lng"] as const).map((k) => (

@@ -1960,3 +1960,40 @@ button.member-row:focus-visible { outline: 2px solid var(--brand); outline-offse
 .se-opt b { display: inline-flex; align-items: center; gap: var(--s-1); font-weight: 600; overflow-wrap: anywhere; }
 .se-opt small { color: var(--ink-3); font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .se-pin { border-block-start: 1px solid var(--border); padding-block-start: var(--s-3); display: grid; gap: var(--s-2); }
+
+/* v0.46 PlaceSearch — one place search (combobox + status + map) for every editor */
+.place-search { display: grid; gap: var(--s-2); margin-block: var(--s-2); min-inline-size: 0; }
+.place-search .ps-label, .modalwrap.modal .place-search .ps-label { margin: 0; }
+.ps-field { position: relative; display: flex; align-items: center; }
+.ps-field > svg { position: absolute; inset-inline-start: 12px; color: var(--ink-3); pointer-events: none; }
+.ps-field input, .modalwrap.modal .ps-field input[type=text] {
+  inline-size: 100%; box-sizing: border-box; min-block-size: 44px; padding-block: 10px; padding-inline: 38px 44px;
+  font: inherit; font-size: var(--fs-md); border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); color: var(--ink);
+}
+.ps-field input[aria-expanded="true"] { border-end-start-radius: 0; border-end-end-radius: 0; }
+.ps-clear {
+  position: absolute; inset-inline-end: 4px; inline-size: 36px; block-size: 36px; display: grid; place-items: center;
+  border: 0; border-radius: var(--r-md); background: transparent; color: var(--ink-3); cursor: pointer;
+}
+.ps-clear:hover { background: var(--bg); color: var(--ink); }
+.ps-list {
+  list-style: none; margin: calc(-1 * var(--s-2) - 1px) 0 0; padding: 4px; border: 1px solid var(--border); border-block-start: 0;
+  border-end-start-radius: var(--r-md); border-end-end-radius: var(--r-md); background: var(--surface);
+  box-shadow: 0 8px 20px rgb(16 24 40 / .08); max-block-size: 260px; overflow-y: auto; overscroll-behavior: contain;
+}
+.ps-list[hidden] { display: none; }
+.ps-list li {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s-2); align-items: start;
+  padding: 10px; border-radius: var(--r-md); cursor: pointer; min-block-size: 44px; box-sizing: border-box;
+}
+.ps-list li > svg { margin-block-start: 2px; color: var(--brand-600); }
+.ps-list li.on { background: var(--brand-50); }
+.ps-list li span { display: grid; gap: 2px; min-inline-size: 0; }
+.ps-list li b { font-weight: 600; overflow-wrap: anywhere; }
+.ps-list li small { color: var(--ink-3); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.ps-status { display: flex; align-items: center; gap: 6px; margin: 0; font-size: var(--fs-sm); color: var(--ink-3); }
+.ps-status.ok { color: var(--success); font-weight: 600; }
+.ps-status.warn { color: var(--warning); font-weight: 600; }
+.ps-hint { margin: 0; }
+.ps-kind { margin-inline-start: var(--s-2); padding: 1px 6px; border-radius: 999px; background: var(--bg); color: var(--ink-3); font-style: normal; font-weight: 500; font-size: var(--fs-xs, 12px); vertical-align: 1px; }

@@ -902,26 +902,34 @@ journey.get("/geocode", async (c) => {
     return error(c, "rate_limited", 429);
   const url = new URL(c.env.GEOCODER_URL || "https://photon.komoot.io/api/");
   url.searchParams.set("q", q);
-  url.searchParams.set("limit", "5");
+  // Ask for extra so duplicates (one stop mapped as rail + bus node) can go.
+  url.searchParams.set("limit", "10");
+  for (const k of ["lat", "lon"]) {
+    const v = Number(c.req.query(k));
+    if (Number.isFinite(v) && Math.abs(v) <= (k === "lat" ? 90 : 180)) url.searchParams.set(k, String(v));
+  }
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return c.json({ items: [] });
     const data: any = await res.json();
-    return c.json({
-      items: (data.features ?? [])
-        .slice(0, 5)
-        .map((f: any) => ({
-          name: textValue(
-            [f.properties?.name, f.properties?.city, f.properties?.country]
-              .filter(Boolean)
-              .join(", "),
-            300,
-          ),
-          lat: coordinate(f.geometry?.coordinates?.[1], 90),
-          lng: coordinate(f.geometry?.coordinates?.[0], 180),
-        }))
-        .filter((p: any) => p.lat !== null && p.lng !== null),
-    });
+    const items: { name: string; lat: number; lng: number; kind: string; detail: string }[] = [];
+    for (const f of data.features ?? []) {
+      const pr = f.properties ?? {};
+      const lat = coordinate(f.geometry?.coordinates?.[1], 90), lng = coordinate(f.geometry?.coordinates?.[0], 180);
+      if (lat === null || lng === null || !pr.name) continue;
+      const kind = pr.osm_key === "railway" && /^(stop|halt|station|subway_entrance)$/.test(pr.osm_value)
+        ? "station" : textValue(String(pr.osm_value ?? "").replace(/_/g, " "), 40) ?? "";
+      // Same name and kind within ~150 m is the same place mapped twice.
+      if (items.some((x) => x.name.startsWith(`${pr.name},`) && x.kind === kind
+        && Math.abs(x.lat - lat) + Math.abs(x.lng - lng) < 0.002)) continue;
+      items.push({
+        name: textValue([pr.name, pr.city ?? pr.county, pr.country].filter(Boolean).join(", "), 300) ?? pr.name,
+        lat, lng, kind,
+        detail: textValue([pr.street, pr.locality ?? pr.district].filter(Boolean).join(", "), 200) ?? "",
+      });
+      if (items.length === 5) break;
+    }
+    return c.json({ items });
   } catch {
     return c.json({ items: [] });
   }
