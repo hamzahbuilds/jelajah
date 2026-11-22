@@ -49,6 +49,16 @@ export default function JournalPlan() {
   useEffect(() => {
     load();
   }, [tripId]);
+  // v0.48: leader switches in Trip settings → Plan tools (whole trip, leaders included).
+  let off: string[] = [];
+  try { off = JSON.parse((trip as any).hidden_features ?? "[]"); } catch { /* ignore */ }
+  const tabs: Array<[string, string]> = [
+    ["group", j.group],
+    ...(!off.includes("myplan") ? [["mine", j.mine] as [string, string]] : []),
+    ...(!off.includes("shared") ? [["shared", j.shared] as [string, string]] : []),
+    ...(canLead && !off.includes("publish") ? [["publish", lang === "ms" ? "Kongsi & eksport" : "Share & export"] as [string, string]] : []),
+  ];
+  const active = tabs.some(([k]) => k === tab) ? tab : "group";
   const own = plans.find((p) => p.owner_id === user.id),
     shared = plans.filter((p) => p.owner_id !== user.id);
   const clone = async () => {
@@ -69,30 +79,25 @@ export default function JournalPlan() {
         <div><span className="journal-eyebrow">{trip.destination || trip.name}</span><h1>{lang === "ms" ? "Rancang hari-hari" : "Plan the days"}</h1><p>{j.journeyIntro}</p></div>
         <Link to="/discover">{j.discover} <Icon name="external" size={16} /></Link>
       </div>
-      <nav className="journal-tabs" aria-label={t.plan}>
-        {[
-          ["group", j.group],
-          ["mine", j.mine],
-          ["shared", j.shared],
-          ...(canLead ? [["publish", lang === "ms" ? "Kongsi & eksport" : "Share & export"]] : []),
-        ].map(([key, label]) => (
+      {tabs.length > 1 && <nav className="journal-tabs" aria-label={t.plan}>
+        {tabs.map(([key, label]) => (
           <button
             key={key}
-            className={tab === key ? "active" : ""}
-            aria-pressed={tab === key}
+            className={active === key ? "active" : ""}
+            aria-pressed={active === key}
             onClick={() => setTab(key)}
           >
             {label}
           </button>
         ))}
-      </nav>
-      {tab === "group" ? (
+      </nav>}
+      {active === "group" ? (
         <Plan />
-      ) : tab === "publish" ? (
+      ) : active === "publish" ? (
         <Publishing />
       ) : failed ? (
         <p role="alert">{j.failed}</p>
-      ) : tab === "mine" ? (
+      ) : active === "mine" ? (
         own ? (
           <PersonalPlan key={own.id} id={own.id} />
         ) : (

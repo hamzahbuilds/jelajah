@@ -297,6 +297,7 @@ const en = {
   assistantFeature: 'Assistant',
   // v0.12 — plan permissions & categories
   memberCanEditPlan: 'Members can edit the plan (add, edit & reorder activities)',
+  planToolsTitle: 'Plan tools', planToolsHint: 'Switch off the Plan tabs this trip does not need. This applies to everyone, leaders included.', toolMyPlan: 'My plan (personal copy of the plan)', toolShared: 'Shared with me (other people’s plans)', toolPublish: 'Share & export (links, guides, Discover)',
   activityCategory: 'Category',
   catSightseeing: 'Sightseeing', catFood: 'Food', catTransport: 'Transport',
   catLodging: 'Lodging', catShopping: 'Shopping', catOther: 'Other',
@@ -957,6 +958,7 @@ const ms: typeof en = {
   assistantFeature: 'Pembantu',
   // v0.12 — kebenaran pelan & kategori
   memberCanEditPlan: 'Ahli boleh sunting pelan (tambah, sunting & susun aktiviti)',
+  planToolsTitle: 'Alat pelan', planToolsHint: 'Matikan tab Pelan yang tidak diperlukan untuk perjalanan ini. Ini terpakai kepada semua orang, termasuk ketua.', toolMyPlan: 'Pelan saya (salinan peribadi pelan)', toolShared: 'Dikongsi dengan saya (pelan orang lain)', toolPublish: 'Kongsi & eksport (pautan, panduan, Discover)',
   activityCategory: 'Kategori',
   catSightseeing: 'Tarikan', catFood: 'Makanan', catTransport: 'Pengangkutan',
   catLodging: 'Penginapan', catShopping: 'Beli-belah', catOther: 'Lain-lain',

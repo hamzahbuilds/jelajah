@@ -362,6 +362,13 @@ describe("additive migrations", () => {
   });
 });
 describe("personal plans and notes", () => {
+  it("refuses a personal copy when the leader switched My plan off", async () => {
+    sqlite.exec(`UPDATE trips SET hidden_features='["myplan"]' WHERE id=1`);
+    const r = await req("/trips/1/clone", 2, "POST");
+    expect(r.status).toBe(403);
+    expect((await r.json()).error).toBe("feature_off");
+    sqlite.exec("UPDATE trips SET hidden_features='[]' WHERE id=1");
+  });
   it("requires membership and clones once without expense or participant fields", async () => {
     expect((await req("/trips/1/clone", 5, "POST")).status).toBe(403);
     personal = (await json(req("/trips/1/clone", 2, "POST"))).id;

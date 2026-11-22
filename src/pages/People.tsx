@@ -474,6 +474,19 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
         </div>
       )}
 
+      {isSettings && canLead && (
+        <div className="card">
+          <div className="cardhead"><h2><Icon name="calendar" /> {t.planToolsTitle}</h2></div>
+          <p className="hint">{t.planToolsHint}</p>
+          {([['myplan', t.toolMyPlan], ['shared', t.toolShared], ['publish', t.toolPublish]] as const).map(([f, label]) => (
+            <label key={f} className="check-row">
+              <input type="checkbox" role="switch" {...{ switch: '' }} checked={!hidden.includes(f)} onChange={() => toggleFeature(f)} />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
       {isSettings && canLead && discover && (
         <div className="card">
           <div className="cardhead"><h2><Icon name="globe" /> {t.discoverTitle}</h2></div>

@@ -533,6 +533,10 @@ journey.post("/trips/:id/clone", async (c) => {
   const id = Number(c.req.param("id"));
   if (!(await journeyRole(c.env, c.get("user"), id)))
     return error(c, "forbidden", 403);
+  // v0.48: the leader can switch personal plans off for the whole trip.
+  const off: any = await c.env.DB.prepare("SELECT hidden_features FROM trips WHERE id=?").bind(id).first();
+  if (JSON.parse(off?.hidden_features || "[]").includes("myplan"))
+    return error(c, "feature_off", 403);
   const group = await groupJourney(c.env, id);
   group.stops = group.stops.map((a) => ({
     ...a,

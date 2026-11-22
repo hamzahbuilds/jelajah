@@ -1,6 +1,6 @@
 import Loading from '../components/Loading';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useOutletContext, Link } from 'react-router-dom';
+import { useNavigate, useOutletContext, useSearchParams, Link } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { useT } from '../i18n';
 import { TripCtx } from '../app/tripContext';
@@ -15,6 +15,9 @@ import Modal from '../components/Modal';
 import { Icon, type IconName } from '../components/Icon';
 import Dialog from '../components/Dialog';
 
+// v0.48: Attractions joins the built-in types (file storage, no OCR import).
+const BUILT_IN = ['accommodation', 'logistics', 'attractions', 'other'];
+const OCR_TYPES = ['accommodation', 'logistics'];
 
 export default function Documents() {
   const { t, lang } = useT();
@@ -42,9 +45,19 @@ export default function Documents() {
   const scopeLabel = (v: string) => v === 'trip' ? (bm ? 'Seluruh perjalanan' : 'Whole trip') : v === 'group' ? (bm ? 'Kumpulan' : 'Group') : (bm ? 'Peribadi' : 'Private');
   const uploadFolder = library.folders.find(f => String(f.id) === destination);
   const uploadScope = uploadFolder?.visibility || destination;
-  const useOcr = canLead && uploadScope === 'trip' && category !== 'other';
+  const useOcr = canLead && uploadScope === 'trip' && OCR_TYPES.includes(category);
   const [view, setView] = useState<'folders' | 'list'>('folders');
-  const [folder, setFolder] = useState('all');
+  // v0.48: folder and type live in the URL, so the browser Back button walks
+  // back out of a folder instead of leaving Documents.
+  const [params, setParams] = useSearchParams();
+  const folder = params.get('folder') || 'all';
+  const typeFilter = params.get('type') || 'all';
+  const browse = (next: { folder?: string; type?: string }) => {
+    const p = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(next)) { if (!v || v === 'all') p.delete(k); else p.set(k, v); }
+    setParams(p);
+  };
+  const setFolder = (f: string) => browse({ folder: f });
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<any>(null);
   const [filename, setFilename] = useState('');
@@ -52,6 +65,7 @@ export default function Documents() {
   const categories = [
     { id: 'accommodation', name: bm ? 'Penginapan' : 'Accommodation', icon: 'hotel' as IconName, hint: bm ? 'Tempahan hotel dan penginapan · OCR' : 'Hotels and stays · OCR import' },
     { id: 'logistics', name: bm ? 'Pengangkutan & logistik' : 'Transport & logistics', icon: 'plane' as IconName, hint: bm ? 'Penerbangan, kereta api dan tiket · OCR' : 'Flights, trains and tickets · OCR import' },
+    { id: 'attractions', name: bm ? 'Tarikan' : 'Attractions', icon: 'ticket' as IconName, hint: bm ? 'Tiket masuk, pas dan tempahan lawatan' : 'Entry tickets, passes and tour bookings' },
     { id: 'other', name: bm ? 'Lain-lain' : 'Other', icon: 'file' as IconName, hint: bm ? 'Kategori sendiri atau pilih yang sedia ada' : 'Choose or create your own category' },
   ];
   const docMeta = (d: any) => { try { return JSON.parse(d.parsed_json || '{}'); } catch { return {}; } };
@@ -61,8 +75,13 @@ export default function Documents() {
   const folderLabel = (d: any) => library.folders.find(f => String(f.id) === docFolder(d))?.name || scopeLabel(docFolder(d));
   const accessLabel = (d: any) => scopeLabel(library.folders.find(f => String(f.id) === docFolder(d))?.visibility || docFolder(d));
   const folderChoices = [{id:'private',name:scopeLabel('private'),visibility:'private'}, {id:'trip',name:scopeLabel('trip'),visibility:'trip'}, ...library.folders];
-  const priorCategories = [...new Set<string>([...library.categories,...docs.map(docCategory)])].filter(c => !['accommodation','logistics','other'].includes(c));
-  const visible = docs.filter(d => (folder === 'all' || docFolder(d) === folder) && `${d.filename} ${categoryName(d)}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const priorCategories = [...new Set<string>([...library.categories,...docs.map(docCategory)])].filter(c => !BUILT_IN.includes(c));
+  const matchesType = (d: any) => typeFilter === 'all' || (typeFilter === 'other' ? !BUILT_IN.slice(0, 3).includes(docCategory(d)) : docCategory(d) === typeFilter);
+  const visible = docs.filter(d => (folder === 'all' || docFolder(d) === folder) && matchesType(d) && `${d.filename} ${categoryName(d)}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const typeCount = (id: string) => docs.filter(d => id === 'other' ? !BUILT_IN.slice(0, 3).includes(docCategory(d)) : docCategory(d) === id).length;
+  const folderTitle = (id: string) => folderChoices.find(f => String(f.id) === id)?.name || scopeLabel(id);
+  const typeName = (id: string) => categories.find(c => c.id === id)?.name || id;
+  const browsing = folder !== 'all' || typeFilter !== 'all';
   const openGroup = (g?: any) => { setEditGroup(g || null); setGroupName(g?.name || ''); setGroupPeople(g?.participant_ids || []); setGroupModal(true); };
   const modify = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -78,7 +97,7 @@ export default function Documents() {
     catch { setDocs([]); setLibrary({folders:[],groups:[],categories:[]}); setLoadError(true); }
     finally { setLoading(false); }
   };
-  useEffect(() => { setDocs([]); setDestination('private'); setLibrary({folders:[],groups:[],categories:[]}); setFolder('all'); setSearch(''); void load(); }, [tripId]);
+  useEffect(() => { setDocs([]); setDestination('private'); setLibrary({folders:[],groups:[],categories:[]}); setSearch(''); void load(); }, [tripId]);
 
   const [ocrQueue, setOcrQueue] = useState<{ files: File[]; single: boolean } | null>(null);
   // v0.12: visible import pipeline — plane progress, counts, per-file errors
@@ -156,9 +175,9 @@ export default function Documents() {
       <PageHead title={t.documents} sub={bm ? 'Tempahan perjalanan dan fail peribadi, tersusun di satu tempat.' : 'Travel bookings and personal files, organised in one place.'} />
       { (
         <>
-          <div className="document-upload-categories" role="group" aria-label={bm ? 'Loại tải lên' : 'Upload category'}>
-            {categories.map(c => <button key={c.id} type="button" className={`document-category ${category === c.id ? 'active' : ''}`} aria-pressed={category === c.id} disabled={busy || !!ocrQueue} onClick={() => setCategory(c.id)}>
-              <Icon name={c.icon} /><b>{c.name}</b><small>{c.hint}</small>
+          <div className="document-upload-categories" role="group" aria-label={bm ? 'Jenis dokumen' : 'Document type'}>
+            {categories.map(c => <button key={c.id} type="button" className={`document-category ${category === c.id ? 'active' : ''}`} aria-pressed={category === c.id} disabled={busy || !!ocrQueue} onClick={() => { setCategory(c.id); browse({ type: c.id }); }}>
+              <Icon name={c.icon} /><b>{c.name}</b><small>{c.hint}</small>{typeCount(c.id) > 0 && <span className="badge gray">{typeCount(c.id)}</span>}
             </button>)}
           </div>
           <div className="document-upload-options">
@@ -210,27 +229,32 @@ export default function Documents() {
       <section className="card document-library" style={{ marginTop: 16 }}>
         <div className="cardhead"><h2>{t.documents} <span className="badge gray">{docs.length}</span></h2>
           <div className="seg" role="group" aria-label={bm ? 'Paparan' : 'View mode'}>
-            <button type="button" className={view === 'folders' ? 'on' : ''} aria-pressed={view === 'folders'} onClick={() => { setView('folders'); setFolder('all'); }}>{bm ? 'Folder & fail' : 'Folders & files'}</button>
-            <button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => { setView('list'); setFolder('all'); }}>{bm ? 'Senarai' : 'List'}</button>
+            <button type="button" className={view === 'folders' ? 'on' : ''} aria-pressed={view === 'folders'} onClick={() => { setView('folders'); browse({ folder: 'all', type: 'all' }); }}>{bm ? 'Folder & fail' : 'Folders & files'}</button>
+            <button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => { setView('list'); browse({ folder: 'all' }); }}>{bm ? 'Senarai' : 'List'}</button>
           </div>
         </div>
         <div className="document-library-toolbar">
           <input type="search" aria-label={bm ? 'Cari fail' : 'Search files'} placeholder={bm ? 'Cari nama fail…' : 'Search filenames…'} value={search} onChange={e => setSearch(e.target.value)} />
-          <select aria-label={bm ? 'Folder' : 'Folder'} value={folder} onChange={e => setFolder(e.target.value)}><option value="all">{bm ? 'Semua fail' : 'All files'}</option>{folderChoices.map(f => <option key={f.id} value={String(f.id)}>{f.name}</option>)}</select>
+          <select aria-label={bm ? 'Folder' : 'Folder'} value={folder} onChange={e => setFolder(e.target.value)}><option value="all">{bm ? 'Semua folder' : 'All folders'}</option>{folderChoices.map(f => <option key={f.id} value={String(f.id)}>{f.name}</option>)}</select>
+          <select aria-label={bm ? 'Jenis' : 'Type'} value={typeFilter} onChange={e => browse({ type: e.target.value })}><option value="all">{bm ? 'Semua jenis' : 'All types'}</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         </div>
         <div className="row" style={{marginBottom:16, flexWrap:'wrap'}}>
           <button className="btn secondary sm" onClick={() => { setFolderName(''); setFolderModal(true); }}>{bm ? 'Folder baharu' : 'New folder'}</button>
           <button className="btn secondary sm" onClick={() => openGroup()}>{bm ? 'Kumpulan baharu' : 'New group'}</button>
           {library.groups.filter(g => g.can_manage).map(g => <button key={g.id} className="btn ghost sm" onClick={() => openGroup(g)}>{bm ? 'Urus' : 'Manage'} {g.name}</button>)}
         </div>
+        {browsing && <nav className="document-crumbs" aria-label={bm ? 'Lokasi' : 'Location'}>
+          <button type="button" className="btn ghost sm" onClick={() => browse({ folder: 'all', type: 'all' })}><Icon name="chev-l" size={16} /> {bm ? 'Semua dokumen' : 'All documents'}</button>
+          {folder !== 'all' && <span className="chip on">{folderTitle(folder)}<button type="button" aria-label={`${bm ? 'Buang penapis' : 'Remove filter'} ${folderTitle(folder)}`} onClick={() => browse({ folder: 'all' })}><Icon name="x" size={16} /></button></span>}
+          {typeFilter !== 'all' && <span className="chip on">{typeName(typeFilter)}<button type="button" aria-label={`${bm ? 'Buang penapis' : 'Remove filter'} ${typeName(typeFilter)}`} onClick={() => browse({ type: 'all' })}><Icon name="x" size={16} /></button></span>}
+        </nav>}
         {loading && <Loading label={t.loading} />}
         {!loading && !loadError && !docs.length && <Empty icon="file" title={bm ? 'Dokumen perjalanan anda di sini' : 'Your travel documents, together'} sub={bm ? 'Simpan tempahan atau fail lain. Pilih siapa boleh melihat sebelum memuat naik.' : 'Keep bookings and useful files close at hand. Choose who can see each upload above.'} />}
-        {!loading && !loadError && view === 'folders' && folder === 'all' && !search && <div className="document-folders">
+        {!loading && !loadError && view === 'folders' && !browsing && !search && <div className="document-folders">
           {folderChoices.map(f => <button className="document-folder" key={f.id} onClick={() => setFolder(String(f.id))}><Icon name="file" size={24} /><strong>{f.name}</strong><span>{docs.filter(d => docFolder(d) === String(f.id)).length} {bm ? 'fail' : 'files'}</span><small>{scopeLabel(f.visibility)}{f.group_id ? ` · ${library.groups.find(g => g.id === f.group_id)?.name || ''}` : ''}</small></button>)}
         </div>}
-        {!loading && !loadError && (view === 'list' || folder !== 'all' || !!search) && <>
-          {folder !== 'all' && <button className="btn ghost sm" onClick={() => setFolder('all')}>{bm ? 'Semua folder' : 'All folders'}</button>}
-          {!!docs.length && !visible.length && <Empty icon="file" title={search ? (bm ? 'Tiada padanan' : 'No matching files') : (bm ? 'Folder ini kosong' : 'This folder is empty')} sub={search ? (bm ? 'Cuba nama fail atau kategori lain.' : 'Try a different filename or category.') : (bm ? 'Pilih folder ini semasa memuat naik fail.' : 'Choose this folder when uploading your next file.')} action={search ? {label:bm?'Kosongkan carian':'Clear search',onClick:()=>setSearch('')} : undefined} />}
+        {!loading && !loadError && (view === 'list' || browsing || !!search) && <>
+          {!!docs.length && !visible.length && <Empty icon="file" title={search ? (bm ? 'Tiada padanan' : 'No matching files') : typeFilter !== 'all' && folder === 'all' ? (bm ? `Tiada fail ${typeName(typeFilter)}` : `No ${typeName(typeFilter).toLowerCase()} files yet`) : (bm ? 'Folder ini kosong' : 'This folder is empty')} sub={search ? (bm ? 'Cuba nama fail atau kategori lain.' : 'Try a different filename or category.') : typeFilter !== 'all' && folder === 'all' ? (bm ? 'Muat naik di atas. Jenis ini sudah dipilih.' : 'Upload one above. This type is already selected.') : (bm ? 'Pilih folder ini semasa memuat naik fail.' : 'Choose this folder when uploading your next file.')} action={search ? {label:bm?'Kosongkan carian':'Clear search',onClick:()=>setSearch('')} : browsing ? {label:bm?'Semua dokumen':'All documents',onClick:()=>browse({ folder: 'all', type: 'all' })} : undefined} />}
           <div className={view === 'list' ? 'document-table-scroll' : 'document-file-grid'}>
             {view === 'list' && visible.length > 0 ? <table className="document-table"><thead><tr><th>{bm ? 'Nama fail' : 'File name'}</th><th>{bm ? 'Kategori' : 'Category'}</th><th>Folder / {bm ? 'Akses' : 'Visibility'}</th><th>{bm ? 'Tarikh' : 'Uploaded'}</th><th>{bm ? 'Tindakan' : 'Actions'}</th></tr></thead><tbody>
               {visible.map(d => <tr key={d.id}><td><b>{d.filename}</b>{d.doc_type !== 'personal' && ['accommodation','logistics'].includes(docCategory(d)) && <small>{d.status === 'confirmed' ? t.confirmedStatus : t.draft}</small>}{d.expense_id && <Link className="badge brand" to={`/trips/${tripId}/money/ledger`}>{t.linkedExpense}</Link>}</td><td>{categoryName(d)}</td><td>{folderLabel(d)}{folderLabel(d) !== accessLabel(d) && <small>{accessLabel(d)}</small>}</td><td>{fmtDate(d.created_at?.slice(0,10),lang)}</td><td>{fileActions(d)}</td></tr>)}
