@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, ApiError, fmtMYR } from '../api';
+import { api, ApiError, fmtMYR, homeCurrency, pickCurrencies } from '../api';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
 import { useToast } from './Toast';
@@ -23,7 +23,6 @@ const KNOWN_ROOMS_SPLIT_ERROR_CODES = new Set<string>([
 ]);
 
 export const CATEGORIES = ['accommodation', 'flight', 'transport', 'entrance', 'pass', 'food', 'shopping', 'other'] as const;
-const CURRENCIES = ['MYR', 'JPY', 'SGD', 'USD', 'EUR', 'GBP', 'THB', 'IDR', 'KRW', 'CNY'];
 
 export interface ExpenseDraft {
   category: string; description: string; vendor: string; location: string;
@@ -46,7 +45,7 @@ export function emptyDraft(): ExpenseDraft {
   return {
     category: 'other', description: '', vendor: '', location: '',
     expense_date: '', end_date: '', payment_date: '',
-    amount_original: 0, currency: 'MYR', fx_rate: 1, amount_myr: 0,
+    amount_original: 0, currency: homeCurrency(), fx_rate: 1, amount_myr: 0,
     payer_participant_id: 0, participant_ids: [], custom: false, customShares: {}, due_dates: [],
     payment_status: 'paid',
     roomsSplit: null,
@@ -306,7 +305,7 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
   }, [externalPatch?.seq]);
 
   useEffect(() => {
-    if (d.currency === 'MYR' && (d.fx_rate !== 1 || d.amount_myr !== d.amount_original)) {
+    if (d.currency === homeCurrency() && (d.fx_rate !== 1 || d.amount_myr !== d.amount_original)) {
       set({ fx_rate: 1, amount_myr: d.amount_original });
     }
   }, [d.currency, d.amount_original]);
@@ -327,10 +326,10 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
 
   const getRate = async () => {
     const date = d.payment_date || d.expense_date;
-    if (!date || d.currency === 'MYR') return;
+    if (!date || d.currency === homeCurrency()) return;
     setFxBusy(true);
     try {
-      const r = await api.get(`/fx?date=${date}&from=${d.currency}&to=MYR`);
+      const r = await api.get(`/fx?date=${date}&from=${d.currency}&to=${homeCurrency()}`);
       set({ fx_rate: r.rate, amount_myr: Math.round(d.amount_original * r.rate * 100) / 100 });
     } catch {
       setErr('fx_unavailable');
@@ -446,15 +445,15 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             {/* v0.30 (A9): a <label> only names its first control, so name both explicitly */}
             <select style={{ width: 90 }} value={d.currency} onChange={e => set({ currency: e.target.value })} aria-label={t.currency}>
-              {CURRENCIES.map(c => <option key={c}>{c}</option>)}
+              {[...new Set([...pickCurrencies(), d.currency])].map(c => <option key={c}>{c}</option>)}
             </select>
             <input type="number" step="0.01" min="0" inputMode="decimal" value={d.amount_original || ''}
               onChange={e => set({ amount_original: Number(e.target.value) })} required aria-label={t.amount} />
           </div>
         </label>
-        {d.currency !== 'MYR' && (
+        {d.currency !== homeCurrency() && (
           <>
-            <label className="fld"><span>{t.fxRate} → MYR</span>
+            <label className="fld"><span>{t.fxRate} → {homeCurrency()}</span>
               <div className="row" style={{ flexWrap: 'nowrap' }}>
                 <input type="number" step="0.000001" value={d.fx_rate}
                   onChange={e => {
@@ -466,7 +465,7 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
                 </button>
               </div>
             </label>
-            <label className="fld"><span>{t.amountMyr}</span>
+            <label className="fld"><span>{t.amountMyr.replace('{cur}', homeCurrency())}</span>
               <input type="number" step="0.01" value={d.amount_myr}
                 onChange={e => set({ amount_myr: Number(e.target.value) })} required />
             </label>
@@ -611,7 +610,7 @@ export default function ExpenseForm({ members, initial, onSubmit, submitLabel, b
           <div className="row" key={i} style={{ marginTop: 6 }}>
             <input type="date" value={dd.due_date} style={{ width: 150, flex: '0 0 auto' }}
               onChange={e => set({ due_dates: d.due_dates.map((x, j) => j === i ? { ...x, due_date: e.target.value } : x) })} />
-            <input type="number" step="0.01" placeholder="MYR" value={dd.amount_myr ?? ''} style={{ width: 100, flex: '0 0 auto' }}
+            <input type="number" step="0.01" placeholder={homeCurrency()} value={dd.amount_myr ?? ''} style={{ width: 100, flex: '0 0 auto' }}
               onChange={e => set({ due_dates: d.due_dates.map((x, j) => j === i ? { ...x, amount_myr: Number(e.target.value) || undefined } : x) })} />
             <select value={dd.participant_id ?? 0} style={{ width: 170, flex: '0 0 auto' }}
               title={t.forWhom}

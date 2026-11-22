@@ -44,6 +44,7 @@ export const SCHEMA: string[] = [
     hidden_features TEXT NOT NULL DEFAULT '[]',
     member_can_edit_plan INTEGER NOT NULL DEFAULT 0,
     watch_currencies TEXT NOT NULL DEFAULT '[]',  -- ISO codes shown in the forex widget
+    multi_currency INTEGER NOT NULL DEFAULT 0,  -- leader switch: allow amounts in other currencies + FX
     cover_key TEXT,
     cover_credit TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -335,6 +336,8 @@ export const UPGRADES: string[] = [
   // v0.35 onboarding: existing rows get 0 (no welcome tour); new sign-ups set 1.
   `ALTER TABLE users ADD COLUMN welcome_pending INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN skip_plan_intro INTEGER NOT NULL DEFAULT 0`,
+  // v0.47 multi-currency: off by default (one trip currency, no FX).
+  `ALTER TABLE trips ADD COLUMN multi_currency INTEGER NOT NULL DEFAULT 0`,
   ...SCHEMA.filter(s =>
     /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily|rooms|room_occupants)\b/.test(s)
     || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code|idx_rooms_trip/.test(s)),

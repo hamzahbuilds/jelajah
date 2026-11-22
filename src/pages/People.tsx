@@ -11,6 +11,7 @@ import { Icon } from '../components/Icon';
 import Modal from '../components/Modal';
 import { resizeImageFile } from '../lib/image';
 import RoomsCard from '../components/RoomsCard';
+import TripMoneyCard from '../components/TripMoneyCard';
 import Avatar from '../components/Avatar';
 import { smallCover, uploadSmallCover } from '../lib/coverThumb';
 
@@ -453,6 +454,8 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
           </div>
         </div>
       )}
+
+      {isSettings && canLead && <TripMoneyCard tripId={tripId} trip={trip} reload={reload} />}
 
       {isSettings && canLead && (
         <div className="card">

@@ -2,7 +2,7 @@ import { useConfirm } from '../ui/Confirm';
 import Loading from '../components/Loading';
 import { useEffect, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
-import { api, fmtMYR, fmtDate } from '../api';
+import { api, fmtMYR, fmtDate, homeCurrency } from '../api';
 import { useT } from '../i18n';
 import { TripCtx } from '../app/tripContext';
 import { useToast } from '../components/Toast';
@@ -147,7 +147,7 @@ export default function Payments() {
                   <option value={0} disabled>{t.choosePerson}</option>
                   {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select></label>
-              <label className="fld"><span>{t.amountMyr}</span>
+              <label className="fld"><span>{t.amountMyr.replace('{cur}', homeCurrency())}</span>
                 <input type="number" step="0.01" min="0.01" required value={form.amount_myr}
                   onChange={e => setForm({ ...form, amount_myr: e.target.value })} /></label>
               <label className="fld"><span>{t.date}</span>

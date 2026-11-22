@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useOutletContext, useParams } from 'react-router-dom';
-import { api, fmtMoney } from '../api';
+import { api, fmtMoney, homeCurrency } from '../api';
 import { useT } from '../i18n';
 import { useToast } from '../components/Toast';
 import { useSession } from '../app/session';
@@ -67,8 +67,8 @@ export default function Review() {
     d.expense_date = legDates[0] ?? parsed.checkInDate ?? '';
     d.end_date = parsed.checkOutDate ?? (legDates.length > 1 ? legDates[legDates.length - 1] : '');
     d.amount_original = parsed.totalAmount ?? 0;
-    d.currency = parsed.currency ?? 'MYR';
-    if (d.currency === 'MYR') { d.fx_rate = 1; d.amount_myr = d.amount_original; }
+    d.currency = parsed.currency ?? homeCurrency();
+    if (d.currency === homeCurrency()) { d.fx_rate = 1; d.amount_myr = d.amount_original; }
     d.participant_ids = matches.filter((m: any) => m.participant).map((m: any) => m.participant.id);
     if (user.participant_id && members.some(m => m.id === user.participant_id)) {
       d.payer_participant_id = user.participant_id;
@@ -79,8 +79,8 @@ export default function Review() {
       if (parsed.checkInDate) {
         d.due_dates = [{
           due_date: parsed.checkInDate,
-          // due amounts are stored in MYR; skip when the voucher is foreign-currency
-          amount_myr: (parsed.currency ?? 'MYR') === 'MYR' ? parsed.totalAmount ?? undefined : undefined,
+          // due amounts are stored in the trip currency; skip when the voucher is in another one
+          amount_myr: (parsed.currency ?? homeCurrency()) === homeCurrency() ? parsed.totalAmount ?? undefined : undefined,
           note: t.payAtHotel,
         }];
       }
@@ -137,7 +137,7 @@ export default function Review() {
                 <tr><td className="muted">{t.vendor}</td><td>{parsed.vendor ?? '—'} <span className="tiny">({parsed.parser})</span></td></tr>
                 <tr><td className="muted">{t.bookingNo}</td><td>{parsed.bookingNo ?? '—'}</td></tr>
                 {parsed.totalAmount != null && (
-                  <tr><td className="muted">{t.total}</td><td>{fmtMoney(parsed.totalAmount, parsed.currency ?? 'MYR')}</td></tr>
+                  <tr><td className="muted">{t.total}</td><td>{fmtMoney(parsed.totalAmount, parsed.currency ?? homeCurrency())}</td></tr>
                 )}
                 {parsed.paymentMethod && <tr><td className="muted">{t.paymentMethod}</td><td>{parsed.paymentMethod}</td></tr>}
                 {parsed.paymentStatus === 'pay_at_hotel' && (
@@ -226,7 +226,7 @@ export default function Review() {
                 {group(<><Icon name="calendar" size={16} /> {t.kwDates}</>, 'dates', kw.dates.slice(0, 8).map(dateChip))}
                 {group(<><Icon name="coins" size={16} /> {t.kwAmounts}</>, 'amounts', kw.amounts.slice(0, 8).map((a: any, i: number) => (
                   <span key={i} className="chip" title={a.context}
-                    onClick={() => push({ amount_original: a.value, currency: a.currency, ...(a.currency === 'MYR' ? { fx_rate: 1, amount_myr: a.value } : {}) })}>
+                    onClick={() => push({ amount_original: a.value, currency: a.currency, ...(a.currency === homeCurrency() ? { fx_rate: 1, amount_myr: a.value } : {}) })}>
                     {a.currency} {a.value.toLocaleString()}
                   </span>
                 )))}

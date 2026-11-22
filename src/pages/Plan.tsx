@@ -7,7 +7,11 @@ import { routeSegments, routeFailureMessage, useJourneyRoutes } from '../hooks/u
 import { directionsUrl } from '../../shared/journey';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
-import { api, fmtMYR, fmtDate } from '../api';
+import { api, fmtMYR, fmtDate, homeCurrency } from '../api';
+
+// Rough ¥1 in the trip currency, used only when the live rate can't be fetched.
+const JPY_FALLBACK: Record<string, number> = { MYR: 0.03, SGD: 0.0088, BND: 0.0088, USD: 0.0066, EUR: 0.006, GBP: 0.0052, AUD: 0.01, THB: 0.23, IDR: 105, PHP: 0.38 };
+const jpyFallback = () => (homeCurrency() === 'JPY' ? 1 : JPY_FALLBACK[homeCurrency()] ?? 0.03);
 import { useT } from '../i18n';
 import { useSession } from '../app/session';
 import { TripCtx } from '../app/tripContext';
@@ -146,7 +150,7 @@ export default function Plan() {
 
 
   useEffect(() => {
-    api.get(`/fx?date=${todayYmd()}&from=JPY&to=MYR`)
+    api.get(`/fx?date=${todayYmd()}&from=JPY&to=${homeCurrency()}`)
       .then(r => setJpyRate(r.rate)).catch(() => setJpyRate(null));
   }, []);
 
@@ -285,7 +289,7 @@ export default function Plan() {
     if (!raw) return;
     const jpy = Number(raw);
     if (!(jpy > 0)) return;
-    const rate = jpyRate ?? 0.03;
+    const rate = jpyRate ?? jpyFallback();
     const desc = `${leg.from.name} → ${leg.to.name}`;
     if (target === 'private') {
       await api.post(`/trips/${tripId}/myspend`, {
@@ -1119,7 +1123,7 @@ function ActivityModal({ draft, members, groups, tripId, onClose, onSaved }: {
         </div>
         <div className="mrow">
           <div className="fld">
-            <label>{t.estCost}</label>
+            <label>{t.estCost.replace('{cur}', homeCurrency())}</label>
             <input type="number" step="0.01" min="0" value={d.est_cost_myr ?? ''} onChange={e => set({ est_cost_myr: e.target.value })} />
           </div>
           <div className="fld">
@@ -1398,7 +1402,7 @@ function WizardModal({ tripId, trip, jpyRate, onClose, onDone }: {
     notes: map2.notes,
     category: map2.category >= 0 ? map2.category : undefined,
     price: map2.price >= 0 ? map2.price : undefined,
-    priceRate: jpyRate ?? 0.031, // client CSV prices are ¥ — store as an MYR estimate
+    priceRate: jpyRate ?? jpyFallback(), // client CSV prices are ¥; stored as a trip-currency estimate
     overnight: map2.overnight >= 0 ? map2.overnight : undefined,
     budgets: {
       transport: map2.bTransport >= 0 ? map2.bTransport : undefined,

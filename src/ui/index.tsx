@@ -6,7 +6,7 @@ import {
 } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Icon, type IconName } from '../components/Icon';
-import { fmtMYR, fmtMoney } from '../api';
+import { fmtMYR, fmtMoney, homeCurrency } from '../api';
 import Dialog from '../components/Dialog';
 import Menu, { type MenuItem } from '../components/Menu';
 import './ui.css';
@@ -71,8 +71,8 @@ export function Card({ title, icon, action, children, className, as: Tag = 'sect
 }
 
 /* ---------- Money (never wraps) ---------- */
-export function Money({ value, currency = 'MYR', className }: { value: number; currency?: string; className?: string }) {
-  return <span className={cx('ui-money', className)}>{currency === 'MYR' ? fmtMYR(value) : fmtMoney(value, currency)}</span>;
+export function Money({ value, currency, className }: { value: number; currency?: string; className?: string }) {
+  return <span className={cx('ui-money', className)}>{!currency || currency === homeCurrency() ? fmtMYR(value) : fmtMoney(value, currency)}</span>;
 }
 
 /* ---------- Stat ---------- */

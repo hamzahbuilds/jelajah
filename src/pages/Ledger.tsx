@@ -1,7 +1,7 @@
 import { useConfirm } from '../ui/Confirm';
 import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { api, fmtMYR, fmtMoney, fmtDate } from '../api';
+import { api, fmtMYR, fmtMoney, fmtDate, homeCurrency } from '../api';
 import { useT } from '../i18n';
 import { TripCtx } from '../app/tripContext';
 import ExpenseForm, { CATEGORIES, emptyDraft, ExpenseDraft } from '../components/ExpenseForm';
@@ -164,7 +164,7 @@ export default function Ledger() {
 
         {list.map((e: any) => {
           const metaBits = [
-            e.currency !== 'MYR' ? `${fmtMoney(e.amount_original, e.currency)} @ ${e.fx_rate}` : null,
+            e.currency !== homeCurrency() ? `${fmtMoney(e.amount_original, e.currency)} @ ${e.fx_rate}` : null,
             e.document_id ? `${t.documentCol} #${e.document_id}` : null,
           ].filter(Boolean).join(' · ');
           const shareCount = (sharesByExpense.get(e.id) ?? []).length;

@@ -18,6 +18,12 @@ export interface Trip {
   start_date: string | null; end_date: string | null; emoji: string;
   my_role?: TripRole;
   cover_key?: string | null; cover_credit?: string | null;
+  /** ISO code every ledger amount on this trip is kept in. */
+  base_currency?: string;
+  /** Leader switch: amounts may be entered in other currencies. */
+  multi_currency?: number;
+  /** The trip already holds expenses or payments. */
+  money_locked?: boolean;
 }
 
 interface Session {

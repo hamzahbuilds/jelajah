@@ -194,7 +194,7 @@ export default function Dashboard() {
       )}
 
       <div className="grid-2col16">
-        <FxWidget tripId={tripId} trip={trip} isAdmin={canLead} onChanged={reload} />
+        {!!(trip as any).multi_currency && <FxWidget tripId={tripId} trip={trip} isAdmin={canLead} onChanged={reload} />}
 
         {upcoming.length > 0 ? (
           <div className="card">

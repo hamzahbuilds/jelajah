@@ -1,7 +1,7 @@
 import Loading from '../components/Loading';
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, setHomeCurrency } from '../api';
 import { useT } from '../i18n';
 import { useSetTripNav, type Trip, type TripRole } from '../app/session';
 import ChatDrawer from '../components/ChatDrawer';
@@ -68,6 +68,9 @@ export default function TripShell() {
     );
   }
   if (!data) return <Loading label={t.loading} />;
+  // Published during render (not in an effect) so the pages below format
+  // money in this trip's currency on their very first render.
+  setHomeCurrency(data.trip.base_currency, !!(data.trip as any).multi_currency);
 
   const ctx: TripCtx = { ...data, tripId, reload, myRole, canLead, canEdit };
 

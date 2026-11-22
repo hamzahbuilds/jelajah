@@ -53,11 +53,43 @@ export const api = {
   upload: (url: string, form: FormData) => fetch(`/api${url}`, { method: 'POST', body: form }).then(handle),
 };
 
-export const fmtMYR = (n: number) =>
-  new Intl.NumberFormat('ms-MY', { style: 'currency', currency: 'MYR' }).format(n);
+// The trip's home currency (trips.base_currency). Every *_myr column in the
+// ledger holds amounts in this currency; the name predates multi-currency.
+// TripShell publishes it before rendering a trip's pages.
+let home = 'MYR';
+let multi = false;
+export const homeCurrency = () => home;
+/** Leader switch (trips.multi_currency). Off = basic mode: one currency, no FX. */
+export const multiCurrency = () => multi;
+/** Currencies offered in amount pickers: the trip's own first. BND has no
+ *  market feed of its own; the server prices it at par with SGD (official peg). */
+export const pickCurrencies = () => !multi ? [home] :
+  [...new Set([home, 'MYR', 'SGD', 'BND', 'JPY', 'USD', 'EUR', 'GBP', 'AUD', 'THB', 'IDR', 'PHP', 'KRW', 'CNY', 'HKD'])];
+export const setHomeCurrency = (c: string | null | undefined, multiOn = multi) => {
+  home = (c || 'MYR').toUpperCase(); multi = !!multiOn;
+};
 
-export const fmtMoney = (n: number, cur: string) =>
-  new Intl.NumberFormat('ms-MY', { style: 'currency', currency: cur, currencyDisplay: 'narrowSymbol' }).format(n);
+/** Format an amount in the open trip's home currency. */
+export const fmtMYR = (n: number) =>
+  home === 'MYR'
+    ? new Intl.NumberFormat('ms-MY', { style: 'currency', currency: 'MYR' }).format(n)
+    : fmtMoney(n, home);
+
+// Codes whose narrow symbol is a bare "$" are shown with a prefix so a BND
+// or SGD trip never reads like US dollars.
+const DOLLAR_PREFIX: Record<string, string> = { BND: 'B$', SGD: 'S$', AUD: 'A$', NZD: 'NZ$', HKD: 'HK$', CAD: 'C$', TWD: 'NT$' };
+export function fmtMoney(n: number, cur: string): string {
+  const prefix = DOLLAR_PREFIX[cur];
+  if (prefix) {
+    const num = new Intl.NumberFormat('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(n));
+    return `${n < 0 ? '-' : ''}${prefix}${num}`;
+  }
+  try {
+    return new Intl.NumberFormat('ms-MY', { style: 'currency', currency: cur, currencyDisplay: 'narrowSymbol' }).format(n);
+  } catch {
+    return `${cur} ${n.toFixed(2)}`; // unknown code
+  }
+}
 
 export function fmtDate(d: string | null | undefined, lang: string): string {
   if (!d) return '—';

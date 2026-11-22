@@ -109,6 +109,17 @@ async function runDataMigrations(env: Env): Promise<void> {
     applied.push('m001-trip-roles');
     await setSettingJSON(env, 'data_migrations', applied);
   }
+  if (!applied.includes('m002-multi-currency')) {
+    // v0.47: the multi-currency switch starts off, except on trips that
+    // already watch rates or hold money in another currency.
+    await env.DB.prepare(
+      `UPDATE trips SET multi_currency = 1 WHERE watch_currencies NOT IN ('', '[]')
+         OR EXISTS (SELECT 1 FROM expenses e WHERE e.trip_id = trips.id AND e.currency != trips.base_currency)
+         OR EXISTS (SELECT 1 FROM personal_expenses p WHERE p.trip_id = trips.id AND p.currency != trips.base_currency)`,
+    ).run();
+    applied.push('m002-multi-currency');
+    await setSettingJSON(env, 'data_migrations', applied);
+  }
 }
 
 /* ---- lazy schema upgrades: idempotent, once per isolate ---- */
@@ -576,7 +587,7 @@ app.post('/trips', async c => {
  *  POST /trips and the v0.32 plan commit. `name` must already be non-empty. */
 async function createTrip(c: any, body: any): Promise<number> {
   const user: SessionUser = c.get('user');
-  const { name, destination, start_date, end_date, emoji, color, base_currency, watch_currencies } = body;
+  const { name, destination, start_date, end_date, emoji, color, base_currency, watch_currencies, multi_currency } = body;
   const codes = new Set((await currencyList(c.env)).map(x => x.code));
   const base = base_currency && codes.has(String(base_currency).toUpperCase())
     ? String(base_currency).toUpperCase() : 'MYR';
@@ -585,9 +596,9 @@ async function createTrip(c: any, body: any): Promise<number> {
         .filter(w => codes.has(w) && w !== base).slice(0, 6)
     : [];
   const r = await c.env.DB.prepare(
-    'INSERT INTO trips (name, destination, start_date, end_date, emoji, color, base_currency, watch_currencies) VALUES (?,?,?,?,?,?,?,?)',
+    'INSERT INTO trips (name, destination, start_date, end_date, emoji, color, base_currency, watch_currencies, multi_currency) VALUES (?,?,?,?,?,?,?,?,?)',
   ).bind(name.trim(), destination ?? null, start_date ?? null, end_date ?? null,
-    emoji ?? '🧳', color ?? '', base, JSON.stringify(watch)).run();
+    emoji ?? '🧳', color ?? '', base, JSON.stringify(multi_currency ? watch : []), multi_currency ? 1 : 0).run();
   const tripId = r.meta.last_row_id;
   let participantId = user.participant_id;
   if (!participantId) {
@@ -632,7 +643,8 @@ app.get('/trips/:id', async c => {
      (SELECT COUNT(*) FROM users u WHERE u.participant_id = p.id) AS has_account
      FROM participants p JOIN trip_members m ON m.participant_id = p.id WHERE m.trip_id = ? ORDER BY p.name`,
   ).bind(id).all();
-  return c.json({ trip: { ...trip, my_role }, members: members.results });
+  const money_locked = await tripHasMoney(c.env, id);
+  return c.json({ trip: { ...trip, my_role, money_locked }, members: members.results });
 });
 
 app.patch('/trips/:id', requireLeader, async c => {
@@ -649,10 +661,12 @@ app.patch('/trips/:id', requireLeader, async c => {
     `UPDATE trips SET name = COALESCE(?, name), destination = COALESCE(?, destination),
      start_date = COALESCE(?, start_date), end_date = COALESCE(?, end_date), emoji = COALESCE(?, emoji),
      color = COALESCE(?, color), hidden_features = COALESCE(?, hidden_features),
-     member_can_edit_plan = COALESCE(?, member_can_edit_plan) WHERE id = ?`,
+     member_can_edit_plan = COALESCE(?, member_can_edit_plan),
+     multi_currency = COALESCE(?, multi_currency) WHERE id = ?`,
   ).bind(b.name ?? null, destination, start_date, end_date, b.emoji ?? null,
     b.color ?? null, Array.isArray(b.hidden_features) ? JSON.stringify(b.hidden_features) : null,
-    b.member_can_edit_plan === undefined ? null : (b.member_can_edit_plan ? 1 : 0), id).run();
+    b.member_can_edit_plan === undefined ? null : (b.member_can_edit_plan ? 1 : 0),
+    b.multi_currency === undefined ? null : (b.multi_currency ? 1 : 0), id).run();
   // Back-compat column keeps being written above; authorization no longer reads it —
   // instead, flipping it now bulk-sets every non-leader linked member's role.
   if (b.member_can_edit_plan !== undefined) {
@@ -2871,12 +2885,113 @@ app.delete('/checklist/:id', async c => {
 
 /* ---------------- FX ---------------- */
 
+// Currencies with no feed of their own at Frankfurter (ECB data), priced
+// through the currency they are officially pegged to. BND trades at par
+// with SGD under the Currency Interchangeability Agreement.
+const FX_PEGS: Record<string, { via: string; rate: number; name: string }> = {
+  BND: { via: 'SGD', rate: 1, name: 'Brunei Dollar' },
+};
+const pegOf = (code: string) => FX_PEGS[code] ?? { via: code, rate: 1 };
+
+/** Rate for 1 `from` in `to`, given a fetch for the underlying feed pair. */
+async function pegRate(from: string, to: string, feed: (f: string, t: string) => Promise<number>): Promise<number> {
+  const a = pegOf(from), b = pegOf(to);
+  const core = a.via === b.via ? 1 : await feed(a.via, b.via);
+  return core * a.rate / b.rate;
+}
+
+/** Ledger amounts (the *_myr columns) are kept in the trip's base currency,
+ *  so the base can't change once money has been recorded. */
+async function tripHasMoney(env: Env, tripId: number): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT EXISTS(SELECT 1 FROM expenses WHERE trip_id = ?1)
+         OR EXISTS(SELECT 1 FROM payments WHERE trip_id = ?1)
+         OR EXISTS(SELECT 1 FROM personal_expenses WHERE trip_id = ?1) AS has`,
+  ).bind(tripId).first<{ has: number }>();
+  return !!row?.has;
+}
+
+/** Split `total` (2 dp) over rows in proportion to their old amounts, in
+ *  whole sen, so the parts always add back up to the total exactly. */
+function rescale<T extends { amount: number }>(rows: T[], total: number): Array<T & { next: number }> {
+  const oldSum = rows.reduce((a, r) => a + r.amount, 0);
+  const sen = Math.round(total * 100);
+  const raw = rows.map(r => (oldSum ? (r.amount / oldSum) * sen : sen / rows.length));
+  const floor = raw.map(Math.floor);
+  let left = sen - floor.reduce((a, b) => a + b, 0);
+  const order = raw.map((v, i) => [v - floor[i], i] as const).sort((a, b) => b[0] - a[0]);
+  for (const [, i] of order) { if (left <= 0) break; floor[i]++; left--; }
+  return rows.map((r, i) => ({ ...r, next: floor[i] / 100 }));
+}
+
+/**
+ * Re-express every stored amount of a trip in a new trip currency
+ * (1 `from` = `rate` `to`). Totals are converted, then shares are re-split in
+ * whole sen so they still add up; a row already paid in the new currency gets
+ * its original amount back exactly. One D1 batch, so it is all or nothing.
+ */
+async function convertTripMoney(env: Env, tripId: number, to: string, rate: number) {
+  const r2c = (n: number) => Math.round(n * rate * 100) / 100;
+  const stmts: D1PreparedStatement[] = [];
+  const total = (row: any) => (row.currency === to ? row.amount_original : r2c(row.amount_myr));
+
+  const exps = (await env.DB.prepare('SELECT id, currency, amount_original, amount_myr, split_json FROM expenses WHERE trip_id = ?').bind(tripId).all<any>()).results;
+  for (const e of exps) {
+    const next = total(e);
+    const fx = e.amount_original ? next / e.amount_original : 1;
+    let split = e.split_json;
+    try {
+      const j = split ? JSON.parse(split) : null;
+      if (j?.room_amounts) {
+        const ids = Object.keys(j.room_amounts);
+        const scaled = rescale(ids.map(id => ({ id, amount: Number(j.room_amounts[id]) || 0 })), next);
+        j.room_amounts = Object.fromEntries(scaled.map(x => [x.id, x.next]));
+        split = JSON.stringify(j);
+      }
+    } catch { /* leave unparseable split_json alone */ }
+    stmts.push(env.DB.prepare('UPDATE expenses SET amount_myr = ?, fx_rate = ?, split_json = ? WHERE id = ?').bind(next, fx, split, e.id));
+    const shares = (await env.DB.prepare('SELECT participant_id, amount_myr AS amount FROM expense_shares WHERE expense_id = ? ORDER BY participant_id').bind(e.id).all<any>()).results;
+    for (const sh of rescale(shares, next)) {
+      stmts.push(env.DB.prepare('UPDATE expense_shares SET amount_myr = ? WHERE expense_id = ? AND participant_id = ?').bind(sh.next, e.id, sh.participant_id));
+    }
+  }
+  stmts.push(env.DB.prepare(`UPDATE due_dates SET amount_myr = ROUND(amount_myr * ?, 2)
+    WHERE amount_myr IS NOT NULL AND expense_id IN (SELECT id FROM expenses WHERE trip_id = ?)`).bind(rate, tripId));
+  stmts.push(env.DB.prepare('UPDATE payments SET amount_myr = ROUND(amount_myr * ?, 2) WHERE trip_id = ?').bind(rate, tripId));
+
+  const mine = (await env.DB.prepare('SELECT id, currency, amount_original, amount_myr FROM personal_expenses WHERE trip_id = ?').bind(tripId).all<any>()).results;
+  for (const m of mine) {
+    const next = total(m);
+    stmts.push(env.DB.prepare('UPDATE personal_expenses SET amount_myr = ?, fx_rate = ? WHERE id = ?')
+      .bind(next, m.amount_original ? next / m.amount_original : 1, m.id));
+    const shares = (await env.DB.prepare('SELECT id, amount_myr AS amount FROM personal_shares WHERE personal_expense_id = ?').bind(m.id).all<any>()).results;
+    // personal shares cover only the others' part, so scale them, not re-split to the total
+    for (const sh of shares) stmts.push(env.DB.prepare('UPDATE personal_shares SET amount_myr = ? WHERE id = ?').bind(r2c(sh.amount), sh.id));
+  }
+  stmts.push(env.DB.prepare('UPDATE activities SET est_cost_myr = ROUND(est_cost_myr * ?, 2) WHERE trip_id = ? AND est_cost_myr IS NOT NULL').bind(rate, tripId));
+  stmts.push(env.DB.prepare('UPDATE day_budgets SET myr_estimate = ROUND(myr_estimate * ?, 2) WHERE trip_id = ? AND myr_estimate IS NOT NULL').bind(rate, tripId));
+  stmts.push(env.DB.prepare('UPDATE trips SET base_currency = ? WHERE id = ?').bind(to, tripId));
+  await env.DB.batch(stmts);
+}
+
+/** Latest market rate for 1 `from` in `to` (pegs applied). */
+async function latestRate(from: string, to: string): Promise<number> {
+  return pegRate(from, to, async (f, t) => {
+    const res = await fetch(`https://api.frankfurter.dev/v1/latest?base=${f}&symbols=${t}`);
+    if (!res.ok) throw new Error('fx_unavailable');
+    const r = (await res.json<any>())?.rates?.[t];
+    if (typeof r !== 'number') throw new Error('fx_unavailable');
+    return r;
+  });
+}
+
 app.get('/fx', async c => {
   const date = c.req.query('date');
   const from = (c.req.query('from') ?? 'JPY').toUpperCase();
   const to = (c.req.query('to') ?? 'MYR').toUpperCase();
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return bad(c, 'date_required');
   if (from === to) return c.json({ rate: 1, source: 'identity' });
+  if (pegOf(from).via === pegOf(to).via) return c.json({ rate: pegOf(from).rate / pegOf(to).rate, source: 'peg' });
   const cached = await c.env.DB.prepare(
     'SELECT rate FROM fx_rates WHERE rate_date = ? AND base = ? AND quote = ?',
   ).bind(date, from, to).first<any>();
@@ -2885,15 +3000,20 @@ app.get('/fx', async c => {
   const today = new Date().toISOString().slice(0, 10);
   const q = date > today ? 'latest' : date;
   try {
-    const res = await fetch(`https://api.frankfurter.dev/v1/${q}?base=${from}&symbols=${to}`);
-    if (!res.ok) throw new Error(String(res.status));
-    const data = await res.json<any>();
-    const rate = data?.rates?.[to];
-    if (!rate) throw new Error('no_rate');
+    let rateDate: string | undefined;
+    const rate = await pegRate(from, to, async (f, t) => {
+      const res = await fetch(`https://api.frankfurter.dev/v1/${q}?base=${f}&symbols=${t}`);
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json<any>();
+      rateDate = data?.date;
+      const r = data?.rates?.[t];
+      if (!r) throw new Error('no_rate');
+      return r;
+    });
     await c.env.DB.prepare(
       'INSERT OR REPLACE INTO fx_rates (rate_date, base, quote, rate) VALUES (?,?,?,?)',
     ).bind(date, from, to, rate).run();
-    return c.json({ rate, source: q === 'latest' ? 'latest' : 'historical', rate_date: data.date });
+    return c.json({ rate, source: q === 'latest' ? 'latest' : 'historical', rate_date: rateDate });
   } catch {
     return bad(c, 'fx_unavailable', 502);
   }
@@ -2906,7 +3026,7 @@ app.get('/fx', async c => {
 /** Frankfurter currency catalogue, cached in app_settings for 7 days. */
 async function currencyList(env: Env): Promise<Array<{ code: string; name: string }>> {
   const cached = await getSettingJSON<{ at: string; list: Array<{ code: string; name: string }> }>(env, 'currency_list');
-  if (cached && Date.now() - new Date(cached.at).getTime() < 7 * 86400000) return cached.list;
+  if (cached && Date.now() - new Date(cached.at).getTime() < 7 * 86400000) return withPegs(cached.list);
   try {
     const res = await fetch('https://api.frankfurter.dev/v2/currencies');
     if (!res.ok) throw new Error(String(res.status));
@@ -2914,15 +3034,22 @@ async function currencyList(env: Env): Promise<Array<{ code: string; name: strin
     const list = data.map(x => ({ code: String(x.iso_code), name: String(x.name) }));
     if (!list.length) throw new Error('empty');
     await setSettingJSON(env, 'currency_list', { at: new Date().toISOString(), list });
-    return list;
+    return withPegs(list);
   } catch {
     // offline / upstream change: serve the stale cache, else a minimal set so
     // the pickers still work
-    return cached?.list ?? [
+    return withPegs(cached?.list ?? [
       { code: 'MYR', name: 'Malaysian Ringgit' }, { code: 'JPY', name: 'Japanese Yen' },
-      { code: 'USD', name: 'US Dollar' }, { code: 'EUR', name: 'Euro' },
-    ];
+      { code: 'SGD', name: 'Singapore Dollar' }, { code: 'USD', name: 'US Dollar' }, { code: 'EUR', name: 'Euro' },
+    ]);
   }
+}
+function withPegs(list: Array<{ code: string; name: string }>) {
+  const out = [...list];
+  for (const [code, p] of Object.entries(FX_PEGS)) {
+    if (!out.some(x => x.code === code) && out.some(x => x.code === p.via)) out.push({ code, name: p.name });
+  }
+  return out.sort((a, b) => a.code.localeCompare(b.code));
 }
 
 app.get('/currencies', async c => c.json(await currencyList(c.env)));
@@ -2940,18 +3067,33 @@ async function ensureFxSeries(env: Env, base: string, quotes: string[]): Promise
   if (existing) return existing;
   const work = (async () => {
     const all = [...new Set([...(state?.quotes ?? []), ...quotes])];
+    // Pegged codes (BND) are fetched through their anchor (SGD) and stored
+    // under their own code, so every read stays a plain fx_rates lookup.
+    const feedBase = pegOf(base).via;
+    const feedQuotes = [...new Set(all.map(q => pegOf(q).via))].filter(q => q !== feedBase);
     const start = new Date(); start.setUTCDate(start.getUTCDate() - 370);
-    const res = await fetch(
-      `https://api.frankfurter.dev/v1/${start.toISOString().slice(0, 10)}..${today}?base=${base}&symbols=${all.join(',')}`);
-    if (!res.ok) throw new Error('fx_unavailable');
-    const data = await res.json<any>();
+    let rates: Record<string, Record<string, number>> = {};
+    if (feedQuotes.length) {
+      const res = await fetch(
+        `https://api.frankfurter.dev/v1/${start.toISOString().slice(0, 10)}..${today}?base=${feedBase}&symbols=${feedQuotes.join(',')}`);
+      if (!res.ok) throw new Error('fx_unavailable');
+      const data = await res.json<any>();
+      rates = data?.rates ?? {};
+    } else {
+      // every watched code shares the base's anchor: one flat row per day
+      for (let d = new Date(start); d.toISOString().slice(0, 10) <= today; d.setUTCDate(d.getUTCDate() + 1)) {
+        rates[d.toISOString().slice(0, 10)] = {};
+      }
+    }
     const stmts: D1PreparedStatement[] = [];
-    for (const [date, rates] of Object.entries<any>(data?.rates ?? {})) {
-      for (const [q, r] of Object.entries<any>(rates)) {
-        if (typeof r === 'number') {
-          stmts.push(env.DB.prepare(
-            'INSERT OR REPLACE INTO fx_rates (rate_date, base, quote, rate) VALUES (?,?,?,?)').bind(date, base, q, r));
-        }
+    for (const [date, day] of Object.entries<any>(rates)) {
+      for (const q of all) {
+        const via = pegOf(q).via;
+        const core = via === feedBase ? 1 : day?.[via];
+        if (typeof core !== 'number') continue;
+        const r = core * pegOf(base).rate / pegOf(q).rate;
+        stmts.push(env.DB.prepare(
+          'INSERT OR REPLACE INTO fx_rates (rate_date, base, quote, rate) VALUES (?,?,?,?)').bind(date, base, q, r));
       }
     }
     for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50)); // D1 batch politeness
@@ -2999,6 +3141,20 @@ app.patch('/trips/:id/currencies', requireLeader, async c => {
     base = String(b.base_currency).toUpperCase();
     if (!codes.has(base)) return bad(c, 'bad_currency');
   }
+  // Changing the currency of a trip that already holds money converts every
+  // amount. The caller must ask for it explicitly (convert: true) and may pass
+  // the rate it showed the leader; otherwise today's market rate is used.
+  let converted: { from: string; to: string; rate: number } | null = null;
+  if (base !== trip.base_currency && await tripHasMoney(c.env, id)) {
+    if (b.convert !== true) return bad(c, 'needs_conversion', 409);
+    let rate = Number(b.rate);
+    if (!(rate > 0)) {
+      try { rate = await latestRate(trip.base_currency, base); } catch { return bad(c, 'fx_unavailable', 502); }
+    }
+    await convertTripMoney(c.env, id, base, rate);
+    await audit(c.env, c.get('user').id, 'trip_currency_convert', 'trip', id);
+    converted = { from: trip.base_currency, to: base, rate };
+  }
   let watch: string[];
   try { watch = JSON.parse(trip.watch_currencies ?? '[]'); } catch { watch = []; }
   const watchCurrencies = b.watch_currencies;
@@ -3011,7 +3167,7 @@ app.patch('/trips/:id/currencies', requireLeader, async c => {
   if (watch.length > 6) return bad(c, 'too_many_currencies');
   await c.env.DB.prepare('UPDATE trips SET base_currency = ?, watch_currencies = ? WHERE id = ?')
     .bind(base, JSON.stringify(watch), id).run();
-  return c.json({ ok: true, base_currency: base, watch_currencies: watch });
+  return c.json({ ok: true, base_currency: base, watch_currencies: watch, converted });
 });
 
 /* ================================================================== */
@@ -3477,6 +3633,7 @@ async function tripContext(c: any, tripId: number, includeMoney: boolean): Promi
     'SELECT p.* FROM participants p JOIN trip_members m ON m.participant_id = p.id WHERE m.trip_id = ? ORDER BY p.name',
   ).bind(tripId).all();
   const blocks: string[] = [];
+  const cur = String(trip.base_currency ?? 'MYR'); // every *_myr amount is in this currency
   blocks.push(`TRIP: ${trip.name} — ${trip.destination ?? ''} (${trip.start_date} to ${trip.end_date}). Today is ${new Date().toISOString().slice(0, 10)}.`);
   blocks.push(`TRAVELLERS (${parts.results.length}): ${(parts.results as any[]).map(p => p.name + (p.is_infant ? ' (infant)' : '')).join(', ')}`);
 
@@ -3535,12 +3692,12 @@ async function tripContext(c: any, tripId: number, includeMoney: boolean): Promi
     const visible = isLeader ? data.balances : data.balances.filter((b: any) => b.participant.id === user.participant_id);
     const nameOf = new Map((parts.results as any[]).map(p => [p.id, p.name]));
     const lines = (visible as any[]).map(b =>
-      `${b.participant.name}: owes RM${b.outstanding} outstanding (paid RM${b.paid})` +
-      b.byPayee.map((bp: any) => ` → RM${bp.remaining} to ${nameOf.get(bp.to_participant_id) ?? '?'}`).join(''));
-    blocks.push(`MONEY (MYR): trip total RM${data.tripTotal}${data.committedTotal ? `, committed (pay at hotel, not yet owed) RM${data.committedTotal}` : ''}\n${lines.join('\n')}`);
+      `${b.participant.name}: owes ${cur} ${b.outstanding} outstanding (paid ${cur} ${b.paid})` +
+      b.byPayee.map((bp: any) => ` → ${cur} ${bp.remaining} to ${nameOf.get(bp.to_participant_id) ?? '?'}`).join(''));
+    blocks.push(`MONEY (${cur}): trip total ${cur} ${data.tripTotal}${data.committedTotal ? `, committed (pay at hotel, not yet owed) ${cur} ${data.committedTotal}` : ''}\n${lines.join('\n')}`);
     if (isLeader) {
       blocks.push(`EXPENSES:\n${(data.expenseItems as any[]).slice(0, 60).map((e: any) =>
-        `${e.expense_date ?? ''} ${e.description} RM${e.amount_myr}${e.payment_status === 'pay_at_hotel' ? ' [pay at hotel]' : ''}`).join('\n')}`);
+        `${e.expense_date ?? ''} ${e.description} ${cur} ${e.amount_myr}${e.payment_status === 'pay_at_hotel' ? ' [pay at hotel]' : ''}`).join('\n')}`);
     }
     const dues = await env.DB.prepare(
       `SELECT d.due_date, d.amount_myr, d.note, d.participant_id, e.description FROM due_dates d
@@ -3550,7 +3707,7 @@ async function tripContext(c: any, tripId: number, includeMoney: boolean): Promi
       isLeader || d.participant_id == null || d.participant_id === user.participant_id);
     if (myDues.length) {
       blocks.push(`PAYMENT DUE DATES:\n${myDues.map(d =>
-        `${d.due_date} ${d.description}${d.amount_myr ? ` RM${d.amount_myr}` : ''}${d.participant_id ? ` (for ${nameOf.get(d.participant_id) ?? '?'})` : ' (whole payment)'}`).join('\n')}`);
+        `${d.due_date} ${d.description}${d.amount_myr ? ` ${cur} ${d.amount_myr}` : ''}${d.participant_id ? ` (for ${nameOf.get(d.participant_id) ?? '?'})` : ' (whole payment)'}`).join('\n')}`);
     }
   }
 
@@ -3560,7 +3717,7 @@ async function tripContext(c: any, tripId: number, includeMoney: boolean): Promi
     ).bind(tripId, user.id).all();
     if (mine.results.length) {
       blocks.push(`MY PRIVATE SPEND (only ${user.name} can see this):\n${(mine.results as any[]).slice(0, 40).map((m: any) =>
-        `${m.spend_date} ${m.description} RM${m.amount_myr}`).join('\n')}`);
+        `${m.spend_date} ${m.description} ${cur} ${m.amount_myr}`).join('\n')}`);
     }
   }
   let ctx = blocks.join('\n\n');
@@ -3968,7 +4125,7 @@ async function mcpHidden(env: Env, user: SessionUser, tripId: number): Promise<S
  *      isError results, structuredContent, version negotiation, server instructions ---- */
 
 const MCP_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
-const MCP_SERVER_VERSION = '0.46.0';
+const MCP_SERVER_VERSION = '0.47.0';
 const MCP_INSTRUCTIONS = [
   'Jelajah is a group trip planner. Dates are YYYY-MM-DD, times HH:MM in the trip\'s local time.',
   'Start with list_trips to get trip ids. get_itinerary shows each activity with its id and whether it has a map pin ("located").',
@@ -4024,12 +4181,12 @@ const MCP_TOOLS = [
   },
   {
     name: 'get_balances', title: 'Get balances', annotations: READ,
-    description: 'Who owes whom for a trip (outstanding amounts in MYR, targeted-settlement aware).',
+    description: 'Who owes whom for a trip (targeted-settlement aware). Amounts are in the trip currency given in "currency"; the *_myr field names are historical.',
     inputSchema: { type: 'object', properties: { trip_id: TRIP }, required: ['trip_id'] },
   },
   {
     name: 'get_expenses', title: 'Get expenses', annotations: READ,
-    description: 'The trip expense ledger (a member token sees only expenses it shares in).',
+    description: 'The trip expense ledger (a member token sees only expenses it shares in). amount_myr and my_share_myr are in the trip currency (list_trips "currency"); currency + amount_original is what was actually paid.',
     inputSchema: { type: 'object', properties: { trip_id: TRIP }, required: ['trip_id'] },
   },
   {
@@ -4243,9 +4400,9 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
   switch (name) {
     case 'list_trips': {
       const rows = user.role === 'admin'
-        ? await env.DB.prepare('SELECT id, name, destination, start_date, end_date, emoji FROM trips ORDER BY start_date DESC').all<any>()
+        ? await env.DB.prepare('SELECT id, name, destination, start_date, end_date, emoji, base_currency AS currency FROM trips ORDER BY start_date DESC').all<any>()
         : await env.DB.prepare(
-            `SELECT t.id, t.name, t.destination, t.start_date, t.end_date, t.emoji FROM trips t
+            `SELECT t.id, t.name, t.destination, t.start_date, t.end_date, t.emoji, t.base_currency AS currency FROM trips t
              JOIN trip_members m ON m.trip_id = t.id WHERE m.participant_id = ? ORDER BY t.start_date DESC`,
           ).bind(user.participant_id ?? -1).all<any>();
       // Each trip's role and map centre are independent lookups: run them together.
@@ -4419,7 +4576,9 @@ async function mcpToolCall(env: Env, user: SessionUser, name: string, args: any)
       const data = await computeBalances(env, args.trip_id);
       const isLeader = atLeast(await tripRole(env, user, args.trip_id), 'leader');
       const balances = isLeader ? data.balances : data.balances.filter((b: any) => b.participant.id === user.participant_id);
+      const cur = await env.DB.prepare('SELECT base_currency FROM trips WHERE id = ?').bind(args.trip_id).first<string>('base_currency');
       return {
+        currency: cur ?? 'MYR', // every *_myr field below is in this currency
         trip_total_myr: data.tripTotal, committed_myr: data.committedTotal,
         balances: (balances as any[]).map((b: any) => ({
           participant: b.participant.name, owed_myr: b.owed, paid_myr: b.paid, outstanding_myr: b.outstanding,

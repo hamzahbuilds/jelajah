@@ -77,7 +77,7 @@ export default function Trips() {
   }, [params, setParams]);
   // "New trip" opens the chat planner; the form stays one tap away (docs/20 §4.1).
   const newTrip = () => (aiOn === false ? setOpen(true) : nav('/new', { viewTransition: true }));
-  const [form, setForm] = useState({ name: '', destination: '', start_date: '', end_date: '', emoji: '🧳', color: '', base_currency: 'MYR', watch_currencies: [] as string[] });
+  const [form, setForm] = useState({ name: '', destination: '', start_date: '', end_date: '', emoji: '🧳', color: '', base_currency: 'MYR', watch_currencies: [] as string[], multi_currency: false });
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,7 +162,8 @@ export default function Trips() {
           </div>
           <CurrencyFields base={form.base_currency} watch={form.watch_currencies}
             onBase={c => setForm({ ...form, base_currency: c, watch_currencies: form.watch_currencies.filter(w => w !== c) })}
-            onWatch={w => setForm({ ...form, watch_currencies: w })} />
+            onWatch={w => setForm({ ...form, watch_currencies: w })}
+            multi={form.multi_currency} onMulti={on => setForm({ ...form, multi_currency: on })} />
           <StylePicker emoji={form.emoji} color={form.color}
             onEmoji={e => setForm({ ...form, emoji: e })} onColor={c => setForm({ ...form, color: c })}
             labelIcon={t.pickEmoji} labelColor={t.tripColor} />

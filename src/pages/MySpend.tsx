@@ -1,7 +1,7 @@
 import { useConfirm } from '../ui/Confirm';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { api, fmtMYR, fmtMoney, fmtDate } from '../api';
+import { api, fmtMYR, fmtMoney, fmtDate, homeCurrency, pickCurrencies } from '../api';
 import { useT } from '../i18n';
 import { useSession } from '../app/session';
 import { TripCtx } from '../app/tripContext';
@@ -28,7 +28,7 @@ export default function MySpend() {
   const [tagged, setTagged] = useState<any[]>([]);   // shares others tagged ME in (I owe)
   const [form, setForm] = useState({
     spend_date: new Date().toISOString().slice(0, 10),
-    category: 'food', description: '', amount: '', currency: 'JPY', behalf_note: '',
+    category: 'food', description: '', amount: '', currency: homeCurrency(), behalf_note: '',
     participant_ids: [] as number[], include_self: true,
   });
   const [rate, setRate] = useState<number | null>(null);
@@ -43,12 +43,12 @@ export default function MySpend() {
   };
   useEffect(() => { load(); }, [tripId]);
   useEffect(() => {
-    if (form.currency === 'MYR') { setRate(1); return; }
+    if (form.currency === homeCurrency()) { setRate(1); return; }
     // stale-response guard: rapid currency/date changes must not let an older
     // fx response overwrite a newer one (the "MySpend fx race" ticket)
     let stale = false;
     setRate(null);
-    api.get(`/fx?date=${form.spend_date}&from=${form.currency}&to=MYR`)
+    api.get(`/fx?date=${form.spend_date}&from=${form.currency}&to=${homeCurrency()}`)
       .then(r => { if (!stale) setRate(r.rate); })
       .catch(() => { if (!stale) setRate(null); });
     return () => { stale = true; };
@@ -187,12 +187,12 @@ export default function MySpend() {
             <label className="fld"><span>{t.amount}</span>
               <div className="row" style={{ flexWrap: 'nowrap' }}>
                 <select style={{ width: 88 }} value={form.currency} onChange={e => setForm({ ...form, currency: e.target.value })}>
-                  {['JPY', 'MYR', 'USD', 'SGD'].map(c => <option key={c}>{c}</option>)}
+                  {[...new Set([...pickCurrencies(), form.currency])].map(c => <option key={c}>{c}</option>)}
                 </select>
                 <input type="number" step="0.01" min="0" value={form.amount}
                   onChange={e => setForm({ ...form, amount: e.target.value })} required />
               </div>
-              {form.currency !== 'MYR' && form.amount && rate != null && (
+              {form.currency !== homeCurrency() && form.amount && rate != null && (
                 <span className="tiny">≈ {fmtMYR(Number(form.amount) * rate)}</span>
               )}
             </label>
@@ -241,7 +241,7 @@ export default function MySpend() {
                   <b>{i.description}</b>
                   <small>
                     {fmtDate(i.spend_date, lang)}
-                    {i.currency !== 'MYR' ? ` · ${fmtMoney(i.amount_original, i.currency)}` : ''}
+                    {i.currency !== homeCurrency() ? ` · ${fmtMoney(i.amount_original, i.currency)}` : ''}
                     {i.behalf_note ? ` · ${i.behalf_note}` : ''}
                   </small>
                 </div>
