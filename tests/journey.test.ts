@@ -366,7 +366,7 @@ describe("personal plans and notes", () => {
     sqlite.exec(`UPDATE trips SET hidden_features='["myplan"]' WHERE id=1`);
     const r = await req("/trips/1/clone", 2, "POST");
     expect(r.status).toBe(403);
-    expect((await r.json()).error).toBe("feature_off");
+    expect(((await r.json()) as any).error).toBe("feature_off");
     sqlite.exec("UPDATE trips SET hidden_features='[]' WHERE id=1");
   });
   it("requires membership and clones once without expense or participant fields", async () => {
