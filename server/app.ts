@@ -1024,11 +1024,52 @@ app.patch('/documents/:id', async c => {
   if (!(await readDocument(c,doc))) return bad(c, 'not_found', 404);
   if (!(await assertTripAccess(c, doc.trip_id))) return bad(c, 'forbidden', 403);
   if (!(await editDocument(c,doc))) return bad(c,'forbidden',403);
-  const { filename } = await c.req.json<any>();
-  if (typeof filename !== 'string' || !filename.trim() || filename.trim().length > 180 || /[\x00-\x1f/\\]/.test(filename)) return bad(c, 'invalid_filename');
-  await c.env.DB.prepare('UPDATE documents SET filename = ? WHERE id = ?').bind(filename.trim(), id).run();
-  await audit(c.env, c.get('user').id, 'document_rename', 'document', id);
+  const { filename, category } = await c.req.json<any>();
+  // v0.49: either field may come alone (rename, or change the file's type).
+  if (filename !== undefined) {
+    if (typeof filename !== 'string' || !filename.trim() || filename.trim().length > 180 || /[\x00-\x1f/\\]/.test(filename)) return bad(c, 'invalid_filename');
+    await c.env.DB.prepare('UPDATE documents SET filename = ? WHERE id = ?').bind(filename.trim(), id).run();
+    await audit(c.env, c.get('user').id, 'document_rename', 'document', id);
+  }
+  if (category !== undefined) {
+    if (typeof category !== 'string' || !category.trim() || category.trim().length > 80) return bad(c, 'invalid_category');
+    const meta = { ...documentMeta(doc), libraryCategory: category.trim() };
+    await c.env.DB.prepare('UPDATE documents SET parsed_json = ? WHERE id = ?').bind(JSON.stringify(meta), id).run();
+    await c.env.DB.prepare('INSERT OR IGNORE INTO document_categories(trip_id,user_id,name) VALUES(?,?,?)').bind(doc.trip_id, c.get('user').id, category.trim()).run();
+  }
+  if (filename === undefined && category === undefined) return bad(c, 'nothing_to_change');
   return c.json({ ok: true });
+});
+
+/** v0.49 Move a file to another folder: 'private' (only me), 'trip' (everyone)
+ *  or a folder id. Access follows the folder. A file leaving the whole trip
+ *  becomes personal (its booking type is kept and restored if it comes back).
+ *  Who may move: the uploader, or a trip leader for shared files (editDocument),
+ *  matching who may rename or delete. */
+app.post('/documents/:id/move', async c => {
+  const id = Number(c.req.param('id'));
+  const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first<any>();
+  if (!doc || !(await readDocument(c, doc))) return bad(c, 'not_found', 404);
+  if (!(await editDocument(c, doc))) return bad(c, 'forbidden', 403);
+  const { folder } = await c.req.json<any>().catch(() => ({}));
+  let target: any = null;
+  if (folder !== 'private' && folder !== 'trip') {
+    target = await c.env.DB.prepare('SELECT * FROM document_folders WHERE id = ? AND trip_id = ?').bind(Number(folder) || 0, doc.trip_id).first<any>();
+    if (!target || !(await readFolder(c, target))) return bad(c, 'invalid_folder');
+  }
+  const shared = target ? target.visibility === 'trip' : folder === 'trip';
+  const meta: any = { ...documentMeta(doc) };
+  let docType = doc.doc_type;
+  if (!shared && docType !== 'personal') { meta.sharedDocType = docType; docType = 'personal'; }
+  if (shared && docType === 'personal') {
+    docType = typeof meta.sharedDocType === 'string' && meta.sharedDocType !== 'personal' ? meta.sharedDocType : 'other';
+    delete meta.sharedDocType;
+    if (meta.docType === 'personal') meta.docType = docType;
+  }
+  if (target) meta.libraryFolderId = target.id; else delete meta.libraryFolderId;
+  await c.env.DB.prepare('UPDATE documents SET doc_type = ?, parsed_json = ? WHERE id = ?').bind(docType, JSON.stringify(meta), id).run();
+  await audit(c.env, c.get('user').id, 'document_move', 'document', id);
+  return c.json({ ok: true, doc_type: docType });
 });
 
 app.delete('/documents/:id', async c => {

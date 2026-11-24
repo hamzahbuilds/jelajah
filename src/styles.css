@@ -2129,3 +2129,90 @@ a.adm-kpi:hover, a.adm-kpi:focus-visible { border-color: var(--brand-600); }
 .adm-spark-cell { inline-size: 120px; min-inline-size: 90px; }
 @media (max-width: 900px) { .adm-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .adm-grid { grid-template-columns: 1fr; } }
 @media (max-width: 420px) { .adm-kpis { grid-template-columns: 1fr; } .adm-hero { padding: 16px; } }
+
+/* v0.49 Home trips: filter, sort, phase groups */
+.trips-controls { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0 16px; }
+.trips-controls .chip { display: inline-flex; align-items: center; gap: 6px; }
+.trips-sort { display: flex; align-items: center; gap: 8px; font-size: .875rem; color: var(--muted); }
+.trips-sort select { width: auto; }
+.trips-group + .trips-group { margin-top: 24px; }
+.trips-group-h { font-size: 1rem; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+.trips-done .tripcard .tc-cover { filter: saturate(.6); }
+@media (max-width: 520px) { .trips-sort { inline-size: 100%; } .trips-sort select { flex: 1; } }
+
+/* v0.49 Documents, Drive-style */
+.linklike { background: none; border: 0; padding: 0; color: var(--brand-700); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+[data-theme="dark"] .linklike { color: var(--brand-300); }
+.drive-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: start; }
+.drive-rail { display: grid; gap: 2px; position: sticky; top: 16px; }
+.drive-rail-item { display: flex; align-items: center; gap: 10px; inline-size: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.drive-rail-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drive-rail-item small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.drive-rail-item:hover { background: var(--surface-2, var(--gray-100)); }
+.drive-rail-item.on { background: var(--brand-50, var(--gray-100)); color: var(--brand-700); font-weight: 600; }
+[data-theme="dark"] .drive-rail-item.on { color: var(--brand-300); }
+.drive-rail-item.drop, .drive-folder.drop { border-color: var(--brand-600); background: var(--brand-50, var(--gray-100)); box-shadow: inset 0 0 0 1px var(--brand-600); }
+.drive-rail-tools { display: grid; justify-items: start; gap: 2px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.drive-main { position: relative; min-height: 320px; border: 1px solid var(--border); border-radius: var(--r-xl); background: var(--surface); padding: 16px; }
+.drive-main.file-over { border-color: var(--brand-600); border-style: dashed; }
+.drive-drop-hint { position: absolute; inset: 8px; display: flex; align-items: center; justify-content: center; gap: 10px; border-radius: var(--r-xl); background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--brand-700); font-weight: 600; pointer-events: none; z-index: 2; }
+.drive-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.drive-crumbs h2 { margin: 0; font-size: 1.125rem; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.drive-crumbs small { color: var(--muted); }
+.drive-head-actions { display: flex; gap: 8px; align-items: center; }
+.drive-toolbar { display: grid; gap: 10px; margin-bottom: 16px; }
+.drive-toolbar .chips .chip { display: inline-flex; align-items: center; gap: 6px; }
+.drive-sub { font-size: .875rem; color: var(--muted); font-weight: 600; margin: 8px 0 10px; }
+.drive-folders { list-style: none; margin: 0 0 16px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.drive-folder { inline-size: 100%; display: flex; gap: 10px; align-items: center; text-align: start; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: inherit; font: inherit; cursor: pointer; }
+.drive-folder:hover, .drive-folder:focus-visible { border-color: var(--brand-600); }
+.drive-folder span { display: grid; min-width: 0; }
+.drive-folder b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drive-folder small { color: var(--muted); }
+.drive-files { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.drive-file { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.drive-file[draggable="true"] { cursor: grab; }
+html.drive-dragging .drive-file, html.drive-dragging .drive-table tr { cursor: grabbing; }
+.drive-thumb { inline-size: 44px; block-size: 44px; border-radius: 10px; display: grid; place-items: center; background: var(--brand-50, var(--gray-100)); color: var(--brand-700); }
+[data-theme="dark"] .drive-thumb { color: var(--brand-300); }
+.drive-file-info { display: grid; gap: 2px; min-width: 0; }
+.drive-file-info b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drive-file-info small { color: var(--muted); overflow-wrap: anywhere; }
+.drive-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.drive-badges:empty { display: none; }
+.drive-actions { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.drive-table { inline-size: 100%; border-collapse: collapse; font-size: .875rem; }
+.drive-table th, .drive-table td { text-align: start; padding: 8px; border-top: 1px solid var(--border); vertical-align: middle; }
+.drive-table th { color: var(--muted); font-weight: 600; border-top: 0; }
+.drive-table tr[draggable="true"] { cursor: grab; }
+.drive-table .drive-actions { flex-wrap: nowrap; }
+.drive-name { display: inline-flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.drive-empty { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 48px 16px; border: 2px dashed var(--border); border-radius: var(--r-xl); }
+.drive-empty.small { padding: 32px 16px; }
+.drive-empty h3 { margin: 0; }
+.drive-empty p { margin: 0; color: var(--muted); max-width: 46ch; }
+.drive-empty small { color: var(--muted); }
+.drive-empty-icon { inline-size: 56px; block-size: 56px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-50, var(--gray-100)); color: var(--brand-700); }
+.drive-form { display: grid; gap: 12px; }
+.drive-form label { display: grid; gap: 4px; }
+.drive-upload-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: .875rem; }
+.drive-upload-list li { display: flex; gap: 6px; align-items: center; overflow-wrap: anywhere; }
+.drive-types { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.drive-types legend { padding: 0; margin-bottom: 6px; font-weight: 600; }
+.drive-types .chip { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.drive-types .chip input { position: absolute; opacity: 0; pointer-events: none; }
+.drive-types .chip:has(input:focus-visible) { outline: 2px solid var(--brand-600); outline-offset: 2px; }
+.drive-move { display: grid; gap: 6px; }
+.drive-move-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.drive-move-item span { display: grid; flex: 1; }
+.drive-move-item small { color: var(--muted); }
+.drive-move-item:not(:disabled):hover, .drive-move-item:focus-visible { border-color: var(--brand-600); }
+.drive-move-item:disabled { cursor: default; opacity: .7; }
+@media (max-width: 860px) {
+  .drive-layout { grid-template-columns: 1fr; }
+  .drive-rail { position: static; display: flex; overflow-x: auto; gap: 6px; padding-bottom: 4px; scrollbar-width: none; }
+  .drive-rail-item { inline-size: auto; flex: none; border-color: var(--border); border-radius: 999px; padding: 6px 12px; }
+  .drive-rail-item span { overflow: visible; }
+  .drive-rail-tools { display: flex; border-top: 0; margin: 0; padding: 0; flex: none; }
+  .drive-main { padding: 12px; }
+}

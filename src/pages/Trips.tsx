@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, fmtDate } from '../api';
 import { useT, Dict } from '../i18n';
@@ -11,6 +11,7 @@ import Modal from '../components/Modal';
 import PageHead from '../components/PageHead';
 import Empty from '../components/Empty';
 import { daysBetween, todayYmd } from '../../shared/days';
+import { PHASES, phaseOf, sortTrips, type Phase, type TripSort } from '../../shared/tripPhase';
 import PlanComposer, { type ComposerMode } from '../components/PlanComposer';
 import { HomeBriefStart } from '../components/TripBrief';
 import type { NewPlanStart } from './NewPlan';
@@ -62,6 +63,8 @@ function TripCardCover({ trip: tr, chip }: { trip: Trip; chip: string | null }) 
   );
 }
 
+const SORT_KEY = 'jl-trips-sort';
+
 export default function Trips() {
   const { t, lang } = useT();
   const { toast } = useToast();
@@ -77,6 +80,41 @@ export default function Trips() {
   }, [params, setParams]);
   // "New trip" opens the chat planner; the form stays one tap away (docs/20 §4.1).
   const newTrip = () => (aiOn === false ? setOpen(true) : nav('/new', { viewTransition: true }));
+  const ms = lang === 'ms';
+  const PHASE_NAMES: Record<Phase, string> = {
+    now: ms ? 'Sedang berlangsung' : 'Happening now', upcoming: ms ? 'Akan datang' : 'Upcoming',
+    undated: ms ? 'Masih dirancang' : 'Still planning', done: ms ? 'Selesai' : 'Completed',
+  };
+  const SORT_NAMES: Record<TripSort, string> = {
+    date: ms ? 'Tarikh perjalanan' : 'Trip date', added: ms ? 'Baru ditambah' : 'Recently added', name: ms ? 'Nama A–Z' : 'Name A–Z',
+  };
+  // Filter and sort live in the address (Back works, links share); the sort is also remembered on this device.
+  const show = (PHASES as string[]).includes(params.get('show') ?? '') ? (params.get('show') as Phase) : 'all';
+  const sort: TripSort = (() => {
+    const v = params.get('sort') ?? (() => { try { return localStorage.getItem(SORT_KEY); } catch { return null; } })();
+    return v === 'added' || v === 'name' ? v : 'date';
+  })();
+  const setParam = (k: string, v: string, def: string) => {
+    const p = new URLSearchParams(params); if (v === def) p.delete(k); else p.set(k, v); setParams(p, { replace: true });
+  };
+  const setSort = (v: TripSort) => { try { localStorage.setItem(SORT_KEY, v); } catch { /* per-device nicety only */ } setParam('sort', v, 'date'); };
+  const today = todayYmd();
+  const groups = useMemo(() => {
+    const by: Record<Phase, Trip[]> = { now: [], upcoming: [], undated: [], done: [] };
+    for (const tr of trips) by[phaseOf(tr, today)].push(tr);
+    return PHASES.map(ph => ({ phase: ph, trips: sortTrips(by[ph], sort, ph, lang) }));
+  }, [trips, today, sort, lang]);
+  const visible = groups.filter(g => g.trips.length && (show === 'all' || g.phase === show));
+  const count = (ph: Phase) => groups.find(g => g.phase === ph)!.trips.length;
+  const shownCount = visible.reduce((a, g) => a + g.trips.length, 0);
+  // One announcement per change, not one per moved card.
+  const [announce, setAnnounce] = useState('');
+  useEffect(() => {
+    if (!trips.length) return;
+    setAnnounce(ms ? `${shownCount} perjalanan, disusun mengikut ${SORT_NAMES[sort].toLowerCase()}` : `${shownCount} trip${shownCount === 1 ? '' : 's'}, sorted by ${SORT_NAMES[sort].toLowerCase()}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sort, show]);
+
   const [form, setForm] = useState({ name: '', destination: '', start_date: '', end_date: '', emoji: '🧳', color: '', base_currency: 'MYR', watch_currencies: [] as string[], multi_currency: false });
 
   const create = async (e: React.FormEvent) => {
@@ -103,8 +141,30 @@ export default function Trips() {
         <Empty icon="folder" title={t.startFirstTrip} sub={t.startFirstTripSub}
           action={{ label: t.newTrip, onClick: newTrip }} />
       ) : (
-        <div className="tripgrid">
-          {trips.map(tr => {
+        <>
+          <div className="trips-controls">
+            <div className="chips" role="group" aria-label={ms ? 'Tunjuk' : 'Show'}>
+              {(['all', ...PHASES] as Array<'all' | Phase>).filter(k => k === 'all' || k === 'upcoming' || k === 'done' || count(k) > 0).map(k => (
+                <button key={k} type="button" className={`chip ${show === k ? 'on' : ''}`} aria-pressed={show === k} onClick={() => setParam('show', k, 'all')}>
+                  {k === 'all' ? (ms ? 'Semua' : 'All') : PHASE_NAMES[k]} <span className="badge gray">{k === 'all' ? trips.length : count(k)}</span>
+                </button>
+              ))}
+            </div>
+            <label className="trips-sort"><span>{ms ? 'Susun' : 'Sort'}</span>
+              <select value={sort} onChange={e => setSort(e.target.value as TripSort)}>
+                {(Object.keys(SORT_NAMES) as TripSort[]).map(k => <option key={k} value={k}>{SORT_NAMES[k]}</option>)}
+              </select>
+            </label>
+          </div>
+          <p className="sr-only" role="status">{announce}</p>
+          {!visible.length && <Empty icon="calendar" title={show === 'done' ? (ms ? 'Tiada perjalanan selesai lagi' : 'No completed trips yet') : (ms ? 'Tiada perjalanan akan datang' : 'No upcoming trips')}
+            sub={show === 'done' ? (ms ? 'Perjalanan yang sudah tamat akan disimpan di sini.' : 'Trips you have finished are kept here.') : (ms ? 'Rancang yang seterusnya di atas.' : 'Plan your next one above.')}
+            action={{ label: ms ? 'Tunjuk semua' : 'Show all', onClick: () => setParam('show', 'all', 'all') }} />}
+          {visible.map((g, gi) => (
+            <section key={g.phase} className={`trips-group trips-${g.phase}`} aria-labelledby={`trips-h-${g.phase}`}>
+              <h2 id={`trips-h-${g.phase}`} className="trips-group-h">{PHASE_NAMES[g.phase]} <span className="badge gray">{g.trips.length}</span></h2>
+              <div className="tripgrid">
+                {g.trips.map(tr => {
             const color = (tr as any).color as string | undefined;
             const chip = tripChip(t, lang, tr);
             return (
@@ -112,7 +172,7 @@ export default function Trips() {
                 style={color ? ({ ['--cov' as any]: color }) : undefined}>
                 <TripCardCover trip={tr} chip={chip} />
                 <div className="tc-body">
-                  <h2>{tr.name}</h2>
+                  <h3>{tr.name}</h3>
                   <div className="sub">
                     {tr.destination}{tr.destination ? ' · ' : ''}{fmtDate(tr.start_date, lang)} – {fmtDate(tr.end_date, lang)}
                   </div>
@@ -123,12 +183,23 @@ export default function Trips() {
                 </div>
               </Link>
             );
-          })}
-
-          <button type="button" className="newcard" onClick={newTrip}>
-            <span className="inner"><Icon name="plus" size={24} />{t.newTripCard}</span>
-          </button>
-        </div>
+                })}
+                {gi === 0 && g.phase !== 'done' && (
+                  <button type="button" className="newcard" onClick={newTrip}>
+                    <span className="inner"><Icon name="plus" size={24} />{t.newTripCard}</span>
+                  </button>
+                )}
+              </div>
+            </section>
+          ))}
+          {(!visible.length || visible[0].phase === 'done') && (
+            <div className="tripgrid" style={{ marginTop: 16 }}>
+              <button type="button" className="newcard" onClick={newTrip}>
+                <span className="inner"><Icon name="plus" size={24} />{t.newTripCard}</span>
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       <div className="card" style={{ marginTop: 24 }}>
