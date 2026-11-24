@@ -461,7 +461,7 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
         <div className="card">
           <div className="cardhead"><h2><Icon name="eye" /> {t.visibility}</h2></div>
           <p className="hint">{t.visibilityHint}</p>
-          {(['plan', 'documents', 'ledger', 'payments', 'assistant'] as const).map(f => (
+          {(['plan', 'today', 'documents', 'ledger', 'payments', 'assistant'] as const).map(f => (
             <label key={f} className="check-row">
               <input type="checkbox" checked={!hidden.includes(f)} onChange={() => toggleFeature(f)} />
               <span>{f === 'assistant' ? <><Icon name="chat" size={16} /> {t.assistantFeature}</> : (t as any)[f === 'ledger' ? 'ledger' : f]}</span>

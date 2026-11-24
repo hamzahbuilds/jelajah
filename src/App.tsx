@@ -19,6 +19,7 @@ const NewPlan = lazy(() => import('./pages/NewPlan'));
 const TripShell = lazy(() => import('./pages/TripShell'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Plan = lazy(() => import('./pages/JournalPlan'));
+const Today = lazy(() => import('./pages/Today'));
 const Recovery = lazy(() => import('./pages/Recovery'));
 const PublicJourneys = lazy(() => import('./pages/PublicJourneys'));
 const Home = lazy(() => import('./pages/Home'));
@@ -114,6 +115,7 @@ function Shell() {
             <Route path="/trips/:tripId" element={<TripShell />}>
               <Route index element={<Dashboard />} />
               <Route path="plan" element={<Plan />} />
+              <Route path="today" element={<Today />} />
               <Route path="money/ledger" element={<Ledger />} />
               <Route path="money/payments" element={<Payments />} />
               <Route path="money/me" element={<MySpend />} />

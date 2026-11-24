@@ -65,6 +65,11 @@ export function navModel(path: string, opts: NavOpts): NavModel {
 
     main.push({ key: 'overview', to: base, icon: 'home', label: 'overview', on: path === base });
 
+    // v0.48: Today (one day of the plan + daily brief) sits next to Plan.
+    if (!hidden.has('plan') && !hidden.has('today')) {
+      main.push({ key: 'today', to: `${base}/today`, icon: 'sun', label: 'today', on: path === `${base}/today` });
+    }
+
     if (!hidden.has('plan')) {
       main.push({ key: 'plan', to: `${base}/plan`, icon: 'calendar', label: 'plan', on: path === `${base}/plan` });
     }

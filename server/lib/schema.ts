@@ -297,6 +297,15 @@ export const SCHEMA: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_day_notes ON day_notes(trip_id, day)`,
   `CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code)`,
   `CREATE INDEX IF NOT EXISTS idx_personal_user ON personal_expenses(trip_id, user_id)`,
+  // v0.48 Today: one brief per trip day. ai_* is the generated summary (cached by
+  // ai_hash of the day's contents + language); note_* is the leader's own summary.
+  `CREATE TABLE IF NOT EXISTS day_briefs (
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    day TEXT NOT NULL,
+    ai_text TEXT, ai_hash TEXT, ai_lang TEXT, ai_at TEXT,
+    note_text TEXT, note_by INTEGER REFERENCES users(id), note_at TEXT,
+    PRIMARY KEY (trip_id, day)
+  )`,
   `CREATE INDEX IF NOT EXISTS idx_activities_trip ON activities(trip_id, day)`,
   `CREATE INDEX IF NOT EXISTS idx_documents_trip ON documents(trip_id)`,
   `CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id)`,
@@ -339,7 +348,7 @@ export const UPGRADES: string[] = [
   // v0.47 multi-currency: off by default (one trip currency, no FX).
   `ALTER TABLE trips ADD COLUMN multi_currency INTEGER NOT NULL DEFAULT 0`,
   ...SCHEMA.filter(s =>
-    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily|rooms|room_occupants)\b/.test(s)
+    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily|rooms|room_occupants|day_briefs)\b/.test(s)
     || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code|idx_rooms_trip/.test(s)),
 ];
 

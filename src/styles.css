@@ -2006,3 +2006,31 @@ button.member-row:focus-visible { outline: 2px solid var(--brand); outline-offse
 .ps-hint { margin: 0; }
 .ps-kind { margin-inline-start: var(--s-2); padding: 1px 6px; border-radius: 999px; background: var(--bg); color: var(--ink-3); font-style: normal; font-weight: 500; font-size: var(--fs-xs, 12px); vertical-align: 1px; }
 .mcp-steps { margin: 6px 0; padding-inline-start: 20px; display: grid; gap: 4px; line-height: 1.5; }
+
+/* v0.48 Today: one day of the plan + daily brief */
+.hero .hero-today { margin-top: 12px; }
+.today-days { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.today-date { display: grid; min-width: 0; flex: 1; text-align: center; }
+.today-date span { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
+.today-brief .cardhead { gap: 8px; flex-wrap: wrap; }
+.today-note { border-inline-start: 3px solid var(--brand-700); padding: 4px 0 4px 12px; margin-bottom: 16px; display: grid; gap: 4px; justify-items: start; }
+.today-note p, .today-ai-text { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.today-note small, .today-ai-foot small { color: var(--muted); }
+.today-note-form { display: grid; gap: 8px; margin-bottom: 16px; }
+.today-note-form textarea { width: 100%; resize: vertical; }
+.today-add-note { margin-bottom: 16px; }
+.today-ai { display: grid; gap: 12px; }
+.today-ai-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.today-stay { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--muted); margin: 0 0 12px; }
+.today-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.today-list li { display: grid; grid-template-columns: 3.5rem auto minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
+.today-list li:first-child { border-top: 0; }
+.today-time { font-variant-numeric: tabular-nums; font-weight: 600; display: grid; }
+.today-time small { color: var(--muted); font-weight: 400; }
+.today-item { display: grid; gap: 2px; min-width: 0; }
+.today-item b, .today-item span, .today-item small { overflow-wrap: anywhere; }
+.today-item span, .today-item small { color: var(--muted); }
+.today-notes { list-style: none; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid var(--border); display: grid; gap: 6px; }
+.today-notes li { display: flex; gap: 6px; align-items: start; overflow-wrap: anywhere; }
+.today-notes li.done { color: var(--muted); text-decoration: line-through; }
+@media (max-width: 520px) { .today-list li { grid-template-columns: 3rem minmax(0, 1fr) auto; } .today-list .tile { display: none; } }
