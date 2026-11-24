@@ -24,6 +24,7 @@ const FEATURE_NAMES: Record<string, [string, string]> = {
   plan_ai: ['Plan with AI', 'Rancang dengan AI'],
   plan_import: ['Import from link / screenshots', 'Import daripada pautan / tangkapan skrin'],
   admin_test: ['Admin tests', 'Ujian pentadbir'],
+  release_draft: ['Release notes draft', 'Draf nota keluaran'],
 };
 
 const usd = (v: number) => (v === 0 ? '$0' : v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(2)}`);

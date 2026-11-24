@@ -97,8 +97,8 @@ describe('daily brief', () => {
     expect((await req('s1', `/trips/1/briefs/${DAY}/note`, { method: 'PUT', body: JSON.stringify({ text: 'x'.repeat(1501) }) })).status).toBe(400);
   });
 
-  it('is hidden from members when the leader hides Today', async () => {
-    sqlite.exec(`UPDATE trips SET hidden_features='["today"]' WHERE id=1`);
+  it('is hidden from members when the leader hides the Plan', async () => {
+    sqlite.exec(`UPDATE trips SET hidden_features='["plan"]' WHERE id=1`);
     expect((await req('s2', `/trips/1/briefs/${DAY}`)).status).toBe(403);
     expect((await req('s1', `/trips/1/briefs/${DAY}`)).status).toBe(200);
     sqlite.exec(`UPDATE trips SET hidden_features='[]' WHERE id=1`);

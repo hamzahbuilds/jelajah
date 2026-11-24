@@ -3,11 +3,12 @@ import BrandMark from './BrandMark';
 // Jelajah UI refresh — fixed collapsible desktop sidebar (T6).
 // Ported from design/ui-refresh/nav.js (structure) + ui.css (`.sidebar` / `html.side-min`).
 import { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useT } from '../i18n';
 import { useSession, useTripNav, TripRole } from '../app/session';
 import { Icon } from './Icon';
-import Sheet from './Sheet';
+import { useWhatsNewUnseen } from './whatsnew/WhatsNew';
+import { openWhatsNew } from './whatsnew/releaseText';
 import { navModel } from './navModel';
 import { motion } from 'motion/react';
 import { spring, useTempoTransition } from '@animate-ui/react/utils/motion';
@@ -25,12 +26,11 @@ function roleLabel(t: ReturnType<typeof useT>['t'], role?: TripRole) {
 
 export default function Sidebar() {
   const { t } = useT();
-  const { user, trips, logout } = useSession();
+  const { user, logout } = useSession();
+  const newRelease = useWhatsNewUnseen();
   const nav = useTripNav();
   const { pathname } = useLocation();
-  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
-  const [switcherOpen, setSwitcherOpen] = useState(false);
 
   useEffect(() => {
     let min = false;
@@ -53,7 +53,6 @@ export default function Sidebar() {
     tripId: nav?.trip?.id,
   });
 
-  const trip = nav?.trip;
 
   return (
     <aside className="sidebar">
@@ -68,35 +67,21 @@ export default function Sidebar() {
       {model.main.map(item => (
         <div key={item.key} className="nav-group-wrap">
         {item.section && <div className="nav-sec">{t[item.section] as string}</div>}
-        {item.key === 'overview' && trip ? (
-          <div key="trip-switch-group">
-            <button className="trip-switch" onClick={() => setSwitcherOpen(true)} title={t.switchTrip}>
-              <span className="em">{trip.emoji}</span>
-              <div className="t">
-                <b>{trip.name}</b>
-                <span>{trip.start_date} – {trip.end_date}</span>
-              </div>
-              <Icon name="chev-d" size={16} className="tsw-chev" />
-            </button>
-            <Link key={item.key} to={item.to} viewTransition className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
-              {item.on && <NavHighlight />}
-              <span className="ic"><Icon name={item.icon} size={20} /></span>
-              <span className="lbl">{t[item.label] as string}</span>
-              {item.pill && <span className="pill badge warning">{item.pill}</span>}
-            </Link>
-          </div>
-        ) : (
           <Link key={item.key} to={item.to} viewTransition className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
               {item.on && <NavHighlight />}
             <span className="ic"><Icon name={item.icon} size={20} /></span>
             <span className="lbl">{t[item.label] as string}</span>
             {item.pill && <span className="pill badge warning">{item.pill}</span>}
           </Link>
-        )}
         </div>
       ))}
 
       <div className="side-foot">
+        <button type="button" className="nav-item" onClick={openWhatsNew} title={t.whatsNew}>
+          <span className="ic"><Icon name="sparkles" size={20} /></span>
+          <span className="lbl">{t.whatsNew}</span>
+          {newRelease && <span className="pill badge brand" aria-label={t.whatsNewUnseen}>{t.newBadge}</span>}
+        </button>
         {model.foot.map(item => (
           <Link key={item.key} to={item.to} viewTransition className={'nav-item' + (item.on ? ' on' : '')} title={t[item.label] as string}>
               {item.on && <NavHighlight />}
@@ -117,18 +102,6 @@ export default function Sidebar() {
         </button>
       </div>
 
-      <Sheet open={switcherOpen} onClose={() => setSwitcherOpen(false)} title={t.switchTrip}>
-        {trips.map(tr => (
-          <button key={tr.id} className="srow" onClick={() => { setSwitcherOpen(false); navigate(`/trips/${tr.id}`, { viewTransition: true }); }}>
-            <span className="em">{tr.emoji}</span>
-            <div className="t">
-              <b>{tr.name}</b>
-              <small>{tr.start_date} – {tr.end_date}</small>
-            </div>
-            {tr.my_role && <span className="badge gray">{roleLabel(t, tr.my_role)}</span>}
-          </button>
-        ))}
-      </Sheet>
     </aside>
   );
 }

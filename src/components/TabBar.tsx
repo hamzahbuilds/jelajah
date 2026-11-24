@@ -11,7 +11,8 @@ import { Icon } from './Icon';
 import { motion } from 'motion/react';
 import { spring, useTempoTransition } from '@animate-ui/react/utils/motion';
 import Sheet from './Sheet';
-import { useLongPress } from '../hooks/useLongPress';
+import { useWhatsNewUnseen } from './whatsnew/WhatsNew';
+import { openWhatsNew } from './whatsnew/releaseText';
 import { navModel } from './navModel';
 
 const LAST_TRIP_KEY = 'jl-last-trip';
@@ -30,6 +31,7 @@ export default function TabBar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const newRelease = useWhatsNewUnseen();
   const [moreOpen, setMoreOpen] = useState(false);
 
   const tripId = nav?.trip?.id;
@@ -91,15 +93,12 @@ export default function TabBar() {
   const moreOn = pathname === '/settings' || pathname.startsWith('/admin') || (tripBase != null && (pathname === `${tripBase}/people` || pathname === `${tripBase}/settings`));
 
   const openSwitcher = () => setSwitcherOpen(true);
-  const planLP = useLongPress(openSwitcher);
-  const moneyLP = useLongPress(openSwitcher);
-  const docsLP = useLongPress(openSwitcher);
 
   const goTrip = (id: number) => { setSwitcherOpen(false); navigate(`/trips/${id}`, { viewTransition: true }); };
 
   const tripTab = (
     key: string, to: string | null, icon: Parameters<typeof Icon>[0]['name'],
-    label: string, on: boolean, lp: ReturnType<typeof useLongPress>,
+    label: string, on: boolean,
   ) => {
     const inner = (
       <>
@@ -110,24 +109,13 @@ export default function TabBar() {
     );
     if (!to) {
       return (
-        <button
-          key={key} type="button" className={'tab' + (on ? ' on' : '')}
-          onPointerDown={lp.onPointerDown} onPointerUp={lp.onPointerUp}
-          onPointerLeave={lp.onPointerLeave} onPointerCancel={lp.onPointerCancel}
-          onContextMenu={lp.onContextMenu}
-          onClick={(e) => { lp.onClick(e); if (!e.defaultPrevented) openSwitcher(); }}
-        >
+        <button key={key} type="button" className={'tab' + (on ? ' on' : '')} onClick={openSwitcher}>
           {inner}
         </button>
       );
     }
     return (
-      <Link
-        key={key} to={to} viewTransition className={'tab' + (on ? ' on' : '')}
-        onPointerDown={lp.onPointerDown} onPointerUp={lp.onPointerUp}
-        onPointerLeave={lp.onPointerLeave} onPointerCancel={lp.onPointerCancel}
-        onContextMenu={lp.onContextMenu} onClick={lp.onClick}
-      >
+      <Link key={key} to={to} viewTransition className={'tab' + (on ? ' on' : '')}>
         {inner}
       </Link>
     );
@@ -141,9 +129,9 @@ export default function TabBar() {
           {t.home}
           {homeOn && <TabDot />}
         </Link>
-        {tripTab('plan', planTo, 'calendar', t.plan, planOn, planLP)}
-        {tripTab('money', moneyTo, 'wallet', t.money, moneyOn, moneyLP)}
-        {tripTab('docs', docsTo, 'file', t.documents, docsOn, docsLP)}
+        {tripTab('plan', planTo, 'calendar', t.plan, planOn)}
+        {tripTab('money', moneyTo, 'wallet', t.money, moneyOn)}
+        {tripTab('docs', docsTo, 'file', t.documents, docsOn)}
         <button type="button" className={'tab' + (moreOn ? ' on' : '')} onClick={() => setMoreOpen(true)}>
           <span className="ic"><Icon name="more" size={20} /></span>
           {t.more}
@@ -195,6 +183,11 @@ export default function TabBar() {
           <span className="em"><Icon name="globe" size={20} /></span>
           <div className="t"><b>{t.discover}</b></div>
           <Icon name="chev-r" size={16} />
+        </button>
+        <button className="srow" onClick={() => { setMoreOpen(false); openWhatsNew(); }}>
+          <span className="em"><Icon name="sparkles" size={20} /></span>
+          <div className="t"><b>{t.whatsNew}</b></div>
+          {newRelease ? <span className="badge brand">{t.newBadge}</span> : <Icon name="chev-r" size={16} />}
         </button>
         <button className="srow" onClick={() => { setMoreOpen(false); navigate('/settings', { viewTransition: true }); }}>
           <span className="em"><Icon name="settings" size={20} /></span>

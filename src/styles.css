@@ -2007,34 +2007,6 @@ button.member-row:focus-visible { outline: 2px solid var(--brand); outline-offse
 .ps-kind { margin-inline-start: var(--s-2); padding: 1px 6px; border-radius: 999px; background: var(--bg); color: var(--ink-3); font-style: normal; font-weight: 500; font-size: var(--fs-xs, 12px); vertical-align: 1px; }
 .mcp-steps { margin: 6px 0; padding-inline-start: 20px; display: grid; gap: 4px; line-height: 1.5; }
 
-/* v0.48 Today: one day of the plan + daily brief */
-.hero .hero-today { margin-top: 12px; }
-.today-days { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-.today-date { display: grid; min-width: 0; flex: 1; text-align: center; }
-.today-date span { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
-.today-brief .cardhead { gap: 8px; flex-wrap: wrap; }
-.today-note { border-inline-start: 3px solid var(--brand-700); padding: 4px 0 4px 12px; margin-bottom: 16px; display: grid; gap: 4px; justify-items: start; }
-.today-note p, .today-ai-text { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
-.today-note small, .today-ai-foot small { color: var(--muted); }
-.today-note-form { display: grid; gap: 8px; margin-bottom: 16px; }
-.today-note-form textarea { width: 100%; resize: vertical; }
-.today-add-note { margin-bottom: 16px; }
-.today-ai { display: grid; gap: 12px; }
-.today-ai-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.today-stay { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--muted); margin: 0 0 12px; }
-.today-list { list-style: none; margin: 0; padding: 0; display: grid; }
-.today-list li { display: grid; grid-template-columns: 3.5rem auto minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
-.today-list li:first-child { border-top: 0; }
-.today-time { font-variant-numeric: tabular-nums; font-weight: 600; display: grid; }
-.today-time small { color: var(--muted); font-weight: 400; }
-.today-item { display: grid; gap: 2px; min-width: 0; }
-.today-item b, .today-item span, .today-item small { overflow-wrap: anywhere; }
-.today-item span, .today-item small { color: var(--muted); }
-.today-notes { list-style: none; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid var(--border); display: grid; gap: 6px; }
-.today-notes li { display: flex; gap: 6px; align-items: start; overflow-wrap: anywhere; }
-.today-notes li.done { color: var(--muted); text-decoration: line-through; }
-@media (max-width: 520px) { .today-list li { grid-template-columns: 3rem minmax(0, 1fr) auto; } .today-list .tile { display: none; } }
-
 /* v0.48 AI thinking loader: each step types out, holds, then is ticked off */
 .thinking { display: grid; gap: 6px; justify-items: start; }
 .thinking-done { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; color: var(--muted); font-size: .875rem; }
@@ -2228,3 +2200,59 @@ html.drive-dragging .drive-file, html.drive-dragging .drive-table tr { cursor: g
 .drive-selall { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
 .drive-selall input { inline-size: 18px; block-size: 18px; accent-color: var(--brand-600); }
 .drive-selbar .hint { margin: 0; }
+
+/* v0.49 daily brief inside the Plan day card, under the progress bar */
+.day-overview { flex-wrap: wrap; }
+.day-overview-copy { flex: 1 1 280px; }
+.day-brief { flex: 1 0 100%; display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid var(--border); }
+.day-brief-note { border-inline-start: 3px solid var(--brand-700); padding: 2px 0 2px 12px; display: grid; gap: 2px; }
+.day-brief-note p, .day-brief-ai p { margin: 0; white-space: pre-line; overflow-wrap: anywhere; font-size: var(--fs-sm); color: var(--ink); line-height: 1.6; }
+.day-brief-note small, .day-brief-ai small { color: var(--muted); font-size: var(--fs-xs); display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.day-brief-ai { display: grid; gap: 6px; }
+.day-brief-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.day-brief-actions:empty { display: none; }
+.day-brief-form { display: grid; gap: 6px; }
+.day-brief-form label { font-size: var(--fs-sm); font-weight: 600; }
+.day-brief-form textarea { width: 100%; resize: vertical; }
+
+/* v0.49 trip switcher: the trip header at the top of every trip page */
+.trip-switcher { display: flex; align-items: center; gap: var(--s-3, 12px); inline-size: 100%; max-inline-size: 560px; padding: 8px 12px; margin-inline-start: -12px;
+  border: 1px solid transparent; border-radius: var(--r-xl); background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; transition: border-color .15s, background-color .15s; }
+.trip-switcher:hover, .trip-switcher:focus-visible { border-color: var(--border); background: color-mix(in srgb, var(--surface) 80%, transparent); }
+.trip-switcher-text { display: grid; min-width: 0; flex: 1; }
+.trip-switcher .trip-title, .trip-switcher .trip-dest { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trip-switcher-cue { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: var(--fs-xs); flex: none; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }
+.ts-group + .ts-group { margin-top: 12px; }
+.ts-group-h { font-size: .6875rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 4px 4px 6px; }
+.srow.current { border-color: var(--brand-600); background: var(--brand-50, var(--gray-100)); }
+@media (max-width: 1023px) { .trip-switcher { margin-inline-start: 0; padding: 6px 8px; } }
+
+/* v0.49 What's new + admin release notes */
+dialog.whats-new:modal { overscroll-behavior: contain; }
+dialog.whats-new::backdrop { overflow: hidden; overscroll-behavior: contain; }
+.whats-new { max-inline-size: 560px; }
+.whats-new-scroll { max-block-size: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; padding-inline-end: 4px; }
+.release-latest h3 { margin: 0 0 8px; font-size: var(--fs-lg, 1.25rem); }
+.release-body h4 { margin: 12px 0 4px; font-size: .8125rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.release-body ul { margin: 0 0 8px; padding-inline-start: 20px; display: grid; gap: 4px; }
+.release-body p { margin: 0 0 8px; }
+.release-body li, .release-body p { line-height: 1.55; overflow-wrap: anywhere; }
+.release-history { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--border); }
+.release-history h3 { font-size: .875rem; color: var(--muted); margin: 0 0 8px; }
+.release-history details { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; }
+.release-history summary { cursor: pointer; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.release-history summary small { color: var(--muted); }
+.release-history details[open] summary { margin-bottom: 8px; }
+.admin-releases .cardhead { flex-wrap: wrap; gap: 8px; }
+.rel-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding: 16px; margin: 12px 0; border: 1px solid var(--border); border-radius: var(--r-xl); }
+.rel-fields { display: grid; gap: 10px; align-content: start; }
+.rel-fields textarea { width: 100%; resize: vertical; font-family: inherit; }
+.rel-preview { border-inline-start: 1px solid var(--border); padding-inline-start: 16px; min-width: 0; }
+.rel-preview h3 { margin: 4px 0 8px; }
+.rel-actions { grid-column: 1 / -1; justify-content: flex-end; gap: 8px; }
+.rel-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; }
+.rel-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+.rel-list li > div:first-child { display: grid; min-width: 0; }
+.rel-list b { overflow-wrap: anywhere; }
+.rel-list small { color: var(--muted); }
+@media (max-width: 800px) { .rel-editor { grid-template-columns: 1fr; } .rel-preview { border-inline-start: 0; padding-inline-start: 0; border-top: 1px solid var(--border); padding-top: 12px; } .rel-list li { grid-template-columns: minmax(0, 1fr) auto; } .rel-list li > .row { grid-column: 1 / -1; } }

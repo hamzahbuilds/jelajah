@@ -1,8 +1,11 @@
+import type { ReactNode } from 'react';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
 
-export default function PlanDaySummary({ title, count, completed, minutes, next, partial = false }: {
+export default function PlanDaySummary({ title, count, completed, minutes, next, partial = false, children }: {
   title: string; count: number; completed: number; minutes: number; next?: string; partial?: boolean;
+  /** v0.49: shown under the progress bar (the group plan's daily brief). */
+  children?: ReactNode;
 }) {
   const { lang } = useT();
   const ms = lang === 'ms';
@@ -17,6 +20,7 @@ export default function PlanDaySummary({ title, count, completed, minutes, next,
       <span><Icon name="clock" size={20} /><strong>{minutes || '—'}</strong>{partial ? (ms ? 'min laluan tersedia' : 'known route min') : (ms ? 'min perjalanan anggaran' : 'estimated travel min')}</span>
       <div className="day-progress"><span>{completed}/{count} {ms ? 'selesai' : 'completed'}</span><progress value={progress} max={100} aria-label={ms ? 'Aktiviti selesai' : 'Completed activities'} /></div>
     </div>
+    {children}
   </section>;
 }
 

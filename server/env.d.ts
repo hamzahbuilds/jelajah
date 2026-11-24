@@ -2,6 +2,8 @@
 
 export interface Env {
   DB: D1Database;
+  /** v0.49: public GitHub repo (owner/name) read for AI-drafted release notes. Optional. */
+  RELEASE_REPO?: string;
   /** v0.48: Workers AI, the backup AI provider (wrangler.toml [ai] binding). Optional. */
   AI?: { run(model: string, input: Record<string, unknown>): Promise<any> };
   /** File store: a KV namespace (free, no card) or an R2 bucket — auto-detected at runtime. */

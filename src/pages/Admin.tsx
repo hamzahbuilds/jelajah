@@ -3,6 +3,7 @@ import AdminAiUsage from '../components/AdminAiUsage';
 import AdminDashboard from '../components/admin/AdminDashboard';
 import AdminTrips from '../components/admin/AdminTrips';
 import AdminFeatureUsage from '../components/admin/AdminFeatureUsage';
+import AdminReleases from '../components/whatsnew/AdminReleases';
 // v0.19 admin panel — platform-admin only. Restyled to card/stat/PageHead
 // (P4 Task 4) with hand-written SVG "lieflat-style" charts (style adopted from
 // lieflat-charts, PolyForm Noncommercial — zero code copied, see
@@ -356,6 +357,7 @@ export default function Admin({ section = 'dashboard' }: { section?: AdminSectio
         </div>
 
         </div>
+        <AdminReleases />
         <div style={{ marginTop: 16 }}><AdminFeatureFlags /></div>
             <div className="card lf">
               <div className="cardhead"><h2>{t.mQuotaTitle}</h2><span className="badge gray"><span className="d" />{t.mBadgeAllTime}</span></div>

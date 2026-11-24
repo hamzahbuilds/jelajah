@@ -19,7 +19,6 @@ const NewPlan = lazy(() => import('./pages/NewPlan'));
 const TripShell = lazy(() => import('./pages/TripShell'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Plan = lazy(() => import('./pages/JournalPlan'));
-const Today = lazy(() => import('./pages/Today'));
 const Recovery = lazy(() => import('./pages/Recovery'));
 const PublicJourneys = lazy(() => import('./pages/PublicJourneys'));
 const Home = lazy(() => import('./pages/Home'));
@@ -34,6 +33,7 @@ const Admin = lazy(() => import('./pages/Admin'));
 import { ToastProvider } from './components/Toast';
 import { IconDefs } from './components/Icon';
 import Sidebar from './components/Sidebar';
+import WhatsNew from './components/whatsnew/WhatsNew';
 import TabBar from './components/TabBar';
 import { AppBanner } from './components/AppBanner';
 import { AnimatePresence } from 'motion/react';
@@ -119,7 +119,8 @@ function Shell() {
             <Route path="/trips/:tripId" element={<TripShell />}>
               <Route index element={<Dashboard />} />
               <Route path="plan" element={<Plan />} />
-              <Route path="today" element={<Today />} />
+              {/* v0.49: the Today page became the brief inside Plan; old links land on Plan */}
+              <Route path="today" element={<KeepSearchRedirect to="plan" />} />
               <Route path="money/ledger" element={<Ledger />} />
               <Route path="money/payments" element={<Payments />} />
               <Route path="money/me" element={<MySpend />} />
@@ -191,6 +192,8 @@ function Chrome({ children }: { children: React.ReactNode }) {
       </div>
       {/* mobile-only bottom tab bar (T7) — CSS-hidden at >=1024px; always mounted */}
       <TabBar />
+      {/* v0.49 release notes, once per release (not during the first sign-up tour) */}
+      {!welcome && <WhatsNew />}
       <AnimatePresence>
         {welcome && (
           <WelcomeTour name={user.name} onClose={endWelcome}

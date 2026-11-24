@@ -25,6 +25,7 @@ export const SCHEMA: string[] = [
     skip_plan_intro INTEGER NOT NULL DEFAULT 0,
     disabled INTEGER NOT NULL DEFAULT 0,
     must_change_password INTEGER NOT NULL DEFAULT 0,
+    last_seen_release INTEGER NOT NULL DEFAULT 0,  -- v0.49: newest release note this person has seen
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS sessions (
@@ -297,6 +298,19 @@ export const SCHEMA: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_day_notes ON day_notes(trip_id, day)`,
   `CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code)`,
   `CREATE INDEX IF NOT EXISTS idx_personal_user ON personal_expenses(trip_id, user_id)`,
+  // v0.49 Release notes: drafted (optionally by AI from commit messages), edited
+  // and published by an admin; shown once to each person as "What's new".
+  `CREATE TABLE IF NOT EXISTS release_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    version TEXT NOT NULL,
+    title_en TEXT NOT NULL, title_ms TEXT NOT NULL DEFAULT '',
+    body_en TEXT NOT NULL, body_ms TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','published')),
+    ai_drafted INTEGER NOT NULL DEFAULT 0,
+    created_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    published_at TEXT
+  )`,
   // v0.48 AI usage log: one row per AI attempt (primary or Workers AI backup).
   // Cost is worked out when read, from the admin's per-model prices.
   `CREATE TABLE IF NOT EXISTS ai_calls (
@@ -358,8 +372,9 @@ export const UPGRADES: string[] = [
   `ALTER TABLE users ADD COLUMN skip_plan_intro INTEGER NOT NULL DEFAULT 0`,
   // v0.47 multi-currency: off by default (one trip currency, no FX).
   `ALTER TABLE trips ADD COLUMN multi_currency INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN last_seen_release INTEGER NOT NULL DEFAULT 0`,
   ...SCHEMA.filter(s =>
-    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily|rooms|room_occupants|day_briefs|ai_calls)\b/.test(s)
+    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily|rooms|room_occupants|day_briefs|ai_calls|release_notes)\b/.test(s)
     || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code|idx_rooms_trip|idx_ai_calls_at/.test(s)),
 ];
 

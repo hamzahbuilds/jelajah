@@ -14,7 +14,7 @@ export const FEATURE_GROUPS: Record<FeatureGroup, [string, string]> = {
 export const FEATURES: Record<string, { en: string; ms: string; group: FeatureGroup }> = {
   trip_create: { en: 'Trip created', ms: 'Perjalanan dicipta', group: 'planning' },
   plan_view: { en: 'Plan opened', ms: 'Pelan dibuka', group: 'planning' },
-  today_view: { en: 'Today opened', ms: 'Hari ini dibuka', group: 'planning' },
+  today_view: { en: 'Today opened (old page)', ms: 'Hari ini dibuka (halaman lama)', group: 'planning' },
   activity_add: { en: 'Activity added', ms: 'Aktiviti ditambah', group: 'planning' },
   activity_bulk: { en: 'Activities imported', ms: 'Aktiviti diimport', group: 'planning' },
   note_add: { en: 'Day note added', ms: 'Nota hari ditambah', group: 'planning' },
@@ -31,6 +31,7 @@ export const FEATURES: Record<string, { en: string; ms: string; group: FeatureGr
   ai_draft: { en: 'Plan with AI', ms: 'Rancang dengan AI', group: 'ai' },
   ai_suggest: { en: 'AI suggestions', ms: 'Cadangan AI', group: 'ai' },
   ai_chat: { en: 'AI chat', ms: 'Sembang AI', group: 'ai' },
+  release_draft: { en: 'Release notes drafted', ms: 'Nota keluaran didraf', group: 'ai' },
   mcp_call: { en: 'Claude connector call', ms: 'Panggilan penyambung Claude', group: 'ai' },
   invite_create: { en: 'Invite link made', ms: 'Pautan jemputan dibuat', group: 'sharing' },
   guide_publish: { en: 'Guide published', ms: 'Panduan diterbitkan', group: 'sharing' },

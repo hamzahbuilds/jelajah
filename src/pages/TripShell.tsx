@@ -5,6 +5,7 @@ import { api, setHomeCurrency } from '../api';
 import { useT } from '../i18n';
 import { useSetTripNav, type Trip, type TripRole } from '../app/session';
 import ChatDrawer from '../components/ChatDrawer';
+import TripSwitcher from '../components/TripSwitcher';
 import { Icon } from '../components/Icon';
 
 export type { Participant, TripCtx } from '../app/tripContext';
@@ -88,13 +89,8 @@ export default function TripShell() {
             <img src={`/api/trips/${tripId}/cover?v=${encodeURIComponent(data.trip.cover_key ?? '')}`} alt="" loading="lazy" />
           </div>
         )}
-        <div className="row trip-header-row">
-          <span className="trip-emoji" aria-hidden="true">{data.trip.emoji}</span>
-          <div>
-            <p className="trip-title">{data.trip.name}</p>
-            <div className="trip-dest">{data.trip.destination}</div>
-          </div>
-        </div>
+        {/* v0.49: the header is the trip switcher (phone and desktop). */}
+        <div className="trip-header-row"><TripSwitcher trip={data.trip} /></div>
       </div>
       <Outlet context={ctx} />
       {aiChat && !hidden.has('assistant') && <ChatDrawer tripId={tripId} />}

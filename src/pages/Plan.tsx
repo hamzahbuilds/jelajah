@@ -1,6 +1,7 @@
 import { useConfirm } from '../ui/Confirm';
 import Loading from '../components/Loading';
 import PlanDaySummary from '../components/PlanDaySummary';
+import DayBrief from '../components/DayBrief';
 import TransportLeg from '../components/TransportLeg';
 import TravelNotes from '../components/TravelNotes';
 import { routeSegments, routeFailureMessage, useJourneyRoutes } from '../hooks/useJourneyRoutes';
@@ -557,7 +558,10 @@ export default function Plan() {
 
   return (
     <div className="group-plan-workspace">
-      {view === 'day' && <PlanDaySummary partial={legs.some(l => !routeResults[l.key]?.available)} title={dayTitleOf(selDay) || fmtDate(selDay, lang)} count={items.filter(i => i.activity).length} completed={items.filter(i => i.activity?.done).length} next={items.find(i => i.activity && !i.activity.done)?.title} minutes={Math.round(legs.reduce((n, l) => n + (routeResults[l.key]?.available ? routeResults[l.key].duration! / 60 : 0), 0))} />}
+      {view === 'day' && <PlanDaySummary partial={legs.some(l => !routeResults[l.key]?.available)} title={dayTitleOf(selDay) || fmtDate(selDay, lang)} count={items.filter(i => i.activity).length} completed={items.filter(i => i.activity?.done).length} next={items.find(i => i.activity && !i.activity.done)?.title} minutes={Math.round(legs.reduce((n, l) => n + (routeResults[l.key]?.available ? routeResults[l.key].duration! / 60 : 0), 0))}>
+        <DayBrief tripId={tripId} tripName={trip.name} day={selDay} canLead={canLead}
+          schedule={items.map(i => `${i.time ? `${i.time}${i.end_time ? `-${i.end_time}` : ''} ` : '• '}${i.title}${i.subtitle && i.subtitle !== i.title ? ` (${i.subtitle})` : ''}`)} />
+      </PlanDaySummary>}
 
       <div className="row-between" style={{ marginBottom: 12 }}>
         <div className="seg">

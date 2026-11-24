@@ -103,8 +103,6 @@ export default function Dashboard() {
   })();
 
   const cd = countdown(t, trip.start_date, trip.end_date);
-  let todayHidden = false;
-  if (!canLead) { try { const h: string[] = JSON.parse((trip as any).hidden_features ?? '[]'); todayHidden = h.includes('plan') || h.includes('today'); } catch { /* ignore */ } }
   // treat "not loaded yet" as hidden so members never see a flash of money widgets
   const moneyHidden = !bal || !!bal.hidden;
   const catTotals: Array<[string, number]> = bal && !moneyHidden
@@ -141,7 +139,6 @@ export default function Dashboard() {
       <div className="hero">
         <div className="big">{cd.big}</div>
         <div className="sub">{trip.destination} · {fmtDate(trip.start_date, lang)} → {fmtDate(trip.end_date, lang)}</div>
-        {!todayHidden && <Link className="btn sm hero-today" to={`/trips/${tripId}/today`}><Icon name="sun" size={16} /> {lang === 'ms' ? 'Lihat hari ini' : 'See today'}</Link>}
       </div>
 
       <div className="stats">
