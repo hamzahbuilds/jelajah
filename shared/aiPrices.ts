@@ -5,7 +5,12 @@ export interface AiPrice { in: number; out: number }
 export type AiPrices = Record<string, AiPrice>;
 
 export const DEFAULT_AI_PRICES: AiPrices = {
-  // Google Gemini API, paid tier
+  // Google Gemini API, paid Standard tier (all have a free tier too).
+  // 3.6 / 3.8 Flash double to $1.50 / $7.50 from 1 January 2027.
+  'gemini-3.8-flash': { in: 0.75, out: 3.75 },
+  'gemini-3.6-flash': { in: 0.75, out: 3.75 },
+  'gemini-3.5-flash-lite': { in: 0.30, out: 2.50 },
+  'gemini-3.1-flash-lite': { in: 0.25, out: 1.50 },
   'gemini-2.5-flash': { in: 0.30, out: 2.50 },
   'gemini-2.5-flash-lite': { in: 0.10, out: 0.40 },
   'gemini-2.5-pro': { in: 1.25, out: 10.00 },

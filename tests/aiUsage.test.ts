@@ -142,6 +142,15 @@ describe('speed and usage knobs', () => {
     expect((sqlite.prepare('SELECT error FROM ai_calls ORDER BY id LIMIT 1').get() as any).error).toBe('ai_timeout');
   });
 
+  it('Gemini 3 gets minimal thinking (3.8 Flash and Gemini 4 only go down to low)', async () => {
+    const set = (m: string) => sqlite.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES ('ai_provider',?)").run(JSON.stringify({ ...JSON.parse(gemCfg), model: m, light_model: '' }));
+    for (const [m, level] of [['gemini-3.6-flash', 'minimal'], ['gemini-3.5-flash-lite', 'minimal'], ['gemini-3.8-flash', 'low'], ['gemini-4-hydrogen', 'low']]) {
+      set(m); sent.length = 0;
+      await brief();
+      expect(sent[0].body.generationConfig.thinkingConfig).toEqual({ thinkingLevel: level });
+    }
+  });
+
   it('the admin test is tiny: 64 tokens, no thinking', async () => {
     await req('/settings/ai/test', { method: 'POST' });
     expect(sent[0].body.generationConfig).toMatchObject({ maxOutputTokens: 64, thinkingConfig: { thinkingBudget: 0 } });

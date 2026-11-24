@@ -379,7 +379,7 @@ export default function Admin() {
                   placeholder={keyHint ? '••••••••' : 'sk-…'} autoComplete="off" /></label>
               <label className="fld full"><span>{t.lightModel}</span>
                 <input value={form.light_model} onChange={e => setForm({ ...form, light_model: e.target.value })}
-                  placeholder="gemini-2.5-flash-lite" spellCheck={false} />
+                  placeholder="gemini-3.5-flash-lite" spellCheck={false} />
                 <small className="hint">{t.lightModelHint}</small></label>
             </div>
             <div className="row">

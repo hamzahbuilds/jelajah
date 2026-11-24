@@ -4149,8 +4149,12 @@ interface RichInput {
 /** Gemini thinking settings by model family; unknown models keep their default. */
 export function geminiThinking(model: string, level: 'off' | 'low' | 'default' = 'default'): object | null {
   if (level === 'default') return null;
-  // Gemini 3 cannot switch thinking off; 'low' is its quickest setting.
-  if (/gemini-3/i.test(model)) return { thinkingLevel: 'low' };
+  // Gemini 3+ cannot switch thinking off; 'minimal' is near-off and fastest, but
+  // 3.8 Flash and Gemini 4 do not accept it, so they get 'low'.
+  if (/gemini-(3|4)/i.test(model)) {
+    const noMinimal = /gemini-3\.8-flash|gemini-4/i.test(model);
+    return { thinkingLevel: level === 'off' && !noMinimal ? 'minimal' : 'low' };
+  }
   // 2.5 Flash / Flash-Lite can skip thinking entirely; 2.5 Pro needs at least 128.
   if (level === 'off' && /gemini-2\.5-flash/i.test(model)) return { thinkingBudget: 0 };
   if (level === 'off' && /gemini-2\.5-pro/i.test(model)) return { thinkingBudget: 128 };
