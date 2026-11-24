@@ -91,4 +91,15 @@ describe('moving documents', () => {
     expect((await req('s1', '/documents/10', { method: 'PATCH', body: JSON.stringify({}) })).status).toBe(400);
     expect((await req('s1', '/documents/10', { method: 'PATCH', body: JSON.stringify({ category: 'x'.repeat(81) }) })).status).toBe(400);
   });
+
+  it('bulk move: each file checked on its own, the reply says what moved', async () => {
+    const r = await (await req('s2', '/documents/move', { method: 'POST', body: JSON.stringify({ ids: [11, 10, 999], folder: 6 }) })).json() as any;
+    // Mia owns 11; 10 is Lead's (Mia is an editor, not a leader) and 999 does not exist.
+    expect(r.moved).toEqual([11]);
+    expect(r.failed).toEqual([{ id: 10, error: 'forbidden' }, { id: 999, error: 'not_found' }]);
+    const lead = await (await req('s1', '/documents/move', { method: 'POST', body: JSON.stringify({ ids: [10, 11], folder: 'trip' }) })).json() as any;
+    expect(lead.moved).toEqual([10, 11]);
+    expect((await req('s1', '/documents/move', { method: 'POST', body: JSON.stringify({ ids: [], folder: 'trip' }) })).status).toBe(400);
+    expect((await req('s1', '/documents/move', { method: 'POST', body: JSON.stringify({ ids: ['10'], folder: 'trip' }) })).status).toBe(400);
+  });
 });

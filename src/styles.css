@@ -2216,3 +2216,15 @@ html.drive-dragging .drive-file, html.drive-dragging .drive-table tr { cursor: g
   .drive-rail-tools { display: flex; border-top: 0; margin: 0; padding: 0; flex: none; }
   .drive-main { padding: 12px; }
 }
+/* v0.49 Documents: bulk select */
+.drive-file-lead { display: flex; align-items: flex-start; gap: 8px; }
+.drive-check { inline-size: 18px; block-size: 18px; margin: 2px 0 0; accent-color: var(--brand-600); flex: none; cursor: pointer; }
+.drive-check-gap { inline-size: 18px; flex: none; }
+.drive-check-col { inline-size: 32px; }
+.drive-file.selected, .drive-table tr.selected { border-color: var(--brand-600); background: var(--brand-50, var(--gray-100)); }
+.drive-table tr.selected td { background: var(--brand-50, var(--gray-100)); }
+.drive-selbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 12px; border-radius: 10px; border: 1px solid var(--border); }
+.drive-selbar.on { border-color: var(--brand-600); background: var(--brand-50, var(--gray-100)); position: sticky; top: 8px; z-index: 3; }
+.drive-selall { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+.drive-selall input { inline-size: 18px; block-size: 18px; accent-color: var(--brand-600); }
+.drive-selbar .hint { margin: 0; }

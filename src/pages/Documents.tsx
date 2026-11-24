@@ -60,7 +60,9 @@ export default function Documents() {
   const [editing, setEditing] = useState<any>(null);
   const [editName, setEditName] = useState('');
   const [editType, setEditType] = useState('');
-  const [moving, setMoving] = useState<any>(null);
+  const [moving, setMoving] = useState<any[] | null>(null);
+  // Bulk select: ids of the files ticked in the current view.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [deleting, setDeleting] = useState<any>(null);
   const [folderModal, setFolderModal] = useState(false);
   const [folderName, setFolderName] = useState('');
@@ -187,6 +189,8 @@ export default function Documents() {
       else if (done) toast(L(`Saved to ${folderTitle(o.folder)}`, `Disimpan dalam ${folderTitle(o.folder)}`));
       if (needOcr.length) { setOcrQueue({ files: needOcr, single: all.length === 1 && needOcr.length === 1, opts: o }); return; }
       await load();
+      // All folders shows no files: open the folder the upload went into, so the new files are in view.
+      if (done && folder !== o.folder) browse({ folder: o.folder });
     } finally {
       setBusy(false);
       setProg(errors.length ? { done, total: all.length, current: '', errors } : null);
@@ -202,10 +206,26 @@ export default function Documents() {
   };
 
   /* ---------------- moving ---------------- */
-  const moveTo = (d: any, target: string) => {
-    if (docFolder(d) === target) return;
-    void modify(() => api.post(`/documents/${d.id}/move`, { folder: target }), L(`Moved to ${folderTitle(target)}`, `Dipindah ke ${folderTitle(target)}`));
+  // Moves one or many files. Files already in the target are skipped, the
+  // toast says exactly what happened, and the selection clears.
+  const moveTo = async (list: any[], target: string) => {
+    const ids = list.filter(d => docFolder(d) !== target).map(d => d.id);
+    if (!ids.length) { toast(L(`Already in ${folderTitle(target)}`, `Sudah dalam ${folderTitle(target)}`)); setMoving(null); return; }
+    setBusy(true);
+    try {
+      const r = await api.post('/documents/move', { ids, folder: target });
+      await load();
+      setMoving(null); setSelected(new Set());
+      const n = r.moved.length, bad = r.failed.length;
+      toast(bad
+        ? L(`Moved ${n}, ${bad} could not be moved`, `${n} dipindah, ${bad} tidak dapat dipindah`)
+        : L(`Moved ${n === 1 ? `"${list.find(d => d.id === ids[0])?.filename}"` : `${n} files`} to ${folderTitle(target)}`, `${n === 1 ? `"${list.find(d => d.id === ids[0])?.filename}"` : `${n} fail`} dipindah ke ${folderTitle(target)}`),
+        bad ? 'error' : 'ok');
+    } catch { toast(t.tSaveFailed, 'error'); }
+    finally { setBusy(false); }
   };
+  const toggleSelect = (id: number) => setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  useEffect(() => { setSelected(new Set()); }, [folder, typeFilter, needle, tripId]);
 
   // Drop handlers shared by the rail and the folder cards.
   const folderDrop = (id: string) => ({
@@ -213,8 +233,8 @@ export default function Documents() {
     onDragLeave: () => setDropFolder(f => (f === id ? null : f)),
     onDrop: (e: React.DragEvent) => {
       e.preventDefault(); e.stopPropagation(); setDropFolder(null); setFileOver(false); dragDepth.current = 0;
-      const docId = e.dataTransfer.getData(DOC_DRAG);
-      if (docId) { const d = docs.find(x => String(x.id) === docId); if (d) moveTo(d, id); return; }
+      const dragged = e.dataTransfer.getData(DOC_DRAG);
+      if (dragged) { const ids = dragged.split(',').map(Number); void moveTo(docs.filter(x => ids.includes(x.id)), id); return; }
       if (e.dataTransfer.files.length) startUpload(e.dataTransfer.files, id);
     },
   });
@@ -236,7 +256,7 @@ export default function Documents() {
       <a className="btn secondary sm" href={`/api/documents/${d.id}/file`} target="_blank" rel="noreferrer">{t.viewFile}</a>
       {canLead && isBooking(d) && <Link className="btn ghost sm" to={`/trips/${tripId}/documents/${d.id}/review`}>{d.status === 'confirmed' ? L('Review again', 'Semak semula') : t.reviewNow}</Link>}
       {d.can_manage && <>
-        <button type="button" className="btn ghost sm" disabled={busy} aria-label={`${L('Move', 'Pindah')} ${d.filename}`} title={L('Move to…', 'Pindah ke…')} onClick={() => setMoving(d)}><Icon name="folder" size={16} /></button>
+        <button type="button" className="btn ghost sm" disabled={busy} aria-label={`${L('Move', 'Pindah')} ${d.filename}`} title={L('Move to…', 'Pindah ke…')} onClick={() => setMoving([d])}><Icon name="folder" size={16} /></button>
         <button type="button" className="btn ghost sm" disabled={busy} aria-label={`${L('Edit', 'Sunting')} ${d.filename}`} title={L('Edit', 'Sunting')} onClick={() => openEdit(d)}><Icon name="edit" size={16} /></button>
         <button type="button" className="btn ghost sm" disabled={busy} aria-label={`${t.delete} ${d.filename}`} title={t.delete} onClick={() => setDeleting(d)}><Icon name="trash" size={16} /></button>
       </>}
@@ -244,7 +264,8 @@ export default function Documents() {
   );
   const dragProps = (d: any) => d.can_manage ? {
     draggable: true,
-    onDragStart: (e: React.DragEvent) => { e.dataTransfer.setData(DOC_DRAG, String(d.id)); e.dataTransfer.effectAllowed = 'move'; document.documentElement.classList.add('drive-dragging'); },
+    // Dragging a ticked file carries every ticked file with it.
+    onDragStart: (e: React.DragEvent) => { const ids = selected.has(d.id) ? [...selected] : [d.id]; e.dataTransfer.setData(DOC_DRAG, ids.join(',')); e.dataTransfer.effectAllowed = 'move'; document.documentElement.classList.add('drive-dragging'); },
     onDragEnd: () => { document.documentElement.classList.remove('drive-dragging'); setDropFolder(null); },
   } : {};
   const badges = (d: any) => <>
@@ -252,17 +273,21 @@ export default function Documents() {
     {d.expense_id && <Link className="badge brand" to={`/trips/${tripId}/money/ledger`}>{t.linkedExpense}</Link>}
   </>;
 
+  const pick = (d: any) => d.can_manage
+    ? <input type="checkbox" className="drive-check" checked={selected.has(d.id)} onChange={() => toggleSelect(d.id)} aria-label={`${L('Select', 'Pilih')} ${d.filename}`} />
+    : <span className="drive-check-gap" aria-hidden="true" />;
   const files = (list: any[]) => view === 'list'
     ? <div className="table-scroll"><table className="drive-table">
-        <thead><tr><th>{L('Name', 'Nama')}</th><th>{L('Type', 'Jenis')}</th><th>{L('Folder', 'Folder')}</th><th>{L('Added', 'Ditambah')}</th><th><span className="sr-only">{L('Actions', 'Tindakan')}</span></th></tr></thead>
-        <tbody>{list.map(d => <tr key={d.id} {...dragProps(d)}>
+        <thead><tr><th className="drive-check-col"><span className="sr-only">{L('Select', 'Pilih')}</span></th><th>{L('Name', 'Nama')}</th><th>{L('Type', 'Jenis')}</th><th>{L('Folder', 'Folder')}</th><th>{L('Added', 'Ditambah')}</th><th><span className="sr-only">{L('Actions', 'Tindakan')}</span></th></tr></thead>
+        <tbody>{list.map(d => <tr key={d.id} className={selected.has(d.id) ? 'selected' : ''} {...dragProps(d)}>
+          <td>{pick(d)}</td>
           <td><span className="drive-name"><Icon name={typeIcon(d)} size={16} /> <b>{d.filename}</b></span> {badges(d)}</td>
           <td>{categoryName(d)}</td><td>{folderTitle(docFolder(d))}</td><td>{fmtDate(d.created_at?.slice(0, 10), lang)}</td><td>{fileActions(d)}</td>
         </tr>)}</tbody>
       </table></div>
     : <ul className="drive-files">{list.map(d => (
-        <li key={d.id} className="drive-file" {...dragProps(d)}>
-          <span className={`drive-thumb t-${typeOf(d)}`} aria-hidden="true"><Icon name={typeIcon(d)} size={24} /></span>
+        <li key={d.id} className={`drive-file ${selected.has(d.id) ? 'selected' : ''}`} {...dragProps(d)}>
+          <span className="drive-file-lead">{pick(d)}<span className={`drive-thumb t-${typeOf(d)}`} aria-hidden="true"><Icon name={typeIcon(d)} size={24} /></span></span>
           <div className="drive-file-info">
             <b title={d.filename}>{d.filename}</b>
             <small>{categoryName(d)} · {folderTitle(docFolder(d))} · {fmtDate(d.created_at?.slice(0, 10), lang)}</small>
@@ -285,7 +310,7 @@ export default function Documents() {
       <div className="drive-layout">
         <nav className="drive-rail" aria-label={L('Folders', 'Folder')}>
           <button type="button" className={`drive-rail-item ${folder === 'all' ? 'on' : ''}`} aria-current={folder === 'all' ? 'page' : undefined} onClick={() => browse({ folder: 'all' })}>
-            <Icon name="files" size={16} /> <span>{L('All files', 'Semua fail')}</span> <small>{docs.length}</small>
+            <Icon name="files" size={16} /> <span>{L('All folders', 'Semua folder')}</span>
           </button>
           {folders.map(f => (
             <button key={f.id} type="button" className={`drive-rail-item ${folder === String(f.id) ? 'on' : ''} ${dropFolder === String(f.id) ? 'drop' : ''}`}
@@ -294,7 +319,6 @@ export default function Documents() {
             </button>
           ))}
           <div className="drive-rail-tools">
-            <button type="button" className="btn ghost sm" onClick={() => { setFolderName(''); setFolderScope('private'); setFolderModal(true); }}><Icon name="plus" size={16} /> {L('New folder', 'Folder baharu')}</button>
             <button type="button" className="btn ghost sm" onClick={() => openGroup()}><Icon name="users" size={16} /> {L('New group', 'Kumpulan baharu')}</button>
             {library.groups.filter(g => g.can_manage).map(g => <button key={g.id} type="button" className="btn ghost sm" onClick={() => openGroup(g)}>{L('Manage', 'Urus')} {g.name}</button>)}
           </div>
@@ -304,12 +328,13 @@ export default function Documents() {
           <div className="drive-head">
             <nav aria-label={L('Location', 'Lokasi')} className="drive-crumbs">
               <h2 id="drive-h">
-                {folder === 'all' ? L('All files', 'Semua fail') : <><button type="button" className="linklike" onClick={() => browse({ folder: 'all' })}>{L('All files', 'Semua fail')}</button> <Icon name="chev-r" size={16} /> {folderTitle(folder)}</>}
+                {folder === 'all' ? L('All folders', 'Semua folder') : <><button type="button" className="linklike" onClick={() => browse({ folder: 'all' })}>{L('All folders', 'Semua folder')}</button> <Icon name="chev-r" size={16} /> {folderTitle(folder)}</>}
               </h2>
               {here && <small>{access(here)}</small>}
             </nav>
             <div className="drive-head-actions">
               {uploadButton()}
+              <button type="button" className="btn secondary" onClick={() => { setFolderName(''); setFolderScope('private'); setFolderModal(true); }}><Icon name="plus" size={16} /> {L('New folder', 'Folder baharu')}</button>
               <div className="seg" role="group" aria-label={L('View', 'Paparan')}>
                 <button type="button" className={view === 'grid' ? 'on' : ''} aria-pressed={view === 'grid'} aria-label={L('Grid', 'Grid')} onClick={() => setView('grid')}><Icon name="folder" size={16} /></button>
                 <button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} aria-label={L('List', 'Senarai')} onClick={() => setView('list')}><Icon name="list-check" size={16} /></button>
@@ -353,7 +378,6 @@ export default function Documents() {
           )}
 
           {!loading && !loadError && docs.length > 0 && atRoot && <>
-            <h3 className="drive-sub">{L('Folders', 'Folder')}</h3>
             <ul className="drive-folders">
               {folders.map(f => (
                 <li key={f.id}>
@@ -364,11 +388,26 @@ export default function Documents() {
                 </li>
               ))}
             </ul>
-            <h3 className="drive-sub">{L('Recent files', 'Fail terkini')}</h3>
-            {files(docs.slice(0, 12))}
-            {docs.length > 12 && <button type="button" className="btn ghost sm" onClick={() => setView('list')}>{L(`See all ${docs.length} in a list`, `Lihat kesemua ${docs.length} dalam senarai`)}</button>}
+            <p className="hint">{L(`Every file lives in one folder (${docs.length} in total). Open a folder to see its files, or search to look across all of them.`, `Setiap fail berada dalam satu folder (${docs.length} kesemuanya). Buka folder untuk melihat failnya, atau cari merentas semua folder.`)}</p>
           </>}
 
+          {!loading && !loadError && docs.length > 0 && !atRoot && visible.some(d => d.can_manage) && (
+            <div className={`drive-selbar ${selected.size ? 'on' : ''}`} role="region" aria-label={L('Selection', 'Pilihan')}>
+              <label className="drive-selall">
+                <input type="checkbox"
+                  checked={visible.filter(d => d.can_manage).every(d => selected.has(d.id))}
+                  ref={el => { if (el) { const m = visible.filter(d => d.can_manage); el.indeterminate = selected.size > 0 && !m.every(d => selected.has(d.id)); } }}
+                  onChange={e => setSelected(e.target.checked ? new Set(visible.filter(d => d.can_manage).map(d => d.id)) : new Set())} />
+                {selected.size ? L(`${selected.size} selected`, `${selected.size} dipilih`) : L('Select all', 'Pilih semua')}
+              </label>
+              {selected.size > 0 && <>
+                <button type="button" className="btn sm" disabled={busy} onClick={() => setMoving(docs.filter(d => selected.has(d.id)))}><Icon name="folder" size={16} /> {L('Move to…', 'Pindah ke…')}</button>
+                <button type="button" className="btn ghost sm" onClick={() => setSelected(new Set())}>{L('Clear', 'Kosongkan')}</button>
+                <span className="hint">{L('Or drag them onto a folder.', 'Atau seret ke folder.')}</span>
+              </>}
+            </div>
+          )}
+          <p className="sr-only" role="status">{selected.size ? L(`${selected.size} selected`, `${selected.size} dipilih`) : ''}</p>
           {!loading && !loadError && docs.length > 0 && !atRoot && (visible.length ? files(visible) : (
             <div className="drive-empty small">
               <h3>{needle ? L('No matching files', 'Tiada padanan') : L('Nothing here yet', 'Belum ada apa-apa')}</h3>
@@ -407,18 +446,23 @@ export default function Documents() {
         </form>}
       </Modal>
 
-      {/* Move to… (keyboard and touch alternative to dragging) */}
-      <Modal open={!!moving} onClose={() => !busy && setMoving(null)} icon="folder" title={L('Move to…', 'Pindah ke…')} closeLabel={t.close}>
-        {moving && <div className="drive-move">
-          <p className="hint"><b>{moving.filename}</b> · {L('now in', 'kini dalam')} {folderTitle(docFolder(moving))}</p>
-          {folders.map(f => (
-            <button key={f.id} type="button" className="drive-move-item" disabled={busy || docFolder(moving) === String(f.id)} onClick={() => moveTo(moving, String(f.id))}>
-              <Icon name={folderIcon(f)} size={16} /> <span><b>{f.name}</b><small>{access(f)}</small></span>
-              {docFolder(moving) === String(f.id) && <small className="muted">{L('Current', 'Semasa')}</small>}
-            </button>
-          ))}
-          <p className="hint">{L('Who can see the file follows the folder.', 'Siapa boleh melihat fail mengikut folder.')}</p>
-        </div>}
+      {/* Move to… (keyboard and touch alternative to dragging; one or many files) */}
+      <Modal open={!!moving} onClose={() => !busy && setMoving(null)} icon="folder" title={moving && moving.length > 1 ? L(`Move ${moving.length} files to…`, `Pindah ${moving.length} fail ke…`) : L('Move to…', 'Pindah ke…')} closeLabel={t.close}>
+        {moving && (() => {
+          const from = new Set(moving.map(docFolder));
+          const only = from.size === 1 ? [...from][0] : null;
+          return <div className="drive-move">
+            <p className="hint">{moving.length === 1 ? <><b>{moving[0].filename}</b> · {L('now in', 'kini dalam')} {folderTitle(docFolder(moving[0]))}</> : only ? L(`All now in ${folderTitle(only)}`, `Semua kini dalam ${folderTitle(only)}`) : L('From several folders', 'Daripada beberapa folder')}</p>
+            {folders.map(f => {
+              const current = only === String(f.id);
+              return <button key={f.id} type="button" className="drive-move-item" disabled={busy || current} onClick={() => void moveTo(moving, String(f.id))}>
+                <Icon name={folderIcon(f)} size={16} /> <span><b>{f.name}</b><small>{access(f)}</small></span>
+                {current && <small className="muted">{L('Current', 'Semasa')}</small>}
+              </button>;
+            })}
+            <p className="hint">{L('Who can see a file follows its folder.', 'Siapa boleh melihat fail mengikut foldernya.')}</p>
+          </div>;
+        })()}
       </Modal>
 
       <Modal open={!!editing} onClose={() => !busy && setEditing(null)} icon="edit" title={L('Edit file', 'Sunting fail')} closeLabel={t.close}>
@@ -465,7 +509,7 @@ export default function Documents() {
       {ocrQueue && (
         <OcrModal files={ocrQueue.files} single={ocrQueue.single}
           upload={(file, parsed, goReview) => uploadOne(file, parsed, goReview, ocrQueue.opts)}
-          onClose={async () => { setOcrQueue(null); await load(); }} />
+          onClose={async () => { const into = ocrQueue.opts.folder; setOcrQueue(null); await load(); if (folder !== into) browse({ folder: into }); }} />
       )}
     </div>
   );

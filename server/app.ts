@@ -1045,17 +1045,15 @@ app.patch('/documents/:id', async c => {
  *  or a folder id. Access follows the folder. A file leaving the whole trip
  *  becomes personal (its booking type is kept and restored if it comes back).
  *  Who may move: the uploader, or a trip leader for shared files (editDocument),
- *  matching who may rename or delete. */
-app.post('/documents/:id/move', async c => {
-  const id = Number(c.req.param('id'));
-  const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first<any>();
-  if (!doc || !(await readDocument(c, doc))) return bad(c, 'not_found', 404);
-  if (!(await editDocument(c, doc))) return bad(c, 'forbidden', 403);
-  const { folder } = await c.req.json<any>().catch(() => ({}));
+ *  matching who may rename or delete. Returns null on success, else [error, status]. */
+async function moveDocument(c: any, id: number, folder: unknown): Promise<[string, number] | null> {
+  const doc = await c.env.DB.prepare('SELECT * FROM documents WHERE id = ?').bind(id).first();
+  if (!doc || !(await readDocument(c, doc))) return ['not_found', 404];
+  if (!(await editDocument(c, doc))) return ['forbidden', 403];
   let target: any = null;
   if (folder !== 'private' && folder !== 'trip') {
-    target = await c.env.DB.prepare('SELECT * FROM document_folders WHERE id = ? AND trip_id = ?').bind(Number(folder) || 0, doc.trip_id).first<any>();
-    if (!target || !(await readFolder(c, target))) return bad(c, 'invalid_folder');
+    target = await c.env.DB.prepare('SELECT * FROM document_folders WHERE id = ? AND trip_id = ?').bind(Number(folder) || 0, doc.trip_id).first();
+    if (!target || !(await readFolder(c, target))) return ['invalid_folder', 400];
   }
   const shared = target ? target.visibility === 'trip' : folder === 'trip';
   const meta: any = { ...documentMeta(doc) };
@@ -1069,7 +1067,26 @@ app.post('/documents/:id/move', async c => {
   if (target) meta.libraryFolderId = target.id; else delete meta.libraryFolderId;
   await c.env.DB.prepare('UPDATE documents SET doc_type = ?, parsed_json = ? WHERE id = ?').bind(docType, JSON.stringify(meta), id).run();
   await audit(c.env, c.get('user').id, 'document_move', 'document', id);
-  return c.json({ ok: true, doc_type: docType });
+  return null;
+}
+
+app.post('/documents/:id/move', async c => {
+  const { folder } = await c.req.json<any>().catch(() => ({}));
+  const err = await moveDocument(c, Number(c.req.param('id')), folder);
+  return err ? bad(c, err[0], err[1] as any) : c.json({ ok: true });
+});
+
+/** v0.49 Move several documents at once (bulk select). Each file is checked on
+ *  its own; the reply says which moved and which did not. */
+app.post('/documents/move', async c => {
+  const { ids, folder } = await c.req.json<any>().catch(() => ({}));
+  if (!Array.isArray(ids) || !ids.length || ids.length > 200 || !ids.every((i: unknown) => Number.isInteger(i) && (i as number) > 0)) return bad(c, 'invalid_ids');
+  const moved: number[] = [], failed: Array<{ id: number; error: string }> = [];
+  for (const id of [...new Set<number>(ids)]) {
+    const err = await moveDocument(c, id, folder);
+    if (err) failed.push({ id, error: err[0] }); else moved.push(id);
+  }
+  return c.json({ moved, failed });
 });
 
 app.delete('/documents/:id', async c => {
