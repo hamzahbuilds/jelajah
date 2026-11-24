@@ -88,7 +88,7 @@ export default function TabBar() {
 
   const homeOn = pathname === '/' || Boolean(model?.main.find(i => i.key === 'overview')?.on);
   const tripBase = tripId != null ? `/trips/${tripId}` : null;
-  const moreOn = pathname === '/settings' || pathname === '/admin' || (tripBase != null && (pathname === `${tripBase}/people` || pathname === `${tripBase}/settings`));
+  const moreOn = pathname === '/settings' || pathname.startsWith('/admin') || (tripBase != null && (pathname === `${tripBase}/people` || pathname === `${tripBase}/settings`));
 
   const openSwitcher = () => setSwitcherOpen(true);
   const planLP = useLongPress(openSwitcher);

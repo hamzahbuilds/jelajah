@@ -90,9 +90,9 @@ http_headers = { "Authorization" = "Bearer YOUR_TOKEN" }`}</pre>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="cardhead"><h2><Icon name="moon" /> {t.appearance}</h2></div>
-        <div className="seg" role="group">
-          {([['', t.themeLight], ['dark', t.themeDark], ['system', t.themeSystem]] as const).map(([v, label]) => (
-            <button key={v} className={pref === v ? 'on' : ''} onClick={() => pick(v)}>{label}</button>
+        <div className="seg" role="group" aria-label={t.appearance}>
+          {([['', t.themeLight, 'sun'], ['dark', t.themeDark, 'moon'], ['system', t.themeSystem, 'monitor']] as const).map(([v, label, icon]) => (
+            <button key={v} type="button" className={pref === v ? 'on' : ''} aria-pressed={pref === v} onClick={() => pick(v)}><Icon name={icon} size={16} /> {label}</button>
           ))}
         </div>
         <p className="hint" style={{ marginTop: 10 }}>{t.themeHint}</p>

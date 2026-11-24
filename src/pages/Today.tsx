@@ -78,7 +78,6 @@ export default function Today() {
     catch (e) {
       const code = e instanceof ApiError ? e.code : '';
       setAiError(code === 'ai_rate_limited' ? (bm ? 'Terlalu banyak permintaan. Cuba sebentar lagi.' : 'Too many requests. Try again in a minute.')
-        : code === 'ai_not_configured' ? (bm ? 'AI belum disediakan oleh pentadbir.' : 'AI is not set up by the admin yet.')
         : (bm ? 'Ringkasan tidak dapat ditulis. Cuba lagi.' : 'Could not write the brief. Try again.'));
     } finally { setWriting(false); }
   };
@@ -198,10 +197,8 @@ export default function Today() {
         ) : null}
 
         <div className="today-ai" aria-busy={writing}>
-          {brief?.ai_available === false ? (
-            <p className="hint">{bm ? 'Ringkasan AI akan muncul di sini selepas pentadbir menyediakan AI.' : 'An AI brief appears here once the admin sets up AI.'}</p>
-          ) : writing ? (
-            <ThinkingSteps steps={BRIEF_STEPS[bm ? 'ms' : 'en']} label={bm ? 'Menulis ringkasan' : 'Writing the brief'} pauseLabel={bm ? 'Jeda animasi' : 'Pause animation'} resumeLabel={bm ? 'Sambung animasi' : 'Resume animation'} />
+          {brief?.ai_available === false ? null : writing ? (
+            <ThinkingSteps steps={BRIEF_STEPS[bm ? 'ms' : 'en']} label={bm ? 'Menulis ringkasan' : 'Writing the brief'} />
           ) : brief?.ai ? (
             <>
               <p className="today-ai-text">{brief.ai.text}</p>

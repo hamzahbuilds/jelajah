@@ -273,9 +273,9 @@ beforeAll(() => {
 });
 
 describe('/plan endpoints', () => {
-  it('status reports the provider and video support', async () => {
+  it('status reports AI and video support, not which provider (admin-only detail)', async () => {
     const r = await (await req(1, 'GET', '/plan/status')).json() as any;
-    expect(r).toEqual({ ai: true, provider: 'gemini', video: true });
+    expect(r).toEqual({ ai: true, video: true });
   });
 
   it('draft: reads a YouTube link and hands Gemini the video + source text', async () => {

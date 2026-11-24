@@ -1,6 +1,8 @@
 import AdminFeatureFlags from '../components/AdminFeatureFlags';
 import AdminAiUsage from '../components/AdminAiUsage';
-import { GuideModeration } from './Publishing';
+import AdminDashboard from '../components/admin/AdminDashboard';
+import AdminTrips from '../components/admin/AdminTrips';
+import AdminFeatureUsage from '../components/admin/AdminFeatureUsage';
 // v0.19 admin panel — platform-admin only. Restyled to card/stat/PageHead
 // (P4 Task 4) with hand-written SVG "lieflat-style" charts (style adopted from
 // lieflat-charts, PolyForm Noncommercial — zero code copied, see
@@ -9,7 +11,7 @@ import { GuideModeration } from './Publishing';
 // no fabricated data. Every card that already existed (AI provider, Accounts,
 // Platform invites, Referrals switch) keeps its function intact.
 import { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { api } from '../api';
 import { useT, Dict } from '../i18n';
 import { useSession } from '../app/session';
@@ -18,28 +20,7 @@ import { Icon } from '../components/Icon';
 import '../components/google.css';
 import { useGoogleSignIn } from '../components/GoogleButton';
 import PageHead from '../components/PageHead';
-import LfLine from '../components/charts/LfLine';
-import LfBars from '../components/charts/LfBars';
-import { cumulative } from '../components/charts/chartData';
-import { trendPct } from '../../shared/metrics';
 
-// Humanized labels for usage_daily.feature raw keys (see server trackUsage() call sites).
-// Unknown/future feature keys fall back to the raw key itself.
-const FEATURE_LABELS: Record<string, keyof Dict> = {
-  login: 'fLogin', doc_upload: 'fDocUpload', expense_add: 'fExpenseAdd',
-  payment_add: 'fPaymentAdd', plan_view: 'fPlanView', myspend_add: 'fMyspendAdd',
-  fx_view: 'fFxView', join_register: 'fJoinRegister', ai_suggest: 'fAiSuggest',
-  ai_chat: 'fAiChat', mcp_call: 'fMcpCall',
-};
-
-type Stats = {
-  signups: Array<{ day: string; n: number }>;
-  active7: number; active7Prev: number; active30: number;
-  trips: number; mcp30: number;
-  features: Array<{ feature: string; n: number }>;
-  audit: Array<{ id: number; action: string; user: string | null; at: string }>;
-};
-type AuditRow = Stats['audit'][number];
 type Referral = { user_id: number; name: string; referred: number; first_at: string };
 
 // Static reference values — NOT live-metered. GET /admin/stats has no Cloudflare
@@ -75,8 +56,10 @@ type Invite = {
   created_by_name?: string;
 };
 
-export default function Admin() {
-  const { t } = useT();
+export type AdminSection = 'dashboard' | 'trips' | 'usage' | 'people' | 'settings';
+
+export default function Admin({ section = 'dashboard' }: { section?: AdminSection }) {
+  const { t, lang } = useT();
   const { user } = useSession();
   const { toast } = useToast();
 
@@ -109,7 +92,7 @@ export default function Admin() {
       setTestMsg({ ok: true, text: t.connectionOk(r.reply?.trim() || 'OK') });
     } catch (e: any) {
       const code = e?.code ?? e?.body?.error ?? '';
-      const base = code === 'ai_rate_limited' ? t.aiResting : code === 'ai_not_configured' ? t.aiNotConfigured : code === 'ai_unreachable' ? t.aiUnreachable : t.aiError;
+      const base = code === 'ai_rate_limited' ? t.aiResting : code === 'ai_not_configured' ? t.aiNotConfiguredAdmin : code === 'ai_unreachable' ? t.aiUnreachable : t.aiError;
       const detail = e?.body?.detail;
       setTestMsg({ ok: false, text: detail ? `${base}\n${detail}` : base });
     } finally { setBusy(false); }
@@ -193,205 +176,42 @@ export default function Admin() {
   };
 
   // ---- Dashboard (Task 5, charts restyled Task 4 of the UI-refresh plan) ----
-  const [stats, setStats] = useState<Stats | null>(null);
   const [referrals, setReferrals] = useState<Referral[]>([]);
-  // v0.27 activity-feed pagination: 5 shown by default; "Show more" reveals
-  // +10 from the local buffer, then pages older rows from GET /admin/audit.
-  const [auditExtra, setAuditExtra] = useState<AuditRow[]>([]);
-  const [auditShown, setAuditShown] = useState(5);
-  const [auditDone, setAuditDone] = useState(false);
-  const [auditBusy, setAuditBusy] = useState(false);
-  const showMoreAudit = async (list: AuditRow[]) => {
-    if (auditShown < list.length) { setAuditShown(s => s + 10); return; }
-    if (auditDone || auditBusy || list.length === 0) return;
-    setAuditBusy(true);
-    try {
-      const res = await api.get(`/admin/audit?cursor=${list[list.length - 1].id}`);
-      setAuditExtra(x => x.concat(res.items));
-      if (!res.next_cursor) setAuditDone(true);
-      if (res.items.length > 0) setAuditShown(s => s + 10);
-    } catch { /* leave the button; a retry re-fetches */ }
-    finally { setAuditBusy(false); }
-  };
-  const loadStats = async () => setStats(await api.get('/admin/stats'));
   const loadReferrals = async () => setReferrals(await api.get('/admin/referrals'));
 
   useEffect(() => {
     if (user.role !== 'admin') return;
-    loadAi(); loadAccounts(); loadInvites(); loadReferralsSetting();
-    loadStats(); loadReferrals();
-  }, []);
+    // Each section loads only what it shows.
+    if (section === 'settings') loadAi();
+    if (section === 'people') { loadAccounts(); loadInvites(); loadReferralsSetting(); loadReferrals(); }
+  }, [section]);
 
   if (user.role !== 'admin') return <Navigate to="/" replace />;
 
+  const ms = lang === 'ms';
+  const heads: Record<AdminSection, [string, string, string, string]> = {
+    dashboard: ['Dashboard', 'Papan pemuka', '', ''],
+    trips: ['All trips', 'Semua perjalanan', 'Every trip on Jelajah, with who leads it and how far planning has got.', 'Setiap perjalanan di Jelajah, siapa ketuanya dan sejauh mana perancangan.'],
+    usage: ['Usage', 'Penggunaan', 'What people use, and what the AI features cost.', 'Apa yang digunakan, dan kos ciri AI.'],
+    people: ['People', 'Orang', 'Accounts, platform invites and referrals.', 'Akaun, jemputan platform dan rujukan.'],
+    settings: ['Platform settings', 'Tetapan platform', 'AI provider, experimental features and limits.', 'Penyedia AI, ciri percubaan dan had.'],
+  };
+  const h = heads[section];
+
   return (
-    <div>
-      <GuideModeration />
-      <PageHead crumb="Platform" title={t.adminTitle} sub={t.adminSub} />
-      <AdminFeatureFlags />
-      <AdminAiUsage />
+    <div className="admin-page">
+      {/* Phones and tablets have no sidebar: the admin sections as tabs. */}
+      <nav className="adm-tabs" aria-label={ms ? 'Bahagian pentadbir' : 'Admin sections'}>
+        {(Object.keys(heads) as AdminSection[]).map(k => (
+          <Link key={k} to={k === 'dashboard' ? '/admin' : `/admin/${k}`} className={section === k ? 'on' : ''} aria-current={section === k ? 'page' : undefined}>{ms ? heads[k][1] : heads[k][0]}</Link>
+        ))}
+      </nav>
+      {section !== 'dashboard' && <PageHead crumb={ms ? 'Pentadbir' : 'Admin'} title={ms ? h[1] : h[0]} sub={ms ? h[3] : h[2]} />}
+      {section === 'dashboard' && <AdminDashboard />}
+      {section === 'trips' && <AdminTrips />}
+      {section === 'usage' && <><AdminFeatureUsage /><AdminAiUsage /></>}
 
-      {stats && (() => {
-        const signups30 = stats.signups.reduce((a, d) => a + d.n, 0);
-        const trend = trendPct(stats.active7, stats.active7Prev);
-        const firstDay = stats.signups[0]?.day;
-        const lastDay = stats.signups[stats.signups.length - 1]?.day;
-        const cumSignups = cumulative(stats.signups.map(d => d.n));
-        const barsRows = stats.features.map(f => ({
-          key: f.feature, label: (t as any)[FEATURE_LABELS[f.feature]] ?? f.feature, value: f.n,
-        }));
-        return (
-          // v0.27: .grid wrapper spaces the sibling blocks (stats row, chart
-          // grid, quota card, referrals/feed grid) — they touched before.
-          // .stats keeps its Dashboard margin; neutralized here so the grid
-          // gap doesn't double.
-          <div className="grid">
-            <div className="stats" style={{ marginBottom: 0 }}>
-              <div className="card stat">
-                <span className="k"><span className="tile sm"><Icon name="user" /></span>{t.mSignups30}</span>
-                <span className="v">{signups30}</span>
-              </div>
-              <div className="card stat">
-                <span className="k"><span className="tile sm"><Icon name="spark" /></span>{t.mActive7}</span>
-                <span className="v">
-                  {stats.active7}{' '}
-                  {trend == null
-                    ? <span>—</span>
-                    : <span className={trend >= 0 ? 'trend-up' : 'trend-down'}>{trend >= 0 ? '▲' : '▼'} {Math.abs(trend)}%</span>}
-                </span>
-                <span className="t">{t.mVsPrev7}</span>
-              </div>
-              <div className="card stat">
-                <span className="k"><span className="tile sm"><Icon name="bag" /></span>{t.mTrips}</span>
-                <span className="v">{stats.trips}</span>
-              </div>
-              <div className="card stat">
-                <span className="k"><span className="tile sm"><Icon name="key" /></span>{t.mMcp30}</span>
-                <span className="v">{stats.mcp30}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-2" style={{ alignItems: 'start' }}>
-              <LfLine
-                title={t.mLineTitle} sub={t.mLineSub} badge={t.mBadge30d}
-                series={cumSignups} unitLabel={t.mAccountsUnit}
-                firstLabel={firstDay ? new Date(firstDay + 'T00:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' }) : ''}
-                lastLabel={lastDay ? new Date(lastDay + 'T00:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' }) : ''}
-                source={`${t.sourcePrefix} · ${t.mSourceSignups}`}
-              />
-              <LfBars
-                title={t.mBarsTitle} sub={t.mBarsSub} badge={t.mBadge30d}
-                rows={barsRows}
-                source={`${t.sourcePrefix} · ${t.mSourceUsage}`}
-              />
-            </div>
-
-            {/* Signup-source waffle and weekday×daypart punch card are intentionally
-                NOT shipped: /admin/referrals has no invite-kind breakdown for every
-                signup (only counts per referrer), and usage_daily is a daily UTC
-                bucket with no hour column — charting either would mean fabricating
-                data. See task-4-report.md. */}
-
-            <div className="card lf">
-              <div className="cardhead"><h2>{t.mQuotaTitle}</h2><span className="badge gray"><span className="d" />{t.mBadgeAllTime}</span></div>
-              <div className="lfsub">{t.mQuotaSub}</div>
-              <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 'var(--fs-sm)', color: 'var(--ink-2)', lineHeight: 1.7 }}>
-                {freeTierLimits(t).map(l => <li key={l}>{l}</li>)}
-              </ul>
-              <div className="lfsrc">{t.sourcePrefix} · {t.mSourceQuota}. {t.mQuotaNote}</div>
-            </div>
-
-            <div className="grid grid-2" style={{ alignItems: 'start' }}>
-              <div className="card">
-                <div className="cardhead"><h2><Icon name="gift" /> {t.mReferrals}</h2></div>
-                {referrals.length === 0 ? (
-                  <p className="muted">{t.mNoReferrals}</p>
-                ) : (
-                  <table className="table">
-                    <thead>
-                      <tr><th>{t.mReferredBy}</th><th className="num">{t.mReferredCount}</th><th>{t.mSince}</th></tr>
-                    </thead>
-                    <tbody>
-                      {referrals.map(r => (
-                        <tr key={r.user_id}>
-                          <td><div className="row" style={{ gap: 10, alignItems: 'center' }}><span className="avatar">{initials(r.name)}</span><b>{r.name}</b></div></td>
-                          <td className="num">{r.referred}</td>
-                          <td>{new Date(r.first_at).toLocaleDateString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              <div className="card">
-                <div className="cardhead"><h2>{t.mFeed}</h2></div>
-                {stats.audit.length === 0 && <p className="muted">—</p>}
-                {(() => {
-                  const list = stats.audit.concat(auditExtra);
-                  // server pages are 20 rows; a list not on a 20-boundary is
-                  // already complete, no fetch needed
-                  const mayHaveMore = !auditDone && list.length > 0 && list.length % 20 === 0;
-                  return (
-                    <>
-                      {list.slice(0, auditShown).map(a => (
-                        <div className="lrow" key={a.id}>
-                          <span className="tile sm"><Icon name="spark" /></span>
-                          <div className="l-main"><b>{a.user ?? '—'}</b><small>{a.action}</small></div>
-                          <div className="l-end"><span className="tiny muted">{new Date(a.at).toLocaleString()}</span></div>
-                        </div>
-                      ))}
-                      {(auditShown < list.length || mayHaveMore) && (
-                        <button className="btn ghost sm" style={{ marginTop: 10 }} disabled={auditBusy}
-                          onClick={() => showMoreAudit(list)}>
-                          {auditBusy ? '…' : t.showMore}
-                        </button>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      <div className="grid grid-2" style={{ alignItems: 'start', marginTop: 16 }}>
-        <div className="card">
-          <div className="cardhead"><h2><Icon name="chat" /> {t.aiProvider}</h2></div>
-          <div className="row" style={{ marginBottom: 10 }}>
-            <span className="tiny" style={{ fontWeight: 700 }}>{t.aiPresets}:</span>
-            {PRESETS.map(p => (
-              <span key={p.name} className={`chip ${form.base_url === p.base_url ? 'on' : ''}`}
-                onClick={() => setForm(f => ({ ...f, base_url: p.base_url, model: p.model }))}>{p.name}</span>
-            ))}
-          </div>
-          <p className="tiny">{t.aiKeyHint}</p>
-          <form onSubmit={saveAi}>
-            <div className="form-grid">
-              <label className="fld full"><span>{t.baseUrl}</span>
-                <input value={form.base_url} onChange={e => setForm({ ...form, base_url: e.target.value })}
-                  placeholder="https://…/v1" required /></label>
-              <label className="fld"><span>{t.modelName}</span>
-                <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} required /></label>
-              <label className="fld"><span>{t.apiKey} {keyHint && <em className="tiny">({keyHint}, {t.keepKey})</em>}</span>
-                <input type="password" value={form.api_key} onChange={e => setForm({ ...form, api_key: e.target.value })}
-                  placeholder={keyHint ? '••••••••' : 'sk-…'} autoComplete="off" /></label>
-              <label className="fld full"><span>{t.lightModel}</span>
-                <input value={form.light_model} onChange={e => setForm({ ...form, light_model: e.target.value })}
-                  placeholder="gemini-3.5-flash-lite" spellCheck={false} />
-                <small className="hint">{t.lightModelHint}</small></label>
-            </div>
-            <div className="row">
-              <button className="btn" type="submit">{t.save}</button>
-              <button className="btn ghost" type="button" onClick={testAi} disabled={busy}>
-                <Icon name="link" size={16} /> {busy ? '…' : t.testConnection}
-              </button>
-            </div>
-          </form>
-          {testMsg && <p className={`callout ${testMsg.ok ? 'info' : 'warn'}`} style={{ marginTop: 10 }}>{testMsg.text}</p>}
-        </div>
-
+      {section === 'people' && <div className="grid grid-2" style={{ alignItems: 'start' }}>
         <div className="card">
           <div className="cardhead"><h2>{t.accountsTitle}</h2></div>
           {access && (
@@ -467,6 +287,28 @@ export default function Admin() {
         </div>
 
         <div className="card">
+          <div className="cardhead"><h2><Icon name="gift" /> {t.mReferrals}</h2></div>
+          {referrals.length === 0 ? (
+            <p className="muted">{t.mNoReferrals}</p>
+          ) : (
+            <table className="table">
+              <thead>
+                <tr><th>{t.mReferredBy}</th><th className="num">{t.mReferredCount}</th><th>{t.mSince}</th></tr>
+              </thead>
+              <tbody>
+                {referrals.map(r => (
+                  <tr key={r.user_id}>
+                    <td><div className="row" style={{ gap: 10, alignItems: 'center' }}><span className="avatar">{initials(r.name)}</span><b>{r.name}</b></div></td>
+                    <td className="num">{r.referred}</td>
+                    <td>{new Date(r.first_at).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="card">
           <div className="cardhead"><h2><Icon name="gift" /> {t.referralTitle}</h2></div>
           <label className="row" style={{ gap: 8, padding: '4px 0' }}>
             <input type="checkbox" checked={referralsOn} onChange={toggleReferrals}
@@ -474,7 +316,57 @@ export default function Admin() {
             <span>{t.referralsEnabled}</span>
           </label>
         </div>
-      </div>
+      </div>}
+
+      {section === 'settings' && <>
+        <div className="grid grid-2" style={{ alignItems: 'start' }}>
+        <div className="card">
+          <div className="cardhead"><h2><Icon name="chat" /> {t.aiProvider}</h2></div>
+          <div className="row" style={{ marginBottom: 10 }}>
+            <span className="tiny" style={{ fontWeight: 700 }}>{t.aiPresets}:</span>
+            {PRESETS.map(p => (
+              <span key={p.name} className={`chip ${form.base_url === p.base_url ? 'on' : ''}`}
+                onClick={() => setForm(f => ({ ...f, base_url: p.base_url, model: p.model }))}>{p.name}</span>
+            ))}
+          </div>
+          <p className="tiny">{t.aiKeyHint}</p>
+          <form onSubmit={saveAi}>
+            <div className="form-grid">
+              <label className="fld full"><span>{t.baseUrl}</span>
+                <input value={form.base_url} onChange={e => setForm({ ...form, base_url: e.target.value })}
+                  placeholder="https://…/v1" required /></label>
+              <label className="fld"><span>{t.modelName}</span>
+                <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} required /></label>
+              <label className="fld"><span>{t.apiKey} {keyHint && <em className="tiny">({keyHint}, {t.keepKey})</em>}</span>
+                <input type="password" value={form.api_key} onChange={e => setForm({ ...form, api_key: e.target.value })}
+                  placeholder={keyHint ? '••••••••' : 'sk-…'} autoComplete="off" /></label>
+              <label className="fld full"><span>{t.lightModel}</span>
+                <input value={form.light_model} onChange={e => setForm({ ...form, light_model: e.target.value })}
+                  placeholder="gemini-3.5-flash-lite" spellCheck={false} />
+                <small className="hint">{t.lightModelHint}</small></label>
+            </div>
+            <div className="row">
+              <button className="btn" type="submit">{t.save}</button>
+              <button className="btn ghost" type="button" onClick={testAi} disabled={busy}>
+                <Icon name="link" size={16} /> {busy ? '…' : t.testConnection}
+              </button>
+            </div>
+          </form>
+          {testMsg && <p className={`callout ${testMsg.ok ? 'info' : 'warn'}`} style={{ marginTop: 10 }}>{testMsg.text}</p>}
+        </div>
+
+        </div>
+        <div style={{ marginTop: 16 }}><AdminFeatureFlags /></div>
+            <div className="card lf">
+              <div className="cardhead"><h2>{t.mQuotaTitle}</h2><span className="badge gray"><span className="d" />{t.mBadgeAllTime}</span></div>
+              <div className="lfsub">{t.mQuotaSub}</div>
+              <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 'var(--fs-sm)', color: 'var(--ink-2)', lineHeight: 1.7 }}>
+                {freeTierLimits(t).map(l => <li key={l}>{l}</li>)}
+              </ul>
+              <div className="lfsrc">{t.sourcePrefix} · {t.mSourceQuota}. {t.mQuotaNote}</div>
+            </div>
+
+      </>}
     </div>
   );
 }

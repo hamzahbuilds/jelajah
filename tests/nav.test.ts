@@ -2,10 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { navModel } from '../src/components/navModel';
 
 describe('navModel', () => {
-  it('account context: home + discover, admin foot when isAdmin', () => {
+  it('account context: admins get the admin tools first, then Home + Discover as "Your trips"', () => {
     const admin = navModel('/', { isAdmin: true, hidden: new Set() });
-    expect(admin.main.map(i => i.key)).toEqual(['home', 'discover']);
-    expect(admin.foot.map(i => i.key)).toEqual(['admin', 'settings']);
+    expect(admin.main.map(i => i.key)).toEqual(['admin', 'admin-trips', 'admin-usage', 'admin-people', 'admin-settings', 'home', 'discover']);
+    expect(admin.main.find(i => i.key === 'admin')?.section).toBe('navAdminSection');
+    expect(admin.main.find(i => i.key === 'home')?.section).toBe('navYourTrips');
+    expect(admin.foot.map(i => i.key)).toEqual(['settings']);
+    expect(navModel('/admin/usage', { isAdmin: true, hidden: new Set() }).main.find(i => i.on)?.key).toBe('admin-usage');
+
+    const member = navModel('/', { isAdmin: false, hidden: new Set() });
+    expect(member.main.map(i => i.key)).toEqual(['home', 'discover']);
+    expect(member.main.some(i => i.section)).toBe(false);
 
     const nonAdmin = navModel('/', { isAdmin: false, hidden: new Set() });
     expect(nonAdmin.foot.map(i => i.key)).toEqual(['settings']);

@@ -9,7 +9,14 @@ import GoogleButton, { useGoogleSignIn } from "../components/GoogleButton";
 export default function Recovery({ reset = false }: { reset?: boolean }) {
   const { t, lang, setLang } = useT(),
     j = t.j;
-  const [token] = useState(() => location.hash.slice(1));
+  // Read the code from the address on every change: pasting a new link into
+  // the same tab only changes the #fragment, which does not reload the page.
+  const [token, setToken] = useState(() => location.hash.slice(1));
+  useEffect(() => {
+    const sync = () => setToken(location.hash.slice(1));
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+  }, []);
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
     [available, setAvailable] = useState<boolean | null>(null);

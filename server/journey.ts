@@ -450,6 +450,16 @@ journey.use("*", async (c, next) => {
   return next();
 });
 
+/** Same daily counter as app.ts trackUsage (kept local: app.ts imports this file). */
+async function trackJourney(c: any, feature: string) {
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO usage_daily (day, user_id, feature, count) VALUES (date('now'), ?, ?, 1)
+       ON CONFLICT(day, user_id, feature) DO UPDATE SET count = count + 1`,
+    ).bind(c.get("user").id, feature).run();
+  } catch { /* best-effort */ }
+}
+
 export async function journeyRole(
   env: Env,
   user: SessionUser,
@@ -548,6 +558,7 @@ journey.post("/trips/:id/clone", async (c) => {
   )
     .bind(id, c.get("user").id, JSON.stringify(group))
     .run();
+  await trackJourney(c, "personal_plan");
   return c.json(
     await c.env.DB.prepare(
       "SELECT id FROM itineraries WHERE trip_id=? AND owner_id=?",
@@ -1075,6 +1086,7 @@ journey.post("/trips/:id/publishing/guides", async (c) => {
       draft.days.length,
     )
     .run();
+  await trackJourney(c, "guide_publish");
   return c.json({ id });
 });
 journey.put("/trips/:id/publishing/guides/:guide", async (c) => {

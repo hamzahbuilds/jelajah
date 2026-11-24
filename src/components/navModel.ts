@@ -7,6 +7,8 @@ import type { TripRole } from '../app/session';
 
 export interface NavItem {
   key: string;
+  /** v0.49: label of the group this item starts (shown above it in the sidebar). */
+  section?: keyof Dict;
   to: string;
   icon: IconName;
   label: keyof Dict;
@@ -51,14 +53,22 @@ function moneyTarget(base: string, hidden: Set<string>): string {
 export function navModel(path: string, opts: NavOpts): NavModel {
   const { isAdmin, myRole, hidden, tripId } = opts;
   const foot: NavItem[] = [];
-  if (isAdmin) foot.push({ key: 'admin', to: '/admin', icon: 'shield', label: 'adminTitle', on: path === '/admin' });
   foot.push({ key: 'settings', to: '/settings', icon: 'settings', label: 'settings', on: path === '/settings' });
 
-  const main: NavItem[] = [
-    { key: 'home', to: '/', icon: 'folder', label: 'home', on: path === '/' },
+  // v0.49: admins get the platform tools first; Home and Discover follow as a
+  // secondary "Your trips" group. Members only see Home and Discover.
+  const main: NavItem[] = isAdmin ? [
+    { key: 'admin', to: '/admin', icon: 'chart', label: 'navAdminDashboard', on: path === '/admin', section: 'navAdminSection' },
+    { key: 'admin-trips', to: '/admin/trips', icon: 'map', label: 'navAdminTrips', on: path === '/admin/trips' },
+    { key: 'admin-usage', to: '/admin/usage', icon: 'sparkles', label: 'navAdminUsage', on: path === '/admin/usage' },
+    { key: 'admin-people', to: '/admin/people', icon: 'users', label: 'navAdminPeople', on: path === '/admin/people' },
+    { key: 'admin-settings', to: '/admin/settings', icon: 'shield', label: 'navAdminSettings', on: path === '/admin/settings' },
+  ] : [];
+  main.push(
+    { key: 'home', to: '/', icon: 'folder', label: 'home', on: path === '/', ...(isAdmin ? { section: 'navYourTrips' as const } : {}) },
     // v0.30: Discover is global (docs/18 §0) — public guides, opens outside the app chrome.
     { key: 'discover', to: '/discover', icon: 'globe', label: 'discover', on: path === '/discover' },
-  ];
+  );
 
   if (tripId != null) {
     const base = `/trips/${tripId}`;

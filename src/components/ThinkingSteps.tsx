@@ -1,25 +1,20 @@
 // v0.48: a "thinking out loud" loader for AI work. Each step types itself out,
 // holds for 3–5 seconds, then is ticked off and the next one starts. It loops
 // over the last steps if the AI is still busy. Under reduced motion the steps
-// appear whole (no typing, no blinking caret). A Pause button stops the motion
-// (WCAG 2.2.2: it runs for more than five seconds next to other content).
+// appear whole (no typing, no blinking caret).
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon';
 
 const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const hold = () => 3000 + Math.random() * 2000;
 
-export default function ThinkingSteps({ steps, label, pauseLabel, resumeLabel }: {
-  steps: string[]; label: string; pauseLabel: string; resumeLabel: string;
-}) {
+export default function ThinkingSteps({ steps, label }: { steps: string[]; label: string }) {
   const [i, setI] = useState(0);          // current step
   const [typed, setTyped] = useState(0);  // characters shown of the current step
-  const [paused, setPaused] = useState(false);
   const still = useRef(reduced());
   const step = steps[i % steps.length] ?? '';
 
   useEffect(() => {
-    if (paused) return;
     const full = still.current || typed >= step.length;
     // Type at ~28 characters a second (each step takes about a second), then hold.
     const t = setTimeout(() => {
@@ -30,9 +25,9 @@ export default function ThinkingSteps({ steps, label, pauseLabel, resumeLabel }:
       setTyped(0);
     }, full ? hold() : 35);
     return () => clearTimeout(t);
-  }, [i, typed, paused, step.length, steps.length]);
+  }, [i, typed, step.length, steps.length]);
 
-  const shown = still.current || paused ? step : step.slice(0, typed);
+  const shown = still.current ? step : step.slice(0, typed);
   const done = steps.slice(0, Math.min(i, steps.length)).slice(-3);
 
   return (
@@ -44,11 +39,8 @@ export default function ThinkingSteps({ steps, label, pauseLabel, resumeLabel }:
         <span className="thinking-dot" aria-hidden="true" />
         {/* The screen reader hears each step once, whole; the typing is visual only. */}
         <span className="sr-only">{step}</span>
-        <span aria-hidden="true">{shown}<span className={`thinking-caret${paused ? ' still' : ''}`} /></span>
+        <span aria-hidden="true">{shown}<span className="thinking-caret" /></span>
       </p>
-      <button type="button" className="btn ghost sm thinking-pause" onClick={() => setPaused(p => !p)}>
-        <Icon name={paused ? 'chev-r' : 'minus'} size={16} /> {paused ? resumeLabel : pauseLabel}
-      </button>
     </div>
   );
 }

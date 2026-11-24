@@ -581,7 +581,9 @@ app.post('/users/:id/access-link', requireAdmin, async c => {
 app.post('/trips', async c => {
   const body = await c.req.json<any>();
   if (!body.name?.trim()) return bad(c, 'name_required');
-  return c.json({ id: await createTrip(c, body) });
+  const id = await createTrip(c, body);
+  await trackUsage(c.env, c.get('user').id, 'trip_create');
+  return c.json({ id });
 });
 
 /** Create a trip with the caller as leader (+ fire-and-forget auto cover). Shared by
@@ -2152,6 +2154,7 @@ app.get('/trips/:id/briefs/:day', async c => {
   const g = await briefGuard(c);
   if (g instanceof Response) return g;
   c.header('Cache-Control', 'no-store');
+  await trackUsage(c.env, c.get('user').id, 'today_view');
   return c.json(await briefView(c, g.id, g.day, briefLang(c)));
 });
 
@@ -2684,6 +2687,7 @@ app.post('/trips/:id/activities', async c => {
   const aid = Number(r.meta.last_row_id);
   await saveActivityParticipants(c.env, aid, b.participant_ids ?? []);
   await audit(c.env, c.get('user').id, 'activity_create', 'activity', aid);
+  await trackUsage(c.env, c.get('user').id, 'activity_add');
   return c.json({ id: aid });
 });
 
@@ -2791,6 +2795,7 @@ app.post('/trips/:id/daynotes', async c => {
   const mx: any = await c.env.DB.prepare('SELECT COALESCE(MAX(sort),0) AS m FROM day_notes WHERE trip_id = ? AND day = ?').bind(id, b.day).first();
   const r = await c.env.DB.prepare('INSERT INTO day_notes (trip_id, day, content, is_check, sort) VALUES (?,?,?,?,?)')
     .bind(id, b.day, b.content.trim().slice(0, 500), b.is_check ? 1 : 0, (mx?.m ?? 0) + 1).run();
+  await trackUsage(c.env, c.get('user').id, 'note_add');
   return c.json({ id: r.meta.last_row_id });
 });
 
@@ -2922,6 +2927,7 @@ app.post('/trips/:id/activities/bulk', requireEditor, async c => {
     }
   }
   await audit(c.env, c.get('user').id, 'activities_bulk', 'trip', id);
+  if (created) await trackUsage(c.env, c.get('user').id, 'activity_bulk');
   return c.json({ created, updated, errors });
 });
 
@@ -3327,6 +3333,7 @@ app.post('/trips/:id/invites', requireLeader, async c => {
     `INSERT INTO invites (code, kind, trip_id, role, created_by, expires_at, max_uses) VALUES (?,?,?,?,?,?,?)`,
   ).bind(code, 'trip', tripId, role, user.id, expires, maxUses).run();
   await audit(c.env, user.id, 'invite_create', 'trip', tripId);
+  await trackUsage(c.env, c.get('user').id, 'invite_create');
   return c.json({ id: Number(r.meta.last_row_id), code, url: inviteUrl(code), role, expires_at: expires, max_uses: maxUses });
 });
 
@@ -3560,9 +3567,110 @@ app.get('/admin/stats', requireAdmin, async c => {
   ).all();
   const audit = (auditRows.results as any[]).map(r => ({ id: Number(r.id), action: r.action, user: r.user ?? null, at: r.at }));
 
+  // v0.49 dashboard: totals with the previous 30 days for trends, daily series, attention items.
+  const { start: p30s } = lastNDaysUtc(60);
+  const prev30End = new Date(s30 + 'T00:00:00Z'); prev30End.setUTCDate(prev30End.getUTCDate() - 1);
+  const p30e = prev30End.toISOString().slice(0, 10);
+  const one = async (sql: string, ...args: unknown[]) => Number((await DB.prepare(sql).bind(...args).first<any>().catch(() => null))?.n ?? 0);
+  const users = await one('SELECT COUNT(*) AS n FROM users WHERE COALESCE(disabled,0) = 0');
+  const signupsPrev30 = await one('SELECT COUNT(*) AS n FROM users WHERE substr(created_at,1,10) BETWEEN ? AND ?', p30s, p30e);
+  const trips30 = await one('SELECT COUNT(*) AS n FROM trips WHERE substr(created_at,1,10) BETWEEN ? AND ?', s30, e30);
+  const tripsPrev30 = await one('SELECT COUNT(*) AS n FROM trips WHERE substr(created_at,1,10) BETWEEN ? AND ?', p30s, p30e);
+  const activities30 = await one('SELECT COUNT(*) AS n FROM activities WHERE substr(created_at,1,10) BETWEEN ? AND ?', s30, e30);
+  const activitiesPrev30 = await one('SELECT COUNT(*) AS n FROM activities WHERE substr(created_at,1,10) BETWEEN ? AND ?', p30s, p30e);
+  const documents30 = await one('SELECT COUNT(*) AS n FROM documents WHERE substr(created_at,1,10) BETWEEN ? AND ?', s30, e30);
+  const ongoing = await one('SELECT COUNT(*) AS n FROM trips WHERE start_date <= ? AND end_date >= ?', e30, e30);
+  const upcoming = await one('SELECT COUNT(*) AS n FROM trips WHERE start_date > ?', e30);
+  const aiFailed7 = await one("SELECT COUNT(*) AS n FROM ai_calls WHERE ok = 0 AND at >= datetime('now','-7 days')");
+  const dauRows = await DB.prepare(
+    'SELECT day, COUNT(DISTINCT user_id) AS n FROM usage_daily WHERE day BETWEEN ? AND ? GROUP BY day',
+  ).bind(s30, e30).all();
+  const dau = fillDays((dauRows.results as any[]).map(r => ({ day: r.day, n: Number(r.n) })), s30, e30);
+  const tripRows = await DB.prepare(
+    'SELECT substr(created_at,1,10) AS day, COUNT(*) AS n FROM trips WHERE substr(created_at,1,10) BETWEEN ? AND ? GROUP BY day',
+  ).bind(s30, e30).all();
+  const tripsSeries = fillDays((tripRows.results as any[]).map(r => ({ day: r.day, n: Number(r.n) })), s30, e30);
+  // AI spend over the same 30 days, priced with the admin's current list.
+  const prices = await aiPrices(c.env);
+  const aiRows = (await DB.prepare(
+    "SELECT model, SUM(in_tokens) AS tin, SUM(out_tokens) AS tout, SUM(think_tokens) AS tthink, COUNT(*) AS calls FROM ai_calls WHERE at >= datetime(date('now','-29 days')) GROUP BY model",
+  ).all<any>().catch(() => ({ results: [] as any[] }))).results as any[];
+  const aiCost30 = aiRows.reduce((sum, r) => sum + (costUsd(priceFor(r.model, prices), { in: n0(r.tin), out: n0(r.tout), think: n0(r.tthink) }) ?? 0), 0);
+  const aiCalls30 = aiRows.reduce((sum, r) => sum + Number(r.calls), 0);
+  const recentTrips = (await DB.prepare(
+    `SELECT t.id, t.name, t.emoji, t.destination, t.start_date, t.end_date, t.created_at,
+       (SELECT COUNT(*) FROM trip_members m WHERE m.trip_id = t.id) AS members,
+       (SELECT GROUP_CONCAT(p.name, ', ') FROM trip_members m JOIN participants p ON p.id = m.participant_id WHERE m.trip_id = t.id AND m.role = 'leader') AS leaders
+     FROM trips t ORDER BY t.id DESC LIMIT 5`,
+  ).all()).results;
+
   return c.json({
     signups, active7: Number(active7), active7Prev: Number(active7Prev), active30: Number(active30),
     trips: Number(trips), mcp30: Number(mcp30), features, audit,
+    users, signupsPrev30, trips30, tripsPrev30, activities30, activitiesPrev30, documents30,
+    ongoing, upcoming, aiFailed7, aiCost30, aiCalls30, dau, tripsSeries, recentTrips,
+  });
+});
+
+/** v0.49: every trip on the platform, for the admin's All trips list. */
+app.get('/admin/trips', requireAdmin, async c => {
+  const rows = (await c.env.DB.prepare(
+    `SELECT t.id, t.name, t.emoji, t.destination, t.start_date, t.end_date, t.created_at, t.base_currency,
+       (SELECT COUNT(*) FROM trip_members m WHERE m.trip_id = t.id) AS members,
+       (SELECT GROUP_CONCAT(p.name, ', ') FROM trip_members m JOIN participants p ON p.id = m.participant_id WHERE m.trip_id = t.id AND m.role = 'leader') AS leaders,
+       (SELECT COUNT(*) FROM activities a WHERE a.trip_id = t.id) AS activities,
+       (SELECT COUNT(*) FROM documents d WHERE d.trip_id = t.id) AS documents,
+       (SELECT COUNT(*) FROM expenses e WHERE e.trip_id = t.id) AS expenses,
+       (SELECT MAX(a.created_at) FROM activities a WHERE a.trip_id = t.id) AS last_planned
+     FROM trips t ORDER BY t.id DESC LIMIT 2000`,
+  ).all()).results;
+  c.header('Cache-Control', 'no-store');
+  return c.json({ trips: rows });
+});
+
+/** v0.49: feature usage over N days vs the N days before: events, unique
+ *  users, daily series per feature, daily active users and the top users. */
+app.get('/admin/feature-usage', requireAdmin, async c => {
+  const days = Math.min(180, Math.max(7, Number(c.req.query('days')) || 30));
+  const { start, end } = lastNDaysUtc(days);
+  const { start: pStart } = lastNDaysUtc(days * 2);
+  const pEndD = new Date(start + 'T00:00:00Z'); pEndD.setUTCDate(pEndD.getUTCDate() - 1);
+  const pEnd = pEndD.toISOString().slice(0, 10);
+  const { DB } = c.env;
+  const agg = async (a: string, b: string) => (await DB.prepare(
+    'SELECT feature, SUM(count) AS events, COUNT(DISTINCT user_id) AS users FROM usage_daily WHERE day BETWEEN ? AND ? GROUP BY feature',
+  ).bind(a, b).all<any>()).results as any[];
+  const [cur, prev] = await Promise.all([agg(start, end), agg(pStart, pEnd)]);
+  const prevBy = new Map(prev.map(r => [r.feature, r]));
+  const daily = (await DB.prepare(
+    'SELECT day, feature, SUM(count) AS n FROM usage_daily WHERE day BETWEEN ? AND ? GROUP BY day, feature',
+  ).bind(start, end).all<any>()).results as any[];
+  const seriesBy = new Map<string, Array<{ day: string; n: number }>>();
+  for (const r of daily) {
+    if (!seriesBy.has(r.feature)) seriesBy.set(r.feature, []);
+    seriesBy.get(r.feature)!.push({ day: r.day, n: Number(r.n) });
+  }
+  const features = cur.map(r => ({
+    feature: r.feature, events: Number(r.events), users: Number(r.users),
+    prevEvents: Number(prevBy.get(r.feature)?.events ?? 0), prevUsers: Number(prevBy.get(r.feature)?.users ?? 0),
+    series: fillDays(seriesBy.get(r.feature) ?? [], start, end).map(d => d.n),
+  })).sort((a, b) => b.events - a.events);
+  const dauRows = (await DB.prepare(
+    'SELECT day, COUNT(DISTINCT user_id) AS n FROM usage_daily WHERE day BETWEEN ? AND ? GROUP BY day',
+  ).bind(start, end).all<any>()).results as any[];
+  const active = Number((await DB.prepare('SELECT COUNT(DISTINCT user_id) AS n FROM usage_daily WHERE day BETWEEN ? AND ?').bind(start, end).first<any>())?.n ?? 0);
+  const activePrev = Number((await DB.prepare('SELECT COUNT(DISTINCT user_id) AS n FROM usage_daily WHERE day BETWEEN ? AND ?').bind(pStart, pEnd).first<any>())?.n ?? 0);
+  const users = Number((await DB.prepare('SELECT COUNT(*) AS n FROM users WHERE COALESCE(disabled,0) = 0').first<any>())?.n ?? 0);
+  const top = (await DB.prepare(
+    `SELECT u.id, u.name, SUM(ud.count) AS events, COUNT(DISTINCT ud.feature) AS features, MAX(ud.day) AS last_day
+     FROM usage_daily ud JOIN users u ON u.id = ud.user_id WHERE ud.day BETWEEN ? AND ?
+     GROUP BY u.id ORDER BY events DESC LIMIT 10`,
+  ).bind(start, end).all<any>()).results;
+  c.header('Cache-Control', 'no-store');
+  return c.json({
+    days, start, end, users, active, activePrev,
+    dau: fillDays(dauRows.map(r => ({ day: r.day, n: Number(r.n) })), start, end),
+    features, top,
   });
 });
 
@@ -3786,7 +3894,9 @@ async function callAI(env: Env, messages: ChatMessage[], maxTokens = 3000, meta?
 const aiFail = (c: any, e: any) => {
   const code = e?.code ?? 'ai_error';
   const status = code === 'ai_rate_limited' ? 429 : code === 'ai_not_configured' ? 503 : code === 'ai_timeout' ? 504 : 502;
-  return c.json({ error: code, detail: e?.detail }, status);
+  // Provider error text (HTTP status, provider message, backup model) is for admins only.
+  const admin = c.get('user')?.role === 'admin';
+  return c.json(admin && e?.detail ? { error: code, detail: e.detail } : { error: code }, status);
 };
 
 /* ---- AI provider settings (admin) ---- */
@@ -4237,7 +4347,8 @@ async function callAIRichPrimary(cfg: AiConfig, input: RichInput): Promise<AiRes
 app.get('/plan/status', async c => {
   const cfg = await aiConfig(c.env);
   const ok = !!(cfg?.base_url && cfg.api_key && cfg.model);
-  return c.json({ ai: ok, provider: ok ? (isGeminiCfg(cfg) ? 'gemini' : 'openai') : null, video: ok && isGeminiCfg(cfg) });
+  // Users only need to know whether AI (and video reading) is on; which provider is admin business.
+  return c.json({ ai: ok, video: ok && isGeminiCfg(cfg) });
 });
 
 const IMAGE_MIME = /^image\/(jpeg|png|webp|heic|heif)$/;

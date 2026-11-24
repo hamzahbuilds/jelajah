@@ -157,6 +157,22 @@ describe('speed and usage knobs', () => {
   });
 });
 
+describe('user-facing errors', () => {
+  it('a normal member never sees the provider error detail; an admin does', async () => {
+    sqlite.exec(`INSERT OR IGNORE INTO participants(id,name) VALUES (2,'Member');
+      INSERT OR IGNORE INTO users(id,email,name,password_hash,salt,role,participant_id) VALUES (2,'m@x','Member','x','x','member',2);
+      INSERT OR IGNORE INTO sessions(token,user_id,expires_at) VALUES ('s2',2,'2099-01-01 00:00:00');
+      INSERT OR IGNORE INTO trip_members(trip_id,participant_id,role) VALUES (1,2,'viewer');`);
+    gemini = '500';
+    sqlite.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES ('ai_fallback',?)").run(JSON.stringify({ enabled: false, model: '@cf/x/y' }));
+    const member = await app.request(`/api/trips/1/briefs/2026-12-${nextDay()}/ai`, { method: 'POST', headers: { Cookie: 'sid=s2' } }, env);
+    expect(member.status).toBe(502);
+    expect(await member.json()).toEqual({ error: 'ai_error' });
+    const admin = await (await brief()).json() as any;
+    expect(admin).toMatchObject({ error: 'ai_error', detail: expect.stringContaining('HTTP 500') });
+  });
+});
+
 describe('admin AI usage', () => {
   it('totals calls, tokens and estimated cost by feature and model', async () => {
     await brief(); // Gemini: 1000 in, 200 out + 300 thinking

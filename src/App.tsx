@@ -103,12 +103,16 @@ function Shell() {
         <Chrome>
           <Suspense fallback={<PageSkeleton label={t.loading} />}>
           <Routes>
-            <Route path="/" element={<Trips />} />
+            <Route path="/" element={<AdminLanding admin={state.user.role === 'admin'}><Trips /></AdminLanding>} />
             <Route path="/new" element={<NewPlan />} />
             <Route path="/discover" element={<PublicJourneys embedded />} />
             <Route path="/guides/:id" element={<PublicJourneys detail embedded />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/admin/trips" element={<Admin section="trips" />} />
+            <Route path="/admin/usage" element={<Admin section="usage" />} />
+            <Route path="/admin/people" element={<Admin section="people" />} />
+            <Route path="/admin/settings" element={<Admin section="settings" />} />
             {state.user.role === 'admin' && (
               <Route path="/dev/ui" element={<DevGallery />} />
             )}
@@ -273,4 +277,14 @@ export default function App() {
     </Routes>
     </Suspense>
   );
+}
+
+/** v0.49: an admin opening the app lands on the Admin dashboard, once per
+ *  browser session; after that Home ("/") works as usual. */
+function AdminLanding({ admin, children }: { admin: boolean; children: React.ReactNode }) {
+  let first = false;
+  if (admin) {
+    try { first = sessionStorage.getItem('jl-admin-landed') !== '1'; sessionStorage.setItem('jl-admin-landed', '1'); } catch { /* storage blocked: stay on Home */ }
+  }
+  return first ? <Navigate to="/admin" replace /> : <>{children}</>;
 }

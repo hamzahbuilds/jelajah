@@ -66,7 +66,9 @@ export default function Sidebar() {
       </div>
 
       {model.main.map(item => (
-        item.key === 'overview' && trip ? (
+        <div key={item.key} className="nav-group-wrap">
+        {item.section && <div className="nav-sec">{t[item.section] as string}</div>}
+        {item.key === 'overview' && trip ? (
           <div key="trip-switch-group">
             <button className="trip-switch" onClick={() => setSwitcherOpen(true)} title={t.switchTrip}>
               <span className="em">{trip.emoji}</span>
@@ -90,7 +92,8 @@ export default function Sidebar() {
             <span className="lbl">{t[item.label] as string}</span>
             {item.pill && <span className="pill badge warning">{item.pill}</span>}
           </Link>
-        )
+        )}
+        </div>
       ))}
 
       <div className="side-foot">
