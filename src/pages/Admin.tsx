@@ -1,4 +1,5 @@
 import AdminFeatureFlags from '../components/AdminFeatureFlags';
+import AdminAiUsage from '../components/AdminAiUsage';
 import { GuideModeration } from './Publishing';
 // v0.19 admin panel — platform-admin only. Restyled to card/stat/PageHead
 // (P4 Task 4) with hand-written SVG "lieflat-style" charts (style adopted from
@@ -80,7 +81,7 @@ export default function Admin() {
   const { toast } = useToast();
 
   // ---- AI provider (moved from Settings, Task 6) ----
-  const [form, setForm] = useState({ base_url: '', model: '', api_key: '' });
+  const [form, setForm] = useState({ base_url: '', model: '', api_key: '', light_model: '' });
   const [keyHint, setKeyHint] = useState('');
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -88,12 +89,12 @@ export default function Admin() {
   const loadAi = async () => {
     const s = await api.get('/settings/ai');
     setKeyHint(s.key_hint);
-    setForm(f => (f.base_url || f.model || f.api_key ? f : { base_url: s.base_url, model: s.model, api_key: '' }));
+    setForm(f => (f.base_url || f.model || f.api_key ? f : { base_url: s.base_url, model: s.model, api_key: '', light_model: s.light_model ?? '' }));
   };
 
   const saveAi = async (e: React.FormEvent) => {
     e.preventDefault();
-    await api.put('/settings/ai', { base_url: form.base_url, model: form.model, api_key: form.api_key || undefined });
+    await api.put('/settings/ai', { base_url: form.base_url, model: form.model, api_key: form.api_key || undefined, light_model: form.light_model });
     toast(t.tSaved);
     setTestMsg(null);
     setForm(f => ({ ...f, api_key: '' }));
@@ -228,6 +229,7 @@ export default function Admin() {
       <GuideModeration />
       <PageHead crumb="Platform" title={t.adminTitle} sub={t.adminSub} />
       <AdminFeatureFlags />
+      <AdminAiUsage />
 
       {stats && (() => {
         const signups30 = stats.signups.reduce((a, d) => a + d.n, 0);
@@ -375,6 +377,10 @@ export default function Admin() {
               <label className="fld"><span>{t.apiKey} {keyHint && <em className="tiny">({keyHint}, {t.keepKey})</em>}</span>
                 <input type="password" value={form.api_key} onChange={e => setForm({ ...form, api_key: e.target.value })}
                   placeholder={keyHint ? '••••••••' : 'sk-…'} autoComplete="off" /></label>
+              <label className="fld full"><span>{t.lightModel}</span>
+                <input value={form.light_model} onChange={e => setForm({ ...form, light_model: e.target.value })}
+                  placeholder="gemini-2.5-flash-lite" spellCheck={false} />
+                <small className="hint">{t.lightModelHint}</small></label>
             </div>
             <div className="row">
               <button className="btn" type="submit">{t.save}</button>

@@ -9,6 +9,11 @@ directory = "./dist"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*", "/.well-known/*"]
 
+# Workers AI: backup for the AI features when Gemini is down or rate-limited.
+# Free plan: 10,000 neurons a day; beyond that only with Workers Paid.
+[ai]
+binding = "AI"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "jelajah-db"

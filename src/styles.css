@@ -2034,3 +2034,46 @@ button.member-row:focus-visible { outline: 2px solid var(--brand); outline-offse
 .today-notes li { display: flex; gap: 6px; align-items: start; overflow-wrap: anywhere; }
 .today-notes li.done { color: var(--muted); text-decoration: line-through; }
 @media (max-width: 520px) { .today-list li { grid-template-columns: 3rem minmax(0, 1fr) auto; } .today-list .tile { display: none; } }
+
+/* v0.48 AI thinking loader: each step types out, holds, then is ticked off */
+.thinking { display: grid; gap: 6px; justify-items: start; }
+.thinking-done { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; color: var(--muted); font-size: .875rem; }
+.thinking-done li { display: flex; align-items: center; gap: 6px; }
+.thinking-done li .ic, .thinking-done svg { color: var(--brand-700); }
+.thinking-now { margin: 0; display: flex; align-items: center; gap: 8px; font-weight: 600; min-height: 1.5em; }
+.thinking-dot { inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--brand-600); flex: none; }
+.thinking-caret { display: inline-block; inline-size: 2px; block-size: 1.1em; margin-inline-start: 2px; vertical-align: text-bottom; background: currentColor; }
+@media (prefers-reduced-motion: no-preference) {
+  .thinking-dot { animation: thinking-pulse 1.4s ease-in-out infinite; }
+  .thinking-caret:not(.still) { animation: thinking-blink 1s steps(1) infinite; }
+  .thinking-done li:last-child { animation: thinking-in .3s ease-out; }
+}
+@keyframes thinking-pulse { 50% { transform: scale(.6); opacity: .5; } }
+@keyframes thinking-blink { 50% { opacity: 0; } }
+@keyframes thinking-in { from { opacity: 0; transform: translateY(4px); } }
+.thinking-pause { margin-top: 2px; }
+
+/* v0.48 Admin → AI usage */
+.ai-usage-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.ai-usage-tiles > div { border: 1px solid var(--border); border-radius: var(--r-xl); padding: 12px; display: grid; gap: 2px; min-width: 0; }
+.ai-usage-tiles span, .ai-usage-tiles small { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+.ai-usage-tiles b { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.ai-usage-sub { font-size: 1rem; margin: 16px 0 8px; display: flex; align-items: center; gap: 6px; }
+.ai-usage-chart { position: relative; }
+.ai-usage-chart svg { display: block; inline-size: 100%; block-size: 120px; touch-action: pan-y; }
+.ai-usage-tip { position: absolute; top: 0; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; display: grid; font-size: .8125rem; pointer-events: none; box-shadow: var(--shadow-md); white-space: nowrap; }
+.ai-usage-axis { display: flex; justify-content: space-between; gap: 8px; font-size: .75rem; color: var(--ink-3, var(--muted)); margin-top: 4px; }
+.ai-usage-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+.ai-usage-tables .table-scroll, .ai-usage-more .table-scroll { overflow-x: auto; }
+.ai-usage-table { inline-size: 100%; border-collapse: collapse; font-size: .875rem; }
+.ai-usage-table caption { text-align: start; font-weight: 600; padding-bottom: 6px; }
+.ai-usage-table th, .ai-usage-table td { text-align: start; padding: 6px 8px; border-top: 1px solid var(--border); vertical-align: top; }
+.ai-usage-table td:not(:first-child), .ai-usage-table th:not(:first-child) { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ai-usage-table code { overflow-wrap: anywhere; }
+.ai-usage-table small { color: var(--muted); }
+.ai-price-table input { inline-size: 100%; min-inline-size: 5rem; }
+.ai-usage-more { margin-top: 16px; }
+.ai-usage-more summary { cursor: pointer; font-weight: 600; }
+.ai-usage-more ul { margin: 8px 0 0; padding-inline-start: 18px; display: grid; gap: 4px; font-size: .875rem; overflow-wrap: anywhere; }
+.ai-usage-fallback { border-top: 1px solid var(--border); margin-top: 16px; }
+@media (max-width: 800px) { .ai-usage-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ai-usage-tables { grid-template-columns: 1fr; } }

@@ -11,12 +11,18 @@ import Loading from '../components/Loading';
 import Empty from '../components/Empty';
 import { Icon, type IconName } from '../components/Icon';
 import { useToast } from '../components/Toast';
+import ThinkingSteps from '../components/ThinkingSteps';
+
+const BRIEF_STEPS = {
+  en: ['Going through the plans', 'Taking note of the places to visit', 'Checking flight and hotel times', 'Spotting the fixed times of the day', 'Reading the notes and to-dos', 'Harmonising the flow', 'Picking out what matters most', 'Writing it up for the group', 'Polishing the wording'],
+  ms: ['Meneliti rancangan', 'Mencatat tempat yang akan dilawati', 'Menyemak masa penerbangan dan hotel', 'Mengenal pasti masa tetap hari ini', 'Membaca nota dan senarai tugasan', 'Menyelaraskan aliran perjalanan', 'Memilih perkara paling penting', 'Menulis untuk kumpulan', 'Menghaluskan ayat'],
+};
 
 interface Brief {
   day: string;
   items: number;
   ai_available: boolean;
-  ai: { text: string; at: string; stale: boolean } | null;
+  ai: { text: string; at: string } | null;
   note: { text: string; by: string | null; at: string } | null;
 }
 
@@ -38,7 +44,7 @@ const KIND_ICON: Record<string, IconName> = { flight: 'plane', checkin: 'hotel',
 export default function Today() {
   const { t, lang } = useT();
   const bm = lang === 'ms';
-  const { trip, tripId, canLead, canEdit } = useOutletContext<TripCtx>();
+  const { trip, tripId, canLead } = useOutletContext<TripCtx>();
   const { toast } = useToast();
   const [params, setParams] = useSearchParams();
   const start = trip.start_date || null;
@@ -65,9 +71,10 @@ export default function Today() {
     api.get(`/trips/${tripId}/plan`).then(setPlan).catch(() => setPlanFailed(true));
   }, [tripId]);
 
-  const writeBrief = async (force = false) => {
+  // One time per day: the server keeps the first brief and never rewrites it.
+  const writeBrief = async () => {
     setWriting(true); setAiError('');
-    try { setBrief(await api.post(`/trips/${tripId}/briefs/${day}/ai?lang=${lang}${force ? '&force=1' : ''}`)); }
+    try { setBrief(await api.post(`/trips/${tripId}/briefs/${day}/ai?lang=${lang}`)); }
     catch (e) {
       const code = e instanceof ApiError ? e.code : '';
       setAiError(code === 'ai_rate_limited' ? (bm ? 'Terlalu banyak permintaan. Cuba sebentar lagi.' : 'Too many requests. Try again in a minute.')
@@ -194,15 +201,12 @@ export default function Today() {
           {brief?.ai_available === false ? (
             <p className="hint">{bm ? 'Ringkasan AI akan muncul di sini selepas pentadbir menyediakan AI.' : 'An AI brief appears here once the admin sets up AI.'}</p>
           ) : writing ? (
-            <Loading label={bm ? 'Menulis ringkasan…' : 'Writing the brief…'} />
+            <ThinkingSteps steps={BRIEF_STEPS[bm ? 'ms' : 'en']} label={bm ? 'Menulis ringkasan' : 'Writing the brief'} pauseLabel={bm ? 'Jeda animasi' : 'Pause animation'} resumeLabel={bm ? 'Sambung animasi' : 'Resume animation'} />
           ) : brief?.ai ? (
             <>
               <p className="today-ai-text">{brief.ai.text}</p>
               <div className="today-ai-foot">
                 <small><Icon name="sparkles" size={16} /> {bm ? 'Ditulis oleh AI daripada jadual. Semak masa sebelum bertolak.' : 'Written by AI from the schedule. Check times before you go.'}</small>
-                {brief.ai.stale
-                  ? <button type="button" className="btn secondary sm" onClick={() => void writeBrief()}><Icon name="refresh" size={16} /> {bm ? 'Jadual berubah · Kemas kini' : 'Plan changed · Update'}</button>
-                  : canEdit && <button type="button" className="btn ghost sm" onClick={() => void writeBrief(true)}><Icon name="refresh" size={16} /> {bm ? 'Tulis semula' : 'Rewrite'}</button>}
               </div>
             </>
           ) : brief && brief.items === 0 ? null : brief ? (

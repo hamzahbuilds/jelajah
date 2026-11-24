@@ -67,29 +67,18 @@ describe('daily brief', () => {
     expect((await req('s2', '/trips/1/briefs/02-12-2026')).status).toBe(400);
   });
 
-  it('writes the AI brief from the day data only, then serves it from cache', async () => {
+  it('writes the AI brief once from the day data only, then never again', async () => {
     const r = await (await req('s2', `/trips/1/briefs/${DAY}/ai`, { method: 'POST' })).json() as any;
-    expect(r.ai).toMatchObject({ text: '• Brief 1', stale: false });
+    expect(r.ai).toMatchObject({ text: '• Brief 1' });
     expect(prompts[0]).toContain('09:00 Senso-ji at Asakusa');
     expect(prompts[0]).toContain('Day theme: Asakusa day');
     expect(prompts[0]).toContain('To do: Buy Suica cards');
-    // A viewer asking again (even with force) gets the cached brief: no new AI call.
-    await req('s2', `/trips/1/briefs/${DAY}/ai?force=1`, { method: 'POST' });
-    expect(prompts).toHaveLength(1);
-  });
-
-  it('marks the brief stale when the day changes, and anyone can refresh it', async () => {
+    // Asking again, by the leader, with force, or after the plan changes: same brief, no new AI call.
+    await req('s1', `/trips/1/briefs/${DAY}/ai?force=1`, { method: 'POST' });
     sqlite.exec(`INSERT INTO activities(trip_id,title,day,start_time) VALUES (1,'Skytree','${DAY}','16:00')`);
-    const before = await (await req('s2', `/trips/1/briefs/${DAY}`)).json() as any;
-    expect(before.ai.stale).toBe(true);
-    const after = await (await req('s2', `/trips/1/briefs/${DAY}/ai`, { method: 'POST' })).json() as any;
-    expect(after.ai).toMatchObject({ text: '• Brief 2', stale: false });
-    expect(prompts[1]).toContain('16:00 Skytree');
-  });
-
-  it('a Malay brief is its own cache entry', async () => {
-    const r = await (await req('s2', `/trips/1/briefs/${DAY}?lang=ms`)).json() as any;
-    expect(r.ai.stale).toBe(true);
+    const after = await (await req('s1', `/trips/1/briefs/${DAY}/ai?lang=ms`, { method: 'POST' })).json() as any;
+    expect(after.ai.text).toBe('• Brief 1');
+    expect(prompts).toHaveLength(1);
   });
 
   it('refuses an empty day', async () => {
@@ -102,7 +91,7 @@ describe('daily brief', () => {
     expect((await req('s2', `/trips/1/briefs/${DAY}/note`, { method: 'PUT', body: JSON.stringify({ text: 'Hi' }) })).status).toBe(403);
     const r = await (await req('s1', `/trips/1/briefs/${DAY}/note`, { method: 'PUT', body: JSON.stringify({ text: ' Lobby at 8:30. ' }) })).json() as any;
     expect(r.note).toMatchObject({ text: 'Lobby at 8:30.', by: 'Leader' });
-    expect(r.ai.text).toBe('• Brief 2'); // the AI brief is kept
+    expect(r.ai.text).toBe('• Brief 1'); // the AI brief is kept
     const cleared = await (await req('s1', `/trips/1/briefs/${DAY}/note`, { method: 'PUT', body: JSON.stringify({ text: '' }) })).json() as any;
     expect(cleared.note).toBeNull();
     expect((await req('s1', `/trips/1/briefs/${DAY}/note`, { method: 'PUT', body: JSON.stringify({ text: 'x'.repeat(1501) }) })).status).toBe(400);
@@ -113,5 +102,17 @@ describe('daily brief', () => {
     expect((await req('s2', `/trips/1/briefs/${DAY}`)).status).toBe(403);
     expect((await req('s1', `/trips/1/briefs/${DAY}`)).status).toBe(200);
     sqlite.exec(`UPDATE trips SET hidden_features='[]' WHERE id=1`);
+  });
+});
+
+describe('AI chat feature flag', () => {
+  it('is off by default and refuses chat calls until the admin turns it on', async () => {
+    const off = await req('s1', '/trips/1/assistant/chat', { method: 'POST', body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }) });
+    expect(off.status).toBe(403);
+    expect(((await off.json()) as any).error).toBe('feature_off');
+    sqlite.prepare("INSERT OR REPLACE INTO app_settings(key,value) VALUES ('feature_flags',?)").run(JSON.stringify({ aiChat: true }));
+    const on = await req('s1', '/trips/1/assistant/chat', { method: 'POST', body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }) });
+    expect(on.status).toBe(200);
+    sqlite.exec("DELETE FROM app_settings WHERE key='feature_flags'");
   });
 });

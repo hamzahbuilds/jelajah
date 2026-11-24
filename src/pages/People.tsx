@@ -358,6 +358,8 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
       .then(() => reload())
       .catch(() => { setHidden(prev); toast(t.tSaveFailed, 'error'); });
   };
+  const [aiChat, setAiChat] = useState(false);
+  useEffect(() => { if (isSettings) api.get('/journey/features').then((f: any) => setAiChat(f?.aiChat === true)).catch(() => {}); }, [isSettings]);
   const toggleEditPlan = () => {
     const next = !canEditPlan;
     setCanEditPlan(next);
@@ -461,7 +463,7 @@ export default function People({ section = 'people' }: { section?: 'people' | 's
         <div className="card">
           <div className="cardhead"><h2><Icon name="eye" /> {t.visibility}</h2></div>
           <p className="hint">{t.visibilityHint}</p>
-          {(['plan', 'today', 'documents', 'ledger', 'payments', 'assistant'] as const).map(f => (
+          {(['plan', 'today', 'documents', 'ledger', 'payments', ...(aiChat ? ['assistant'] as const : [])] as const).map(f => (
             <label key={f} className="check-row">
               <input type="checkbox" checked={!hidden.includes(f)} onChange={() => toggleFeature(f)} />
               <span>{f === 'assistant' ? <><Icon name="chat" size={16} /> {t.assistantFeature}</> : (t as any)[f === 'ledger' ? 'ledger' : f]}</span>

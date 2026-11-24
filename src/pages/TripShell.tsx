@@ -28,6 +28,9 @@ export default function TripShell() {
     }
   };
   useEffect(() => { setFailed(false); reload(); }, [tripId]);
+  // v0.48: AI chat is an admin feature flag (off by default, saves AI tokens).
+  const [aiChat, setAiChat] = useState(false);
+  useEffect(() => { api.get('/journey/features').then((f: any) => setAiChat(f?.aiChat === true)).catch(() => setAiChat(false)); }, []);
   useEffect(() => {
     try { localStorage.setItem('jl-last-trip', String(tripId)); } catch { /* ignore write failure */ }
   }, [tripId]);
@@ -94,7 +97,7 @@ export default function TripShell() {
         </div>
       </div>
       <Outlet context={ctx} />
-      {!hidden.has('assistant') && <ChatDrawer tripId={tripId} />}
+      {aiChat && !hidden.has('assistant') && <ChatDrawer tripId={tripId} />}
     </div>
   );
 }

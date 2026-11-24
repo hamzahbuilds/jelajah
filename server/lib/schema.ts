@@ -297,6 +297,17 @@ export const SCHEMA: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_day_notes ON day_notes(trip_id, day)`,
   `CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code)`,
   `CREATE INDEX IF NOT EXISTS idx_personal_user ON personal_expenses(trip_id, user_id)`,
+  // v0.48 AI usage log: one row per AI attempt (primary or Workers AI backup).
+  // Cost is worked out when read, from the admin's per-model prices.
+  `CREATE TABLE IF NOT EXISTS ai_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    user_id INTEGER, trip_id INTEGER,
+    feature TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL,
+    in_tokens INTEGER NOT NULL DEFAULT 0, out_tokens INTEGER NOT NULL DEFAULT 0, think_tokens INTEGER NOT NULL DEFAULT 0,
+    ok INTEGER NOT NULL DEFAULT 1, error TEXT, ms INTEGER NOT NULL DEFAULT 0, fallback INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_calls_at ON ai_calls(at)`,
   // v0.48 Today: one brief per trip day. ai_* is the generated summary (cached by
   // ai_hash of the day's contents + language); note_* is the leader's own summary.
   `CREATE TABLE IF NOT EXISTS day_briefs (
@@ -348,8 +359,8 @@ export const UPGRADES: string[] = [
   // v0.47 multi-currency: off by default (one trip currency, no FX).
   `ALTER TABLE trips ADD COLUMN multi_currency INTEGER NOT NULL DEFAULT 0`,
   ...SCHEMA.filter(s =>
-    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily|rooms|room_occupants|day_briefs)\b/.test(s)
-    || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code|idx_rooms_trip/.test(s)),
+    /CREATE TABLE IF NOT EXISTS (activities|activity_participants|groups|group_members|day_settings|leg_overrides|personal_expenses|day_budgets|import_profiles|app_settings|api_tokens|personal_shares|day_notes|invites|usage_daily|rooms|room_occupants|day_briefs|ai_calls)\b/.test(s)
+    || /idx_activities_trip|idx_personal_user|idx_personal_shares|idx_day_notes|idx_invites_code|idx_rooms_trip|idx_ai_calls_at/.test(s)),
 ];
 
 // Optional first-run seed: the Japan Nov/Dec 2026 trip with its 16 travellers,

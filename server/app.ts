@@ -1,5 +1,6 @@
 import { getFeatureFlags } from './lib/feature-flags';
 import { DEFAULT_FEATURE_FLAGS, featureFlags } from '../shared/featureFlags';
+import { DEFAULT_AI_PRICES, priceFor, costUsd, type AiPrices } from '../shared/aiPrices';
 import { Hono } from 'hono';
 import { ensureDocumentSchema } from './lib/document-schema';
 import { journey } from './journey';
@@ -2080,7 +2081,7 @@ app.get('/trips/:id/plan', async c => {
 const BRIEF_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Plain-text facts for one trip day: title, bookings, activities, notes. The
- *  AI brief is written from this only, and its hash decides when it is stale. */
+ *  AI brief is written from this only. */
 async function dayDigest(env: Env, tripId: number, day: string): Promise<{ text: string; items: number }> {
   const live = `COALESCE(json_extract(CASE WHEN json_valid(meta_json) THEN meta_json ELSE '{}' END, '$.source_document_removed'),0) = 0`;
   const [settings, acts, notes, books] = await Promise.all([
@@ -2137,13 +2138,12 @@ async function briefView(c: any, id: number, day: string, lang: string) {
     `SELECT b.*, u.name AS note_by_name FROM day_briefs b LEFT JOIN users u ON u.id = b.note_by WHERE b.trip_id = ? AND b.day = ?`,
   ).bind(id, day).first();
   const digest = await dayDigest(c.env, id, day);
-  const hash = await sha256Hex(`${lang}\n${digest.text}`);
   const cfg = await aiConfig(c.env);
   return {
     day,
     items: digest.items,
     ai_available: !!(cfg?.base_url && cfg.api_key && cfg.model),
-    ai: row?.ai_text ? { text: row.ai_text, at: row.ai_at, stale: row.ai_hash !== hash } : null,
+    ai: row?.ai_text ? { text: row.ai_text, at: row.ai_at } : null,
     note: row?.note_text ? { text: row.note_text, by: row.note_by_name ?? null, at: row.note_at } : null,
   };
 }
@@ -2155,19 +2155,18 @@ app.get('/trips/:id/briefs/:day', async c => {
   return c.json(await briefView(c, g.id, g.day, briefLang(c)));
 });
 
-/** Write (or refresh) the AI brief. Anyone on the trip can fill a missing or
- *  stale brief; forcing a rewrite of an up-to-date one needs edit rights. */
+/** Write the AI brief. One time only: once a day has a brief it is kept, even
+ *  if the plan changes, so each day costs at most one AI call. Anyone on the
+ *  trip can trigger it; the first request writes it. */
 app.post('/trips/:id/briefs/:day/ai', async c => {
   const g = await briefGuard(c);
   if (g instanceof Response) return g;
   const lang = briefLang(c);
-  const force = c.req.query('force') === '1';
+  const row: any = await c.env.DB.prepare('SELECT ai_text FROM day_briefs WHERE trip_id = ? AND day = ?').bind(g.id, g.day).first();
+  if (row?.ai_text) return c.json(await briefView(c, g.id, g.day, lang));
   const digest = await dayDigest(c.env, g.id, g.day);
   if (!digest.items) return bad(c, 'empty_day');
   const hash = await sha256Hex(`${lang}\n${digest.text}`);
-  const row: any = await c.env.DB.prepare('SELECT ai_text, ai_hash FROM day_briefs WHERE trip_id = ? AND day = ?').bind(g.id, g.day).first();
-  const fresh = row?.ai_text && row.ai_hash === hash;
-  if (fresh && !(force && (await needRole(c, g.id, 'editor')))) return c.json(await briefView(c, g.id, g.day, lang));
   const trip: any = await c.env.DB.prepare('SELECT name, destination FROM trips WHERE id = ?').bind(g.id).first();
   const system = [
     'You write the morning brief for one day of a group trip.',
@@ -2180,10 +2179,13 @@ app.post('/trips/:id/briefs/:day/ai', async c => {
   ].join(' ');
   const user = `Trip: ${trip?.name ?? ''}${trip?.destination ? ` (${trip.destination})` : ''}\n<day_data>\n${digest.text}\n</day_data>`;
   try {
-    const text = (await callAI(c.env, [{ role: 'system', content: system }, { role: 'user', content: user }], 2000)).trim().slice(0, 2000);
+    const text = (await callAI(c.env, [{ role: 'system', content: system }, { role: 'user', content: user }], 600, { feature: 'today_brief', userId: c.get('user').id, tripId: g.id },
+      // A short factual summary: no thinking, the light model, and a quick switch to the backup.
+      { thinking: 'off', light: true, timeoutMs: 20_000 })).trim().slice(0, 2000);
     await c.env.DB.prepare(
       `INSERT INTO day_briefs (trip_id, day, ai_text, ai_hash, ai_lang, ai_at) VALUES (?,?,?,?,?,datetime('now'))
-       ON CONFLICT(trip_id, day) DO UPDATE SET ai_text = excluded.ai_text, ai_hash = excluded.ai_hash, ai_lang = excluded.ai_lang, ai_at = excluded.ai_at`,
+       ON CONFLICT(trip_id, day) DO UPDATE SET ai_text = excluded.ai_text, ai_hash = excluded.ai_hash, ai_lang = excluded.ai_lang, ai_at = excluded.ai_at
+       WHERE day_briefs.ai_text IS NULL`,
     ).bind(g.id, g.day, text, hash, lang).run();
     await trackUsage(c.env, c.get('user').id, 'ai_brief');
     return c.json(await briefView(c, g.id, g.day, lang));
@@ -3602,7 +3604,11 @@ app.get('/admin/referrals', requireAdmin, async c => {
 /* v0.12 — AI provider settings, assistant proxy, API tokens, MCP     */
 /* ================================================================== */
 
-interface AiConfig { base_url: string; api_key: string; model: string }
+interface AiConfig {
+  base_url: string; api_key: string; model: string;
+  /** v0.48: optional faster, cheaper model for short jobs (e.g. gemini-2.5-flash-lite). */
+  light_model?: string;
+}
 const aiConfig = (env: Env) => getSettingJSON<AiConfig>(env, 'ai_provider');
 
 class AiError extends Error { code: string; detail?: string; constructor(code: string, detail?: string) { super(code); this.code = code; this.detail = detail; } }
@@ -3624,17 +3630,52 @@ async function aiHttpError(res: Response): Promise<AiError> {
 
 /** Gemini's native generateContent API — works with both AIza… and the new
  *  AQ.… key formats (the OpenAI-compat layer rejects many AQ. keys). */
-async function callGeminiNative(cfg: AiConfig, messages: Array<{ role: string; content: string }>, maxTokens: number): Promise<string> {
+/* v0.48: every AI call returns its token usage, is logged to ai_calls (for the
+ * admin AI usage card), and falls back to Workers AI when the primary
+ * provider fails or is not set up. */
+interface AiUsage { in: number; out: number; think: number }
+interface AiResult { text: string; usage: AiUsage; provider: string; model: string }
+/** Who asked, for the call log. `feature` is a short key, e.g. 'today_brief'. */
+export interface AiMeta { feature: string; userId?: number | null; tripId?: number | null }
+type ChatMessage = { role: string; content: string };
+/** v0.48 speed/usage knobs per call. */
+export interface AiOpts {
+  /** Gemini thinking: 'off' for short summaries, 'low' for light reasoning. */
+  thinking?: 'off' | 'low' | 'default';
+  /** Use the admin's light model (when set) instead of the main one. */
+  light?: boolean;
+  /** Give up on the primary provider after this long and try the backup. */
+  timeoutMs?: number;
+}
+const AI_TIMEOUT_MS = 45_000;
+/** fetch with a deadline; a timeout becomes ai_timeout so the backup can take over. */
+async function aiFetch(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  try { return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) }); }
+  catch (e: any) { throw new AiError(e?.name === 'TimeoutError' || e?.name === 'AbortError' ? 'ai_timeout' : 'ai_unreachable'); }
+}
+const modelFor = (cfg: AiConfig, opts?: AiOpts) => (opts?.light && cfg.light_model ? cfg.light_model : cfg.model);
+
+const n0 = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0);
+/** Gemini bills thinking tokens at the output rate; they are kept apart so the card can show them. */
+const geminiUsage = (data: any): AiUsage => ({ in: n0(data?.usageMetadata?.promptTokenCount), out: n0(data?.usageMetadata?.candidatesTokenCount), think: n0(data?.usageMetadata?.thoughtsTokenCount) });
+const openAiUsage = (data: any): AiUsage => {
+  const think = n0(data?.usage?.completion_tokens_details?.reasoning_tokens);
+  return { in: n0(data?.usage?.prompt_tokens), out: Math.max(0, n0(data?.usage?.completion_tokens) - think), think };
+};
+
+/** Gemini's native generateContent API — works with both AIza… and the new
+ *  AQ.… key formats (the OpenAI-compat layer rejects many AQ. keys). */
+async function callGeminiNative(cfg: AiConfig, messages: ChatMessage[], maxTokens: number, opts?: AiOpts): Promise<AiResult> {
   const origin = (() => { try { return new URL(cfg.base_url).origin; } catch { return 'https://generativelanguage.googleapis.com'; } })();
-  const model = cfg.model.replace(/^models\//, '');
-  let res: Response;
-  try {
-    res = await fetch(`${origin}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.api_key },
-      body: JSON.stringify(buildGeminiNativeBody(messages, maxTokens)),
-    });
-  } catch { throw new AiError('ai_unreachable'); }
+  const model = modelFor(cfg, opts).replace(/^models\//, '');
+  const body = buildGeminiNativeBody(messages, maxTokens);
+  const thinkingConfig = geminiThinking(model, opts?.thinking);
+  if (thinkingConfig) body.generationConfig.thinkingConfig = thinkingConfig;
+  const res = await aiFetch(`${origin}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.api_key },
+    body: JSON.stringify(body),
+  }, opts?.timeoutMs ?? AI_TIMEOUT_MS);
   if (!res.ok) throw await aiHttpError(res);
   const data: any = await res.json().catch(() => null);
   const { text, finishReason } = parseGeminiNativeResponse(data);
@@ -3643,22 +3684,16 @@ async function callGeminiNative(cfg: AiConfig, messages: Array<{ role: string; c
       ? 'The model spent the whole token budget thinking and returned no text — try again.'
       : `The provider returned an empty reply${finishReason ? ` (${finishReason})` : ''}.`);
   }
-  return text;
+  return { text, usage: geminiUsage(data), provider: 'gemini', model };
 }
 
-async function callAI(env: Env, messages: Array<{ role: string; content: string }>, maxTokens = 3000): Promise<string> {
-  const cfg = await aiConfig(env);
-  if (!cfg?.base_url || !cfg.api_key || !cfg.model) throw new AiError('ai_not_configured');
-  // Gemini goes through its native API (new AQ. keys break on the compat layer)
-  if (/generativelanguage\.googleapis\.com/i.test(cfg.base_url)) return callGeminiNative(cfg, messages, maxTokens);
-  let res: Response;
-  try {
-    res = await fetch(`${cfg.base_url.replace(/\/+$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.api_key}` },
-      body: JSON.stringify({ model: cfg.model, messages, temperature: 0.7, max_tokens: maxTokens }),
-    });
-  } catch { throw new AiError('ai_unreachable'); }
+async function callOpenAiCompat(cfg: AiConfig, messages: any[], maxTokens: number, temperature: number, opts?: AiOpts): Promise<AiResult> {
+  const model = modelFor(cfg, opts);
+  const res = await aiFetch(`${cfg.base_url.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.api_key}` },
+    body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
+  }, opts?.timeoutMs ?? AI_TIMEOUT_MS);
   if (!res.ok) throw await aiHttpError(res);
   const data: any = await res.json().catch(() => null);
   const text = data?.choices?.[0]?.message?.content;
@@ -3668,12 +3703,89 @@ async function callAI(env: Env, messages: Array<{ role: string; content: string 
       ? 'The model spent the whole token budget thinking and returned no text — try again or use a larger budget.'
       : 'The provider returned an empty reply.');
   }
-  return text;
+  return { text, usage: openAiUsage(data), provider: 'openai', model };
+}
+
+/* ---- Workers AI backup (env.AI binding) ---- */
+export const DEFAULT_FALLBACK_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+interface AiFallback { enabled: boolean; model: string }
+async function aiFallback(env: Env): Promise<AiFallback> {
+  const v = await getSettingJSON<Partial<AiFallback>>(env, 'ai_fallback');
+  return { enabled: v?.enabled !== false, model: typeof v?.model === 'string' && v.model ? v.model : DEFAULT_FALLBACK_MODEL };
+}
+
+/** Workers AI text generation. Handles both reply shapes: `response` (Llama,
+ *  Gemma…) and OpenAI-style `choices[0].message.content` (GLM, gpt-oss…). */
+async function callWorkersAI(env: Env, model: string, messages: ChatMessage[], maxTokens: number): Promise<AiResult> {
+  if (!env.AI) throw new AiError('ai_not_configured');
+  let r: any;
+  try {
+    // Workers AI models have smaller output limits (and a low 256-token default): ask explicitly, capped.
+    r = await env.AI.run(model, { messages, max_tokens: Math.min(maxTokens, 4096), temperature: 0.4 });
+  } catch (e: any) {
+    const msg = String(e?.message ?? e).slice(0, 300);
+    throw new AiError(/429|rate|capacity|neurons|limit/i.test(msg) ? 'ai_rate_limited' : 'ai_error', `Workers AI: ${msg}`);
+  }
+  const raw = r?.response ?? r?.choices?.[0]?.message?.content;
+  const text = typeof raw === 'string' ? raw : raw != null ? JSON.stringify(raw) : '';
+  if (!text.trim()) throw new AiError('ai_error', 'Workers AI returned an empty reply.');
+  return { text, usage: openAiUsage(r), provider: 'workers-ai', model };
+}
+
+/** One row per attempt. Never throws: logging must not break the feature. */
+async function logAiCall(env: Env, meta: AiMeta | undefined, r: { provider: string; model: string; usage?: AiUsage; ok: boolean; error?: string; ms: number; fallback: boolean }) {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO ai_calls (user_id, trip_id, feature, provider, model, in_tokens, out_tokens, think_tokens, ok, error, ms, fallback)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).bind(meta?.userId ?? null, meta?.tripId ?? null, meta?.feature ?? 'other', r.provider, r.model,
+      r.usage?.in ?? 0, r.usage?.out ?? 0, r.usage?.think ?? 0, r.ok ? 1 : 0, r.error ?? null, Math.round(r.ms), r.fallback ? 1 : 0).run();
+  } catch { /* table missing on an old database: skip */ }
+}
+
+const primaryProvider = (cfg: AiConfig) => (isGeminiCfg(cfg) ? 'gemini' : 'openai');
+
+/** Run the primary provider; on any failure (or when none is set up) try the
+ *  Workers AI backup, if it is on and `backup` says the request can go there. */
+async function runAI(env: Env, meta: AiMeta | undefined, primary: (cfg: AiConfig) => Promise<AiResult>, backup: { messages: ChatMessage[]; maxTokens: number } | null, opts?: AiOpts): Promise<string> {
+  const cfg = await aiConfig(env);
+  const configured = !!(cfg?.base_url && cfg.api_key && cfg.model);
+  let firstError: any = null;
+  if (configured) {
+    const t0 = Date.now();
+    try {
+      const r = await primary(cfg!);
+      await logAiCall(env, meta, { ...r, ok: true, ms: Date.now() - t0, fallback: false });
+      return r.text;
+    } catch (e: any) {
+      firstError = e;
+      await logAiCall(env, meta, { provider: primaryProvider(cfg!), model: modelFor(cfg!, opts), ok: false, error: e?.code ?? 'ai_error', ms: Date.now() - t0, fallback: false });
+    }
+  }
+  const fb = await aiFallback(env);
+  if (!backup || !fb.enabled || !env.AI) throw firstError ?? new AiError('ai_not_configured');
+  const t1 = Date.now();
+  try {
+    const r = await callWorkersAI(env, fb.model, backup.messages, backup.maxTokens);
+    await logAiCall(env, meta, { ...r, ok: true, ms: Date.now() - t1, fallback: configured });
+    return r.text;
+  } catch (e: any) {
+    await logAiCall(env, meta, { provider: 'workers-ai', model: fb.model, ok: false, error: e?.code ?? 'ai_error', ms: Date.now() - t1, fallback: configured });
+    // Show the primary provider's error when there was one: it is the one to fix.
+    throw firstError ?? e;
+  }
+}
+
+async function callAI(env: Env, messages: ChatMessage[], maxTokens = 3000, meta?: AiMeta, opts?: AiOpts): Promise<string> {
+  return runAI(env, meta, cfg => (
+    // Gemini goes through its native API (new AQ. keys break on the compat layer)
+    isGeminiCfg(cfg) ? callGeminiNative(cfg, messages, maxTokens, opts) : callOpenAiCompat(cfg, messages, maxTokens, 0.7, opts)
+  ), { messages, maxTokens }, opts);
 }
 
 const aiFail = (c: any, e: any) => {
   const code = e?.code ?? 'ai_error';
-  const status = code === 'ai_rate_limited' ? 429 : code === 'ai_not_configured' ? 503 : 502;
+  const status = code === 'ai_rate_limited' ? 429 : code === 'ai_not_configured' ? 503 : code === 'ai_timeout' ? 504 : 502;
   return c.json({ error: code, detail: e?.detail }, status);
 };
 
@@ -3683,7 +3795,7 @@ app.get('/settings/ai', requireAdmin, async c => {
   const cfg = await aiConfig(c.env);
   return c.json({
     configured: !!(cfg?.base_url && cfg.api_key && cfg.model),
-    base_url: cfg?.base_url ?? '', model: cfg?.model ?? '',
+    base_url: cfg?.base_url ?? '', model: cfg?.model ?? '', light_model: cfg?.light_model ?? '',
     key_hint: cfg?.api_key ? `••••${cfg.api_key.slice(-4)}` : '',
   });
 });
@@ -3695,6 +3807,7 @@ app.put('/settings/ai', requireAdmin, async c => {
     base_url: String(b.base_url ?? '').trim(),
     model: String(b.model ?? '').trim(),
     api_key: b.api_key ? String(b.api_key).trim() : prev?.api_key ?? '', // omit to keep the stored key
+    light_model: b.light_model === undefined ? prev?.light_model ?? '' : String(b.light_model).trim().slice(0, 120),
   };
   await setSettingJSON(c.env, 'ai_provider', cfg);
   await audit(c.env, c.get('user').id, 'ai_settings_update');
@@ -3704,9 +3817,107 @@ app.put('/settings/ai', requireAdmin, async c => {
 app.post('/settings/ai/test', requireAdmin, async c => {
   try {
     // generous budget: thinking models consume tokens before emitting text
-    const reply = await callAI(c.env, [{ role: 'user', content: 'Reply with the single word OK.' }], 1024);
+    const reply = await callAI(c.env, [{ role: 'user', content: 'Reply with the single word OK.' }], 64, { feature: 'admin_test', userId: c.get('user').id }, { thinking: 'off', timeoutMs: 20_000 });
     return c.json({ ok: true, reply: reply.slice(0, 80) });
   } catch (e: any) { return aiFail(c, e); }
+});
+
+/* ---- v0.48 AI backup provider, prices and usage (admin) ---- */
+
+app.get('/settings/ai-fallback', requireAdmin, async c => c.json({ ...(await aiFallback(c.env)), bound: !!c.env.AI }));
+
+app.put('/settings/ai-fallback', requireAdmin, async c => {
+  const b = await c.req.json<any>().catch(() => ({}));
+  const model = String(b.model ?? '').trim() || DEFAULT_FALLBACK_MODEL;
+  if (!/^@(cf|hf)\/[\w.\-/]+$/.test(model) || model.length > 120) return bad(c, 'invalid_model');
+  await setSettingJSON(c.env, 'ai_fallback', { enabled: b.enabled !== false, model });
+  await audit(c.env, c.get('user').id, 'ai_fallback_update');
+  return c.json({ ...(await aiFallback(c.env)), bound: !!c.env.AI });
+});
+
+app.post('/settings/ai-fallback/test', requireAdmin, async c => {
+  const fb = await aiFallback(c.env);
+  if (!c.env.AI) return c.json({ error: 'ai_not_configured', detail: 'No Workers AI binding on this deployment.' }, 503);
+  const t0 = Date.now();
+  const meta = { feature: 'admin_test', userId: c.get('user').id };
+  try {
+    const r = await callWorkersAI(c.env, fb.model, [{ role: 'user', content: 'Reply with the single word OK.' }], 64);
+    await logAiCall(c.env, meta, { ...r, ok: true, ms: Date.now() - t0, fallback: false });
+    return c.json({ ok: true, reply: r.text.slice(0, 80), model: fb.model });
+  } catch (e: any) {
+    await logAiCall(c.env, meta, { provider: 'workers-ai', model: fb.model, ok: false, error: e?.code ?? 'ai_error', ms: Date.now() - t0, fallback: false });
+    return aiFail(c, e);
+  }
+});
+
+async function aiPrices(env: Env): Promise<AiPrices> {
+  const custom = await getSettingJSON<AiPrices>(env, 'ai_prices');
+  return { ...DEFAULT_AI_PRICES, ...(custom && typeof custom === 'object' ? custom : {}) };
+}
+
+app.put('/settings/ai-prices', requireAdmin, async c => {
+  const b = await c.req.json<any>().catch(() => ({}));
+  const raw = b?.prices;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).length > 60) return bad(c, 'invalid_prices');
+  const out: AiPrices = {};
+  for (const [model, p] of Object.entries<any>(raw)) {
+    const m = model.trim();
+    const ok = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1000;
+    if (!m || m.length > 120 || !ok(p?.in) || !ok(p?.out)) return bad(c, 'invalid_prices');
+    out[m] = { in: p.in, out: p.out };
+  }
+  await setSettingJSON(c.env, 'ai_prices', out);
+  await audit(c.env, c.get('user').id, 'ai_prices_update');
+  return c.json({ prices: await aiPrices(c.env) });
+});
+
+/** AI calls over the last N days: totals, per day, per feature and per model,
+ *  with costs estimated from the current price list. */
+app.get('/admin/ai-usage', requireAdmin, async c => {
+  const days = Math.min(365, Math.max(1, Number(c.req.query('days')) || 30));
+  // Keep the log to a little over a year.
+  await c.env.DB.prepare("DELETE FROM ai_calls WHERE at < datetime('now', '-400 days')").run().catch(() => {});
+  const since = `-${days - 1} days`;
+  const rows = (await c.env.DB.prepare(
+    `SELECT date(at) AS day, feature, provider, model, COUNT(*) AS calls, SUM(1 - ok) AS failed, SUM(fallback) AS fallbacks,
+       SUM(in_tokens) AS tin, SUM(out_tokens) AS tout, SUM(think_tokens) AS tthink, SUM(ms) AS ms
+     FROM ai_calls WHERE at >= datetime(date('now', ?)) GROUP BY day, feature, provider, model ORDER BY day`,
+  ).bind(since).all<any>().catch(() => ({ results: [] as any[] }))).results as any[];
+  const prices = await aiPrices(c.env);
+  type Agg = { calls: number; failed: number; fallbacks: number; in: number; out: number; think: number; cost: number; unpriced: number; ms: number };
+  const blank = (): Agg => ({ calls: 0, failed: 0, fallbacks: 0, in: 0, out: 0, think: 0, cost: 0, unpriced: 0, ms: 0 });
+  const total = blank();
+  const byDay = new Map<string, Agg>(), byFeature = new Map<string, Agg>(), byModel = new Map<string, Agg & { provider: string }>();
+  for (const r of rows) {
+    const t = { in: n0(r.tin), out: n0(r.tout), think: n0(r.tthink) };
+    const cost = costUsd(priceFor(r.model, prices), t);
+    const add = (a: Agg) => {
+      a.calls += r.calls; a.failed += r.failed; a.fallbacks += r.fallbacks; a.ms += n0(r.ms);
+      a.in += t.in; a.out += t.out; a.think += t.think;
+      if (cost == null) { if (t.in + t.out + t.think > 0) a.unpriced += r.calls; } else a.cost += cost;
+    };
+    add(total);
+    add(byDay.get(r.day) ?? (byDay.set(r.day, blank()), byDay.get(r.day)!));
+    add(byFeature.get(r.feature) ?? (byFeature.set(r.feature, blank()), byFeature.get(r.feature)!));
+    const mk = r.model;
+    add(byModel.get(mk) ?? (byModel.set(mk, { ...blank(), provider: r.provider }), byModel.get(mk)!));
+  }
+  // Every day in the range, so the chart has no gaps.
+  const series: Array<{ day: string } & Agg> = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    series.push({ day: d, ...(byDay.get(d) ?? blank()) });
+  }
+  const failures = (await c.env.DB.prepare(
+    `SELECT at, feature, provider, model, error FROM ai_calls WHERE ok = 0 ORDER BY id DESC LIMIT 10`,
+  ).all<any>().catch(() => ({ results: [] as any[] }))).results;
+  c.header('Cache-Control', 'no-store');
+  return c.json({
+    days, total, series,
+    features: [...byFeature].map(([feature, a]) => ({ feature, ...a })).sort((a, b) => b.cost - a.cost || b.calls - a.calls),
+    models: [...byModel].map(([model, a]) => ({ model, ...a, price: priceFor(model, prices) })).sort((a, b) => b.cost - a.cost || b.calls - a.calls),
+    failures, prices,
+  });
 });
 
 /* ---- per-user trip context for the assistant ---- */
@@ -3884,7 +4095,7 @@ app.post('/trips/:id/assistant/suggest', async c => {
     const text = await callAI(c.env, [
       { role: 'system', content: suggestSystemPrompt() },
       { role: 'user', content: `${ctx}\n\nFREE SLOTS:\n${slotLines.join('\n')}\n\nREQUEST: ${String(prompt).slice(0, 500)}${day ? ` (focus on day ${day})` : ''}` },
-    ]);
+    ], 3000, { feature: 'suggest', userId: c.get('user').id, tripId: id }, { thinking: 'low', timeoutMs: 30_000 });
     await trackUsage(c.env, c.get('user').id, 'ai_suggest');
     return c.json({ suggestions: parseSuggestions(text, validDays) });
   } catch (e: any) { return aiFail(c, e); }
@@ -3894,6 +4105,8 @@ app.post('/trips/:id/assistant/chat', async c => {
   const id = Number(c.req.param('id'));
   if (!(await assertTripAccess(c, id))) return bad(c, 'forbidden', 403);
   if (await assistantHidden(c, id)) return bad(c, 'feature_hidden', 403);
+  // v0.48: admin feature flag, off by default to save AI tokens.
+  if (!(await getFeatureFlags(c.env)).aiChat) return bad(c, 'feature_off', 403);
   const b = await c.req.json<any>();
   const lang = b.lang === 'ms' || b.lang === 'ms-swk' ? b.lang : 'en';
   const history = Array.isArray(b.messages) ? b.messages.slice(-12) : [];
@@ -3906,7 +4119,7 @@ app.post('/trips/:id/assistant/chat', async c => {
     const reply = await callAI(c.env, [
       { role: 'system', content: `${chatSystemPrompt(lang)}\n\nTRIP CONTEXT:\n${ctx}` },
       ...msgs,
-    ], 900);
+    ], 900, { feature: 'assistant_chat', userId: c.get('user').id, tripId: id }, { thinking: 'low', timeoutMs: 25_000 });
     await trackUsage(c.env, c.get('user').id, 'ai_chat');
     return c.json({ reply });
   } catch (e: any) { return aiFail(c, e); }
@@ -3929,22 +4142,33 @@ interface RichInput {
   thinking?: 'low' | 'default';
   /** Gemini only: frames per second to sample from the video (default 1). */
   videoFps?: number;
+  /** v0.48: who asked, for the AI call log. */
+  meta?: AiMeta;
 }
 
 /** Gemini thinking settings by model family; unknown models keep their default. */
-export function geminiThinking(model: string, level: 'low' | 'default' = 'default'): object | null {
-  if (level !== 'low') return null;
+export function geminiThinking(model: string, level: 'off' | 'low' | 'default' = 'default'): object | null {
+  if (level === 'default') return null;
+  // Gemini 3 cannot switch thinking off; 'low' is its quickest setting.
   if (/gemini-3/i.test(model)) return { thinkingLevel: 'low' };
+  // 2.5 Flash / Flash-Lite can skip thinking entirely; 2.5 Pro needs at least 128.
+  if (level === 'off' && /gemini-2\.5-flash/i.test(model)) return { thinkingBudget: 0 };
+  if (level === 'off' && /gemini-2\.5-pro/i.test(model)) return { thinkingBudget: 128 };
   if (/gemini-2\.5-(flash|pro)/i.test(model)) return { thinkingBudget: 1024 };
   return null;
 }
 
 const isGeminiCfg = (cfg: AiConfig | null) => !!cfg && /generativelanguage\.googleapis\.com/i.test(cfg.base_url);
 
-/** Like callAI, but the last user turn can carry a YouTube video (Gemini only) and images. */
+/** Like callAI, but the last user turn can carry a YouTube video (Gemini only) and images.
+ *  Text-only requests can fall back to Workers AI; video and screenshots cannot. */
 async function callAIRich(env: Env, input: RichInput): Promise<string> {
-  const cfg = await aiConfig(env);
-  if (!cfg?.base_url || !cfg.api_key || !cfg.model) throw new AiError('ai_not_configured');
+  const media = !!input.youtubeUrl || !!(input.images ?? []).length;
+  const backup = media ? null : { messages: [{ role: 'system', content: input.system }, ...input.messages], maxTokens: input.maxTokens };
+  return runAI(env, input.meta, cfg => callAIRichPrimary(cfg, input), backup);
+}
+
+async function callAIRichPrimary(cfg: AiConfig, input: RichInput): Promise<AiResult> {
   const images = (input.images ?? []).slice(0, 4);
   const lastUser = input.messages.map(m => m.role).lastIndexOf('user');
 
@@ -3977,9 +4201,10 @@ async function callAIRich(env: Env, input: RichInput): Promise<string> {
         ...(input.youtubeUrl || images.length ? { mediaResolution: 'MEDIA_RESOLUTION_LOW' } : {}),
       },
     };
-    const send = (b: object) => fetch(`${origin}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    // Long drafts and videos can take a while: a generous deadline, then the error (no text backup for media).
+    const send = (b: object) => aiFetch(`${origin}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.api_key }, body: JSON.stringify(b),
-    });
+    }, 120_000);
     let res: Response;
     try {
       res = await send(body);
@@ -3988,11 +4213,12 @@ async function callAIRich(env: Env, input: RichInput): Promise<string> {
         const { responseSchema: _drop, ...generationConfig } = body.generationConfig as Record<string, unknown>;
         res = await send({ ...body, generationConfig });
       }
-    } catch { throw new AiError('ai_unreachable'); }
+    } catch (e) { throw e instanceof AiError ? e : new AiError('ai_unreachable'); }
     if (!res.ok) throw await aiHttpError(res);
-    const { text, finishReason } = parseGeminiNativeResponse(await res.json().catch(() => null));
+    const data: any = await res.json().catch(() => null);
+    const { text, finishReason } = parseGeminiNativeResponse(data);
     if (!text.trim()) throw new AiError('ai_error', finishReason === 'MAX_TOKENS' ? 'The reply ran out of room — ask for fewer days.' : `The provider returned an empty reply${finishReason ? ` (${finishReason})` : ''}.`);
-    return text;
+    return { text, usage: geminiUsage(data), provider: 'gemini', model };
   }
 
   // OpenAI-compatible: images as image_url parts; video is not supported (the transcript/description text stands in).
@@ -4000,19 +4226,8 @@ async function callAIRich(env: Env, input: RichInput): Promise<string> {
     i === lastUser && images.length
       ? { role: 'user', content: [{ type: 'text', text: m.content }, ...images.map(img => ({ type: 'image_url', image_url: { url: `data:${img.mime};base64,${img.data}` } }))] }
       : m)];
-  let res: Response;
-  try {
-    res = await fetch(`${cfg.base_url.replace(/\/+$/, '')}/chat/completions`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.api_key}` },
-      // Many OpenAI-compatible models cap output at 16k; Gemini native takes the full budget.
-        body: JSON.stringify({ model: cfg.model, messages, temperature: 0.4, max_tokens: Math.min(input.maxTokens, 16000) }),
-    });
-  } catch { throw new AiError('ai_unreachable'); }
-  if (!res.ok) throw await aiHttpError(res);
-  const data: any = await res.json().catch(() => null);
-  const text = data?.choices?.[0]?.message?.content;
-  if (typeof text !== 'string' || !text.trim()) throw new AiError('ai_error', 'The provider returned an empty reply.');
-  return text;
+  // Many OpenAI-compatible models cap output at 16k; Gemini native takes the full budget.
+  return callOpenAiCompat(cfg, messages, Math.min(input.maxTokens, 16000), 0.4, { timeoutMs: 120_000 });
 }
 
 app.get('/plan/status', async c => {
@@ -4103,6 +4318,7 @@ app.post('/plan/draft', async c => {
   const turns = msgs.map((m: any, i: number) => (i === msgs.length - 1 ? { ...m, content: `${ctx}\n\nUSER: ${m.content}` } : m));
 
   const ask = (video: string | null) => callAIRich(c.env, {
+    meta: { feature: source || images.length ? 'plan_import' : 'plan_ai', userId: c.get('user').id },
     system: draftSystemPrompt(lang, mode), messages: turns, youtubeUrl: video, images, json: true,
     maxTokens: mode === 'edit' ? 8000 : 32000, schema: draftResponseSchema(mode), videoFps,
     // Extraction and edits need reading, not deliberation; planning from scratch keeps the model's default.
